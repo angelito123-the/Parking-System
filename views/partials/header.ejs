@@ -21,6 +21,7 @@
 %>
 <body class="page-<%= pageSlug %>">
   <div class="app-shell">
+    <div class="mobile-backdrop" id="mobileBackdrop"></div>
     <aside class="sidebar">
       <div class="sidebar-user">
         <div class="avatar-dot">N</div>
@@ -30,7 +31,7 @@
         </div>
       </div>
       <p class="menu-title">Navigation</p>
-      <nav class="side-nav">
+      <nav class="side-nav" id="sidebarNav">
         <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
         <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
         <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
@@ -41,6 +42,16 @@
     </aside>
     <div class="main-shell">
       <header class="topbar">
+        <button
+          type="button"
+          id="mobileMenuBtn"
+          class="mobile-menu-btn"
+          aria-label="Open navigation menu"
+          aria-controls="sidebarNav"
+          aria-expanded="false"
+        >
+          Menu
+        </button>
         <div class="brand">
           <p class="brand-kicker">National Aviation Academy of the Philippines</p>
           <h1>Parking Management System</h1>
