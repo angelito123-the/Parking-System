@@ -26,7 +26,11 @@ async function handleScan(decodedText) {
   const timestampText = data.scanned_at
     ? new Date(data.scanned_at).toLocaleString()
     : "N/A";
-  output.textContent = `Scan Timestamp: ${timestampText}\n` + JSON.stringify(data, null, 2);
+  const header = data.duplicate_scan
+    ? "Duplicate scan ignored (cooldown active)"
+    : "Scan processed";
+  output.textContent =
+    `${header}\nScan Timestamp: ${timestampText}\n` + JSON.stringify(data, null, 2);
 }
 
 function onScanSuccess(decodedText) {

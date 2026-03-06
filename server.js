@@ -8,6 +8,7 @@ require("dotenv").config();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 12);
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -177,6 +178,38 @@ async function getDashboardData() {
      ORDER BY sl.scanned_at DESC
      LIMIT 50`
   );
+  const [insideVehicles] = await pool.query(
+    `SELECT
+       latest.scanned_at AS entered_at,
+       latest.gate AS entry_gate,
+       TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
+       s.sticker_code,
+       st.student_number,
+       st.full_name,
+       v.plate_number
+     FROM (
+       SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at
+       FROM scan_logs sl
+       JOIN (
+         SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
+         FROM scan_logs
+         WHERE result = 'VALID'
+           AND action IN ('ENTRY', 'EXIT')
+           AND sticker_id IS NOT NULL
+         GROUP BY sticker_id
+       ) latest
+         ON latest.sticker_id = sl.sticker_id
+        AND latest.max_scanned_at = sl.scanned_at
+       WHERE sl.result = 'VALID'
+         AND sl.action IN ('ENTRY', 'EXIT')
+     ) latest
+     JOIN stickers s ON s.id = latest.sticker_id
+     JOIN vehicles v ON v.id = s.vehicle_id
+     JOIN students st ON st.id = v.student_id
+     WHERE latest.action = 'ENTRY'
+     ORDER BY latest.scanned_at ASC
+     LIMIT 20`
+  );
 
   return {
     metrics: {
@@ -187,7 +220,8 @@ async function getDashboardData() {
       todayExits: todayExits.total,
       currentlyInside: currentlyInside.total
     },
-    movementLogs
+    movementLogs,
+    insideVehicles
   };
 }
 
@@ -328,9 +362,35 @@ async function resolveScan(token, gate = "Main Gate") {
   const sticker = verification.sticker;
 
   const [lastLogRows] = await pool.query(
-    "SELECT action FROM scan_logs WHERE sticker_id = ? AND result = 'VALID' ORDER BY scanned_at DESC LIMIT 1",
+    `SELECT action, scanned_at
+     FROM scan_logs
+     WHERE sticker_id = ?
+       AND result = 'VALID'
+       AND action IN ('ENTRY', 'EXIT')
+     ORDER BY scanned_at DESC
+     LIMIT 1`,
     [sticker.id]
   );
+
+  if (lastLogRows.length > 0 && SCAN_COOLDOWN_SECONDS > 0) {
+    const lastScannedAtMs = new Date(lastLogRows[0].scanned_at).getTime();
+    if (Number.isFinite(lastScannedAtMs)) {
+      const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
+      if (secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS) {
+        return {
+          ...verification,
+          action: lastLogRows[0].action,
+          duplicate_scan: true,
+          cooldown_seconds: SCAN_COOLDOWN_SECONDS,
+          seconds_since_last_scan: secondsSinceLastScan,
+          message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
+          scan_log_id: null,
+          scanned_at: lastLogRows[0].scanned_at
+        };
+      }
+    }
+  }
+
   const action = lastLogRows.length > 0 && lastLogRows[0].action === "ENTRY" ? "EXIT" : "ENTRY";
 
   const scanLog = await insertScanLog(sticker.id, "VALID", action, gate, "Verified");

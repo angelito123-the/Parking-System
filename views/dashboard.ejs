@@ -3,6 +3,8 @@
   const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
   const rawMovementLogs = typeof movementLogs !== "undefined" ? movementLogs : [];
   const safeMovementLogs = Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
+  const rawInsideVehicles = typeof insideVehicles !== "undefined" ? insideVehicles : [];
+  const safeInsideVehicles = Array.isArray(rawInsideVehicles) ? rawInsideVehicles : [];
 %>
 
 <section class="cards">
@@ -30,6 +32,46 @@
     <h3>Currently Inside</h3>
     <p><%= safeMetrics.currentlyInside || 0 %></p>
   </article>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Currently Inside Vehicles</h2>
+    <p>Live roster of vehicles currently inside campus based on latest valid movement.</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Student Number</th>
+          <th>Student Name</th>
+          <th>Plate</th>
+          <th>Sticker</th>
+          <th>Entry Gate</th>
+          <th>Entered At</th>
+          <th>Minutes Inside</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (safeInsideVehicles.length === 0) { %>
+          <tr>
+            <td colspan="7">No active vehicles inside.</td>
+          </tr>
+        <% } %>
+        <% safeInsideVehicles.forEach(item => { %>
+          <tr>
+            <td><%= item.student_number || "-" %></td>
+            <td><%= item.full_name || "-" %></td>
+            <td><%= item.plate_number || "-" %></td>
+            <td><%= item.sticker_code || "-" %></td>
+            <td><%= item.entry_gate || "-" %></td>
+            <td><%= new Date(item.entered_at).toLocaleString() %></td>
+            <td><%= Number(item.minutes_inside || 0) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="dashboard-grid">

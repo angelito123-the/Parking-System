@@ -784,3 +784,73 @@ button:active {
     position: static;
   }
 }
+
+/* Useful motion only: page enter, content reveal, route switch fade. */
+.sidebar,
+.topbar,
+.container > * {
+  opacity: 0;
+}
+
+body.is-ready .sidebar {
+  animation: revealSlide 240ms ease-out forwards;
+}
+
+body.is-ready .topbar {
+  animation: revealSlide 280ms ease-out 40ms forwards;
+}
+
+body.is-ready .container > * {
+  animation: revealUp 320ms cubic-bezier(0.2, 0.75, 0.2, 1) forwards;
+}
+
+body.is-ready .container > *:nth-child(1) { animation-delay: 80ms; }
+body.is-ready .container > *:nth-child(2) { animation-delay: 120ms; }
+body.is-ready .container > *:nth-child(3) { animation-delay: 160ms; }
+body.is-ready .container > *:nth-child(4) { animation-delay: 200ms; }
+body.is-ready .container > *:nth-child(5) { animation-delay: 240ms; }
+body.is-ready .container > *:nth-child(6) { animation-delay: 280ms; }
+
+body.is-leaving .main-shell {
+  opacity: 0.4;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes revealSlide {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .topbar,
+  .container > * {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  body.is-leaving .main-shell {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
