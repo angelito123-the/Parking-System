@@ -80,8 +80,17 @@
       <h2>Student Gate Entry and Exit Records</h2>
       <p>Latest verified movements captured from campus gates.</p>
     </div>
+    <div class="table-tools">
+      <label for="movementSearch" class="sr-only">Search student name or plate</label>
+      <input
+        id="movementSearch"
+        type="search"
+        placeholder="Search by student name, plate, student number, or sticker..."
+      />
+      <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
+    </div>
     <div class="table-wrap">
-      <table>
+      <table id="movementTable">
       <thead>
         <tr>
           <th>Date/Time</th>
@@ -141,5 +150,41 @@
     </div>
   </article>
 </section>
+
+<script>
+  (() => {
+    const searchInput = document.getElementById("movementSearch");
+    const table = document.getElementById("movementTable");
+    const countLabel = document.getElementById("movementSearchCount");
+    if (!searchInput || !table || !countLabel) return;
+
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const emptyRow = rows.find((row) => row.children.length === 1);
+    const dataRows = rows.filter((row) => row.children.length > 1);
+
+    function updateFilter() {
+      const query = searchInput.value.trim().toLowerCase();
+      let visibleCount = 0;
+
+      dataRows.forEach((row) => {
+        const rowText = row.textContent.toLowerCase();
+        const visible = !query || rowText.includes(query);
+        row.style.display = visible ? "" : "none";
+        if (visible) visibleCount += 1;
+      });
+
+      if (emptyRow) {
+        emptyRow.style.display = dataRows.length === 0 ? "" : "none";
+      }
+
+      countLabel.textContent = query
+        ? `Showing ${visibleCount} matching records`
+        : `Showing ${dataRows.length} records`;
+    }
+
+    searchInput.addEventListener("input", updateFilter);
+    updateFilter();
+  })();
+</script>
 
 <%- include("partials/footer") %>
