@@ -1,0 +1,61 @@
+<%- include("partials/header") %>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Student Registration</h2>
+    <p>Add officially enrolled students eligible for parking access.</p>
+  </div>
+  <form method="post" action="/students" class="form-grid">
+    <label>Student Number</label>
+    <input name="student_number" required />
+
+    <label>Full Name</label>
+    <input name="full_name" required />
+
+    <label>Program</label>
+    <input name="program" />
+
+    <label>Email</label>
+    <input name="email" type="email" />
+
+    <button type="submit">Save Student</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Student Directory</h2>
+    <p>Total records: <strong><%= students.length %></strong></p>
+  </div>
+  <div class="table-wrap">
+    <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Student Number</th>
+        <th>Name</th>
+        <th>Program</th>
+        <th>Email</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (students.length === 0) { %>
+        <tr>
+          <td colspan="5">No students registered yet.</td>
+        </tr>
+      <% } %>
+      <% students.forEach(student => { %>
+        <tr>
+          <td><%= student.id %></td>
+          <td><%= student.student_number %></td>
+          <td><%= student.full_name %></td>
+          <td><%= student.program || "-" %></td>
+          <td><%= student.email || "-" %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+    </table>
+  </div>
+</section>
+
+<%- include("partials/footer") %>

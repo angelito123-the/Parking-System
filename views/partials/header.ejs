@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NAAP Parking System</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<%
+  const pathNow = typeof currentPath === "string" ? currentPath : "";
+  const pageSlug = (pathNow === "/" ? "dashboard" : pathNow.replace(/\//g, "-").replace(/^-+/, "")) || "dashboard";
+  const pageTitleMap = {
+    "/": "Dashboard",
+    "/students": "Students",
+    "/vehicles": "Vehicles",
+    "/stickers": "Stickers",
+    "/reports": "Reports",
+    "/scanner": "Scanner"
+  };
+  const pageTitle = pageTitleMap[pathNow] || "Verification";
+%>
+<body class="page-<%= pageSlug %>">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-user">
+        <div class="avatar-dot">N</div>
+        <div>
+          <p class="user-label">NAAP Guard</p>
+          <p class="user-sub">Access Control</p>
+        </div>
+      </div>
+      <p class="menu-title">Navigation</p>
+      <nav class="side-nav">
+        <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
+        <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
+        <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
+        <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
+        <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
+        <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Scanner</a>
+      </nav>
+    </aside>
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="brand">
+          <p class="brand-kicker">National Aviation Academy of the Philippines</p>
+          <h1>Parking Management System</h1>
+          <p class="brand-sub">Student vehicle control, QR sticker issuance, and gate verification.</p>
+        </div>
+        <div class="topbar-meta">
+          <p class="meta-title">Current Module</p>
+          <h2 class="page-title"><%= pageTitle %></h2>
+          <div class="topbar-chips">
+            <span class="chip chip-live">Live Ops</span>
+            <span class="chip" id="liveClock">--:--:--</span>
+          </div>
+          <div class="quick-links">
+            <a href="/scanner" class="quick-link">Open Scanner</a>
+            <a href="/reports" class="quick-link">View Reports</a>
+          </div>
+        </div>
+      </header>
+      <main class="container">

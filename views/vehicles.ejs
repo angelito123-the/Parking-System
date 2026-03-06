@@ -1,0 +1,66 @@
+<%- include("partials/header") %>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Vehicle Registration</h2>
+    <p>Bind each vehicle to an authorized student profile.</p>
+  </div>
+  <form method="post" action="/vehicles" class="form-grid">
+    <label>Student</label>
+    <select name="student_id" required>
+      <option value="">Select student</option>
+      <% students.forEach(student => { %>
+        <option value="<%= student.id %>"><%= student.student_number %> - <%= student.full_name %></option>
+      <% }) %>
+    </select>
+
+    <label>Plate Number</label>
+    <input name="plate_number" required />
+
+    <label>Vehicle Model</label>
+    <input name="model" />
+
+    <label>Color</label>
+    <input name="color" />
+
+    <button type="submit">Save Vehicle</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Vehicle Registry</h2>
+    <p>Total records: <strong><%= vehicles.length %></strong></p>
+  </div>
+  <div class="table-wrap">
+    <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Student</th>
+        <th>Plate Number</th>
+        <th>Model</th>
+        <th>Color</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (vehicles.length === 0) { %>
+        <tr>
+          <td colspan="5">No vehicles registered yet.</td>
+        </tr>
+      <% } %>
+      <% vehicles.forEach(vehicle => { %>
+        <tr>
+          <td><%= vehicle.id %></td>
+          <td><%= vehicle.student_number %> - <%= vehicle.full_name %></td>
+          <td><%= vehicle.plate_number %></td>
+          <td><%= vehicle.model || "-" %></td>
+          <td><%= vehicle.color || "-" %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+    </table>
+  </div>
+</section>
+
+<%- include("partials/footer") %>

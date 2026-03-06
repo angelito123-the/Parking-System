@@ -1,0 +1,103 @@
+<%- include("partials/header") %>
+<%
+  const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
+  const rawMovementLogs = typeof movementLogs !== "undefined" ? movementLogs : [];
+  const safeMovementLogs = Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
+%>
+
+<section class="cards">
+  <article class="card">
+    <h3>Total Students</h3>
+    <p><%= safeMetrics.students || 0 %></p>
+  </article>
+  <article class="card">
+    <h3>Registered Vehicles</h3>
+    <p><%= safeMetrics.vehicles || 0 %></p>
+  </article>
+  <article class="card">
+    <h3>Active Stickers</h3>
+    <p><%= safeMetrics.activeStickers || 0 %></p>
+  </article>
+  <article class="card">
+    <h3>Today's Entries</h3>
+    <p><%= safeMetrics.todayEntries || 0 %></p>
+  </article>
+  <article class="card">
+    <h3>Today's Exits</h3>
+    <p><%= safeMetrics.todayExits || 0 %></p>
+  </article>
+  <article class="card">
+    <h3>Currently Inside</h3>
+    <p><%= safeMetrics.currentlyInside || 0 %></p>
+  </article>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <div class="section-head">
+      <h2>Student Gate Entry and Exit Records</h2>
+      <p>Latest verified movements captured from campus gates.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+      <thead>
+        <tr>
+          <th>Date/Time</th>
+          <th>Student Number</th>
+          <th>Student Name</th>
+          <th>Plate</th>
+          <th>Sticker</th>
+          <th>Result</th>
+          <th>Movement</th>
+          <th>Gate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (safeMovementLogs.length === 0) { %>
+          <tr>
+            <td colspan="8">No scan records yet.</td>
+          </tr>
+        <% } %>
+        <% safeMovementLogs.forEach(scan => { %>
+          <tr>
+            <td><%= new Date(scan.scanned_at).toLocaleString() %></td>
+            <td><%= scan.student_number || "-" %></td>
+            <td><%= scan.full_name || "-" %></td>
+            <td><%= scan.plate_number || "-" %></td>
+            <td><%= scan.sticker_code || "-" %></td>
+            <td><span class="badge badge-<%= (scan.result || "INVALID").toLowerCase() %>"><%= scan.result || "-" %></span></td>
+            <td><span class="badge badge-action"><%= scan.action || "-" %></span></td>
+            <td><%= scan.gate || "-" %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel">
+    <div class="section-head">
+      <h2>Latest Updates</h2>
+      <p>Most recent gate activity snapshots.</p>
+    </div>
+    <div class="updates-list">
+      <% if (safeMovementLogs.length === 0) { %>
+        <p class="helper-text">No updates yet.</p>
+      <% } %>
+      <% safeMovementLogs.slice(0, 8).forEach(scan => { %>
+        <div class="update-item">
+          <span class="update-dot <%= (scan.result || 'invalid').toLowerCase() %> <%= (scan.action || 'verify').toLowerCase() %>"></span>
+          <div>
+            <p>
+              <strong><%= scan.full_name || "Unknown Student" %></strong>
+              <span class="update-action <%= (scan.action || 'verify').toLowerCase() %>"><%= scan.action || "VERIFY" %></span>
+            </p>
+            <p class="helper-text"><%= scan.gate || "Main Gate" %> - <%= new Date(scan.scanned_at).toLocaleString() %></p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </article>
+</section>
+
+<%- include("partials/footer") %>

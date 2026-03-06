@@ -1,0 +1,25 @@
+<%- include("partials/header") %>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Gate Scanner Console</h2>
+    <p>Use this at security posts for quick identity verification and logging.</p>
+  </div>
+  <label>Gate Name</label>
+  <input id="gateInput" value="Main Gate" />
+  <p class="helper-text">Point camera to the sticker QR code.</p>
+  <div id="reader"></div>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Scan Result</h2>
+    <p>Latest verification payload.</p>
+  </div>
+  <pre id="scanOutput">Waiting for scan...</pre>
+</section>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/scanner.js"></script>
+
+<%- include("partials/footer") %>

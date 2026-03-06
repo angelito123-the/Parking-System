@@ -1,0 +1,41 @@
+<%- include("partials/header") %>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Sticker Verification</h2>
+    <p>Validation endpoint for QR sticker authenticity.</p>
+  </div>
+  <p><strong>Status:</strong> <span class="badge badge-<%= result.result.toLowerCase() %>"><%= result.result %></span></p>
+  <p><%= result.message %></p>
+  <% if (result.scanned_at) { %>
+    <p><strong>Timestamp:</strong> <%= new Date(result.scanned_at).toLocaleString() %></p>
+  <% } %>
+  <% if (result.movement_saved) { %>
+    <p><strong>Recorded Movement:</strong> <span class="badge badge-action"><%= result.action %></span></p>
+    <p class="helper-text">Entry/exit has been recorded successfully in the dashboard.</p>
+  <% } %>
+
+  <% if (result.sticker) { %>
+    <p><strong>Student:</strong> <%= result.sticker.student_number %> - <%= result.sticker.full_name %></p>
+    <p><strong>Plate Number:</strong> <%= result.sticker.plate_number %></p>
+    <p><strong>Vehicle:</strong> <%= result.sticker.model || "-" %></p>
+    <p><strong>Sticker Code:</strong> <%= result.sticker.sticker_code %></p>
+  <% } %>
+
+  <% if (result.ok) { %>
+    <hr class="divider" />
+    <h3>Select Movement</h3>
+    <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" class="form-grid">
+      <label>Gate Name</label>
+      <input name="gate" value="Main Gate" />
+      <div class="action-row">
+        <button type="submit" name="action" value="ENTRY">Record ENTRY</button>
+        <button type="submit" name="action" value="EXIT" class="danger">Record EXIT</button>
+      </div>
+    </form>
+  <% } else { %>
+    <p class="helper-text">Entry/exit buttons are shown only for active and valid stickers.</p>
+  <% } %>
+</section>
+
+<%- include("partials/footer") %>

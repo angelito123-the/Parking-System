@@ -1,0 +1,20 @@
+      </main>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const clock = document.getElementById("liveClock");
+      if (!clock) return;
+      const render = () => {
+        clock.textContent = new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit"
+        });
+      };
+      render();
+      setInterval(render, 1000);
+    })();
+  </script>
+</body>
+</html>

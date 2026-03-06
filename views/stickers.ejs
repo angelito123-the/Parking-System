@@ -1,0 +1,86 @@
+<%- include("partials/header") %>
+<%
+  const stickerBaseUrl = typeof requestBaseUrl === "string" && requestBaseUrl
+    ? requestBaseUrl
+    : APP_BASE_URL;
+%>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Sticker Issuance</h2>
+    <p>Create secure QR-enabled stickers for validated student vehicles.</p>
+  </div>
+  <form method="post" action="/stickers" class="form-grid">
+    <label>Vehicle</label>
+    <select name="vehicle_id" required>
+      <option value="">Select vehicle</option>
+      <% vehicles.forEach(vehicle => { %>
+        <option value="<%= vehicle.id %>">
+          <%= vehicle.plate_number %> - <%= vehicle.student_number %> - <%= vehicle.full_name %>
+        </option>
+      <% }) %>
+    </select>
+
+    <label>Expiration Date (optional)</label>
+    <input type="date" name="expires_at" />
+
+    <button type="submit">Issue Sticker</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>Issued Stickers</h2>
+    <p>Total records: <strong><%= stickers.length %></strong></p>
+  </div>
+  <div class="table-wrap">
+    <table>
+    <thead>
+      <tr>
+        <th>Sticker Code</th>
+        <th>Student</th>
+        <th>Plate Number</th>
+        <th>Status</th>
+        <th>Expires</th>
+        <th>QR</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (stickers.length === 0) { %>
+        <tr>
+          <td colspan="7">No stickers issued yet.</td>
+        </tr>
+      <% } %>
+      <% stickers.forEach(sticker => { %>
+        <tr>
+          <td><%= sticker.sticker_code %></td>
+          <td><%= sticker.student_number %> - <%= sticker.full_name %></td>
+          <td><%= sticker.plate_number %></td>
+          <td>
+            <span class="badge badge-<%= sticker.status === 'active' ? 'valid' : 'revoked' %>">
+              <%= sticker.status %>
+            </span>
+          </td>
+          <td><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "-" %></td>
+          <td>
+            <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a><br />
+            <small><%= stickerBaseUrl %>/verify/<%= sticker.qr_token %></small>
+          </td>
+          <td>
+            <% if (sticker.status === "active") { %>
+              <form method="post" action="/stickers/<%= sticker.id %>/revoke">
+                <button type="submit" class="danger">Revoke</button>
+              </form>
+            <% } else { %>
+              <span>-</span>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+    </table>
+  </div>
+</section>
+
+<%- include("partials/footer") %>
