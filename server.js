@@ -2,7 +2,7 @@ const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
-const pool = require("./db");
+const { pool, ensureDatabaseSchema } = require("./db");
 require("dotenv").config();
 
 const app = express();
@@ -598,6 +598,16 @@ app.post("/api/scan", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`NAAP Parking app running at ${APP_BASE_URL}`);
-});
+async function startServer() {
+  try {
+    await ensureDatabaseSchema();
+    app.listen(PORT, () => {
+      console.log(`NAAP Parking app running at ${APP_BASE_URL}`);
+    });
+  } catch (error) {
+    console.error("Failed to initialize database schema:", error.message);
+    process.exit(1);
+  }
+}
+
+startServer();
