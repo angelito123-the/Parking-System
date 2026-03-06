@@ -20,36 +20,6 @@
     (() => {
       const body = document.body;
       requestAnimationFrame(() => body.classList.add("is-ready"));
-      const menuBtn = document.getElementById("mobileMenuBtn");
-      const backdrop = document.getElementById("mobileBackdrop");
-
-      function closeMobileNav() {
-        body.classList.remove("nav-open");
-        if (menuBtn) menuBtn.setAttribute("aria-expanded", "false");
-      }
-
-      function openMobileNav() {
-        body.classList.add("nav-open");
-        if (menuBtn) menuBtn.setAttribute("aria-expanded", "true");
-      }
-
-      if (menuBtn) {
-        menuBtn.addEventListener("click", () => {
-          if (body.classList.contains("nav-open")) {
-            closeMobileNav();
-            return;
-          }
-          openMobileNav();
-        });
-      }
-
-      if (backdrop) {
-        backdrop.addEventListener("click", closeMobileNav);
-      }
-
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") closeMobileNav();
-      });
 
       const navLinks = document.querySelectorAll("a[href^='/']");
       navLinks.forEach((link) => {
@@ -70,7 +40,6 @@
           if (!href || href === window.location.pathname) return;
 
           event.preventDefault();
-          closeMobileNav();
           body.classList.add("is-leaving");
           setTimeout(() => {
             window.location.href = href;
