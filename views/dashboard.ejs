@@ -87,7 +87,14 @@
         type="search"
         placeholder="Search by student name, plate, student number, or sticker..."
       />
-      <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
+      <div class="table-tools-right">
+        <div class="table-chip-group">
+          <span class="table-chip active">Activity Center</span>
+          <span class="table-chip">Entry Gate</span>
+          <span class="table-chip">Activity Gates</span>
+        </div>
+        <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
+      </div>
     </div>
     <div class="table-wrap">
       <table id="movementTable">
@@ -123,6 +130,33 @@
         <% }) %>
       </tbody>
       </table>
+    </div>
+    <div class="dashboard-foot-widgets">
+      <article class="mini-widget">
+        <h3>Vehicle & Sticker Snapshot</h3>
+        <div class="mini-widget-grid">
+          <div class="mini-widget-item">
+            <strong><%= safeMetrics.vehicles || 0 %></strong>
+            <span>Registered Vehicles</span>
+          </div>
+          <div class="mini-widget-item">
+            <strong><%= safeMetrics.activeStickers || 0 %></strong>
+            <span>Active Stickers</span>
+          </div>
+          <div class="mini-widget-item">
+            <strong><%= safeMetrics.currentlyInside || 0 %></strong>
+            <span>Currently Inside</span>
+          </div>
+        </div>
+      </article>
+      <article class="mini-widget">
+        <h3>Operations Health</h3>
+        <p class="helper-text">Scanner, verification, and movement logging are active.</p>
+        <div class="health-row">
+          <span class="health-dot"></span>
+          <strong>System Healthy</strong>
+        </div>
+      </article>
     </div>
   </article>
 
