@@ -210,7 +210,6 @@ async function getDashboardData() {
      ORDER BY latest.scanned_at ASC
      LIMIT 20`
   );
-
   return {
     metrics: {
       students: studentsCount.total,
@@ -306,16 +305,35 @@ async function getReportsData(filters) {
 }
 
 async function insertScanLog(stickerId, result, action, gate, notes) {
-  const [insertResult] = await pool.query(
+  return insertScanLogWithDb(pool, stickerId, result, action, gate, notes);
+}
+
+async function insertScanLogWithDb(db, stickerId, result, action, gate, notes) {
+  const [insertResult] = await db.query(
     "INSERT INTO scan_logs (sticker_id, result, action, gate, notes) VALUES (?, ?, ?, ?, ?)",
     [stickerId, result, action, gate, notes]
   );
-  const [logRows] = await pool.query(
+  const [logRows] = await db.query(
     "SELECT id, scanned_at FROM scan_logs WHERE id = ? LIMIT 1",
     [insertResult.insertId]
   );
 
   return logRows.length > 0 ? logRows[0] : null;
+}
+
+async function getLastValidMovement(stickerId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT id, action, scanned_at
+     FROM scan_logs
+     WHERE sticker_id = ?
+       AND result = 'VALID'
+       AND action IN ('ENTRY', 'EXIT')
+     ORDER BY scanned_at DESC, id DESC
+     LIMIT 1`,
+    [stickerId]
+  );
+
+  return rows.length > 0 ? rows[0] : null;
 }
 
 async function resolveScan(token, gate = "Main Gate") {
@@ -360,47 +378,49 @@ async function resolveScan(token, gate = "Main Gate") {
   }
 
   const sticker = verification.sticker;
+  const connection = await pool.getConnection();
 
-  const [lastLogRows] = await pool.query(
-    `SELECT action, scanned_at
-     FROM scan_logs
-     WHERE sticker_id = ?
-       AND result = 'VALID'
-       AND action IN ('ENTRY', 'EXIT')
-     ORDER BY scanned_at DESC
-     LIMIT 1`,
-    [sticker.id]
-  );
+  try {
+    await connection.beginTransaction();
+    await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
+    const lastMovement = await getLastValidMovement(sticker.id, connection);
 
-  if (lastLogRows.length > 0 && SCAN_COOLDOWN_SECONDS > 0) {
-    const lastScannedAtMs = new Date(lastLogRows[0].scanned_at).getTime();
-    if (Number.isFinite(lastScannedAtMs)) {
-      const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
-      if (secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS) {
-        return {
-          ...verification,
-          action: lastLogRows[0].action,
-          duplicate_scan: true,
-          cooldown_seconds: SCAN_COOLDOWN_SECONDS,
-          seconds_since_last_scan: secondsSinceLastScan,
-          message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
-          scan_log_id: null,
-          scanned_at: lastLogRows[0].scanned_at
-        };
+    if (lastMovement && SCAN_COOLDOWN_SECONDS > 0) {
+      const lastScannedAtMs = new Date(lastMovement.scanned_at).getTime();
+      if (Number.isFinite(lastScannedAtMs)) {
+        const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
+        if (secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS) {
+          await connection.rollback();
+          return {
+            ...verification,
+            action: lastMovement.action,
+            duplicate_scan: true,
+            cooldown_seconds: SCAN_COOLDOWN_SECONDS,
+            seconds_since_last_scan: secondsSinceLastScan,
+            message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
+            scan_log_id: null,
+            scanned_at: lastMovement.scanned_at
+          };
+        }
       }
     }
+
+    const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
+    const scanLog = await insertScanLogWithDb(connection, sticker.id, "VALID", action, gate, "Verified");
+    await connection.commit();
+
+    return {
+      ...verification,
+      action,
+      scan_log_id: scanLog?.id || null,
+      scanned_at: scanLog?.scanned_at || null
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  const action = lastLogRows.length > 0 && lastLogRows[0].action === "ENTRY" ? "EXIT" : "ENTRY";
-
-  const scanLog = await insertScanLog(sticker.id, "VALID", action, gate, "Verified");
-
-  return {
-    ...verification,
-    action,
-    scan_log_id: scanLog?.id || null,
-    scanned_at: scanLog?.scanned_at || null
-  };
 }
 
 async function verifyAndLog(token, gate = "Manual Verification") {
@@ -573,6 +593,18 @@ app.post("/verify/:token/movement", async (req, res) => {
     const verification = await getVerificationState(req.params.token);
     if (!verification.ok) {
       return res.render("verify", { result: verification });
+    }
+
+    const lastMovement = await getLastValidMovement(verification.sticker.id);
+    if (lastMovement && lastMovement.action === selectedAction) {
+      const result = {
+        ...verification,
+        action: selectedAction,
+        movement_saved: false,
+        duplicate_movement: true,
+        message: `Movement ignored. Last recorded movement is already ${selectedAction}.`
+      };
+      return res.render("verify", { result });
     }
 
     const scanLog = await insertScanLog(

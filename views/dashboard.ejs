@@ -8,47 +8,29 @@
 %>
 
 <section class="cards">
-  <article class="card metric-card metric-students">
+  <article class="card">
     <h3>Total Students</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.students || 0 %></p>
-      <span class="metric-icon">📊</span>
-    </div>
+    <p><%= safeMetrics.students || 0 %></p>
   </article>
-  <article class="card metric-card metric-vehicles">
+  <article class="card">
     <h3>Registered Vehicles</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.vehicles || 0 %></p>
-      <span class="metric-icon">🚗</span>
-    </div>
+    <p><%= safeMetrics.vehicles || 0 %></p>
   </article>
-  <article class="card metric-card metric-stickers">
+  <article class="card">
     <h3>Active Stickers</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.activeStickers || 0 %></p>
-      <span class="metric-icon">✅</span>
-    </div>
+    <p><%= safeMetrics.activeStickers || 0 %></p>
   </article>
-  <article class="card metric-card metric-entry">
+  <article class="card">
     <h3>Today's Entries</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.todayEntries || 0 %></p>
-      <span class="metric-icon">↪️</span>
-    </div>
+    <p><%= safeMetrics.todayEntries || 0 %></p>
   </article>
-  <article class="card metric-card metric-exit">
+  <article class="card">
     <h3>Today's Exits</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.todayExits || 0 %></p>
-      <span class="metric-icon">↩️</span>
-    </div>
+    <p><%= safeMetrics.todayExits || 0 %></p>
   </article>
-  <article class="card metric-card metric-inside">
+  <article class="card">
     <h3>Currently Inside</h3>
-    <div class="metric-row">
-      <p><%= safeMetrics.currentlyInside || 0 %></p>
-      <span class="metric-icon">⏱️</span>
-    </div>
+    <p><%= safeMetrics.currentlyInside || 0 %></p>
   </article>
 </section>
 
@@ -105,14 +87,7 @@
         type="search"
         placeholder="Search by student name, plate, student number, or sticker..."
       />
-      <div class="table-tools-right">
-        <div class="table-chip-group">
-          <span class="table-chip active">Activity Center</span>
-          <span class="table-chip">Entry Gate</span>
-          <span class="table-chip">Activity Gates</span>
-        </div>
-        <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
-      </div>
+      <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
     </div>
     <div class="table-wrap">
       <table id="movementTable">
@@ -149,44 +124,12 @@
       </tbody>
       </table>
     </div>
-    <div class="dashboard-foot-widgets">
-      <article class="mini-widget">
-        <h3>Vehicle & Sticker Snapshot</h3>
-        <div class="mini-widget-grid">
-          <div class="mini-widget-item">
-            <strong><%= safeMetrics.vehicles || 0 %></strong>
-            <span>Registered Vehicles</span>
-          </div>
-          <div class="mini-widget-item">
-            <strong><%= safeMetrics.activeStickers || 0 %></strong>
-            <span>Active Stickers</span>
-          </div>
-          <div class="mini-widget-item">
-            <strong><%= safeMetrics.currentlyInside || 0 %></strong>
-            <span>Currently Inside</span>
-          </div>
-        </div>
-      </article>
-      <article class="mini-widget">
-        <h3>Operations Health</h3>
-        <p class="helper-text">Scanner, verification, and movement logging are active.</p>
-        <div class="health-row">
-          <span class="health-dot"></span>
-          <strong>System Healthy</strong>
-        </div>
-      </article>
-    </div>
   </article>
 
   <article class="panel">
-    <div class="section-head updates-head">
+    <div class="section-head">
       <h2>Latest Updates</h2>
       <p>Most recent gate activity snapshots.</p>
-      <div class="updates-tools">
-        <span title="Feed">📡</span>
-        <span title="Edit">✎</span>
-        <span title="More">⋯</span>
-      </div>
     </div>
     <div class="updates-list">
       <% if (safeMovementLogs.length === 0) { %>
