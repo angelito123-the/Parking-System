@@ -8,29 +8,47 @@
 %>
 
 <section class="cards">
-  <article class="card">
+  <article class="card metric-card metric-students">
     <h3>Total Students</h3>
-    <p><%= safeMetrics.students || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.students || 0 %></p>
+      <span class="metric-icon">📊</span>
+    </div>
   </article>
-  <article class="card">
+  <article class="card metric-card metric-vehicles">
     <h3>Registered Vehicles</h3>
-    <p><%= safeMetrics.vehicles || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.vehicles || 0 %></p>
+      <span class="metric-icon">🚗</span>
+    </div>
   </article>
-  <article class="card">
+  <article class="card metric-card metric-stickers">
     <h3>Active Stickers</h3>
-    <p><%= safeMetrics.activeStickers || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.activeStickers || 0 %></p>
+      <span class="metric-icon">✅</span>
+    </div>
   </article>
-  <article class="card">
+  <article class="card metric-card metric-entry">
     <h3>Today's Entries</h3>
-    <p><%= safeMetrics.todayEntries || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.todayEntries || 0 %></p>
+      <span class="metric-icon">↪️</span>
+    </div>
   </article>
-  <article class="card">
+  <article class="card metric-card metric-exit">
     <h3>Today's Exits</h3>
-    <p><%= safeMetrics.todayExits || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.todayExits || 0 %></p>
+      <span class="metric-icon">↩️</span>
+    </div>
   </article>
-  <article class="card">
+  <article class="card metric-card metric-inside">
     <h3>Currently Inside</h3>
-    <p><%= safeMetrics.currentlyInside || 0 %></p>
+    <div class="metric-row">
+      <p><%= safeMetrics.currentlyInside || 0 %></p>
+      <span class="metric-icon">⏱️</span>
+    </div>
   </article>
 </section>
 
@@ -161,9 +179,14 @@
   </article>
 
   <article class="panel">
-    <div class="section-head">
+    <div class="section-head updates-head">
       <h2>Latest Updates</h2>
       <p>Most recent gate activity snapshots.</p>
+      <div class="updates-tools">
+        <span title="Feed">📡</span>
+        <span title="Edit">✎</span>
+        <span title="More">⋯</span>
+      </div>
     </div>
     <div class="updates-list">
       <% if (safeMovementLogs.length === 0) { %>
