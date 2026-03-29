@@ -1,4 +1,4 @@
-const CACHE_NAME = 'naap-parking-v1';
+const CACHE_NAME = 'naap-parking-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/login',
