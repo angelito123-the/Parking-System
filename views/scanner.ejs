@@ -144,7 +144,7 @@
         cameraWrapper.style.display = "block";
         toggleCameraBtn.innerHTML = "❌ Close Scanner";
         if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess)
+        html5QrCode.start({ facingMode: "environment" }, { fps: 30 }, onScanSuccess)
           .catch(e => {
             document.getElementById("cameraStatus").textContent = "Camera Error: " + e;
           });
