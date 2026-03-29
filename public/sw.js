@@ -1,4 +1,4 @@
-const CACHE_NAME = 'naap-parking-v2';
+const CACHE_NAME = 'naap-parking-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/login',
@@ -32,44 +32,30 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Only cache GET requests
-  if (event.request.method !== 'GET') return;
-
-  // Skip API calls from being served from the SW Cache entirely
-  // We handle them in the client-side offline DB logic instead
-  if (event.request.url.includes('/api/')) return;
+  // Let the browser handle non-GET or API requests directly
+  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) return;
 
   event.respondWith(
-    caches.match(event.request).then(response => {
-      // Return cached version if found
-      if (response) {
-        // Fetch new version in the background to update cache for next time (Stale-while-revalidate)
-        fetch(event.request).then(res => {
-          if (res && res.status === 200) {
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, res));
-          }
-        }).catch(() => {});
-        return response;
-      }
-
-      // If not in cache, fetch from network
-      return fetch(event.request).then(response => {
-        // Don't cache cross-origin or non-success unless it's the font API
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
+    fetch(event.request)
+      .then(response => {
+        // Only cache successful basic responses
+        if (response && response.status === 200 && response.type === 'basic') {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache));
         }
-        
-        // Cache the new resource
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
-        });
-        
         return response;
-      }).catch(err => {
-        console.error('Fetch failed (offline) and not in cache:', event.request.url);
-        // Fallbacks like an offline.html could go here if implemented
-      });
-    })
+      })
+      .catch(() => {
+        // If network fails, try the cache
+        return caches.match(event.request).then(cachedRes => {
+          if (cachedRes) return cachedRes;
+          // Both network and cache failed. Return a proper response to avoid ERR_FAILED
+          return new Response('Offline and resource not cached.', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: new Headers({ 'Content-Type': 'text/plain' })
+          });
+        });
+      })
   );
 });
