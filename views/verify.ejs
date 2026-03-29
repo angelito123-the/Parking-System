@@ -310,7 +310,7 @@
       <p class="verify-status-msg"><%= result.message || "" %></p>
       <% if (result.scanned_at) { %>
         <p class="verify-status-msg" style="margin-top:0.3rem; font-size:0.78rem;">
-          <%= new Date(result.scanned_at).toLocaleString() %>
+          <%= new Date(result.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
         </p>
       <% } %>
     </div>

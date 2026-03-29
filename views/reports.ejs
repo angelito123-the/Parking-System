@@ -150,7 +150,7 @@
         <tbody>
           <% rowsSafe.forEach(row => { %>
             <tr>
-              <td><%= new Date(row.scanned_at).toLocaleString() %></td>
+              <td><%= new Date(row.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
               <td><%= row.student_number || "-" %></td>
               <td><%= row.full_name || "-" %></td>
               <td><%= row.plate_number || "-" %></td>

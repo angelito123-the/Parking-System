@@ -74,7 +74,7 @@
             <td><%= item.plate_number || "-" %></td>
             <td><%= item.sticker_code || "-" %></td>
             <td><%= item.entry_gate || "-" %></td>
-            <td><%= new Date(item.entered_at).toLocaleString() %></td>
+            <td><%= new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
             <td><%= Number(item.minutes_inside || 0) %></td>
           </tr>
         <% }) %>
@@ -125,7 +125,7 @@
           <% } %>
           <% safeMovementLogs.forEach(scan => { %>
             <tr>
-              <td><%= new Date(scan.scanned_at).toLocaleString() %></td>
+              <td><%= new Date(scan.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
               <td><%= scan.student_number || "-" %></td>
               <td><%= scan.full_name || "-" %></td>
               <td><%= scan.plate_number || "-" %></td>
@@ -160,7 +160,7 @@
               <strong><%= scan.full_name || "Unknown Student" %></strong>
               <span class="update-action <%= (scan.action || 'verify').toLowerCase() %>"><%= scan.action || "VERIFY" %></span>
             </p>
-            <p class="helper-text"><%= scan.gate || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleString() %></p>
+            <p class="helper-text"><%= scan.gate || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></p>
           </div>
         </div>
       <% }) %>
@@ -202,7 +202,7 @@
     const refreshBtn = document.getElementById("refreshInsideBtn");
 
     function renderInsideRow(item) {
-      const enteredAt = item.entered_at ? new Date(item.entered_at).toLocaleString() : "-";
+      const enteredAt = item.entered_at ? new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : "-";
       return `<tr>
         <td>${item.student_number || "-"}</td>
         <td>${item.full_name || "-"}</td>
@@ -232,7 +232,7 @@
           tbody.innerHTML = vehicles.map(renderInsideRow).join("");
         }
         if (countEl) countEl.textContent = vehicles.length;
-        if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}`;
       } catch (err) {
         if (lastUpdatedEl) lastUpdatedEl.textContent = "Refresh failed — retrying...";
       }
