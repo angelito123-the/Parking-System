@@ -369,13 +369,37 @@
           <input id="gateField" class="verify-gate-input" name="gate" value="Main Gate" />
           <div class="verify-btn-group">
             <% if (result.last_action !== 'ENTRY') { %>
-              <button type="submit" name="action" value="ENTRY" class="verify-btn verify-btn-entry" id="entryBtn">
-                🟢 Record ENTRY
+              <button type="submit" name="action" value="ENTRY" class="verify-btn" id="entryBtn" style="
+                background: linear-gradient(135deg, #16a34a, #15803d);
+                color: #fff;
+                padding: 1.25rem 0.5rem;
+                font-weight: 800;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.4rem;
+                box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+                transition: all 0.15s ease;
+              " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(22,163,74,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(22,163,74,0.35)'">
+                <span style="font-size: 2rem; line-height:1;">🟢</span>
+                <span>Record ENTRY</span>
               </button>
             <% } %>
             <% if (result.last_action !== 'EXIT') { %>
-              <button type="submit" name="action" value="EXIT" class="verify-btn verify-btn-exit" id="exitBtn">
-                🔴 Record EXIT
+              <button type="submit" name="action" value="EXIT" class="verify-btn" id="exitBtn" style="
+                background: linear-gradient(135deg, #dc2626, #b91c1c);
+                color: #fff;
+                padding: 1.25rem 0.5rem;
+                font-weight: 800;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.4rem;
+                box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+                transition: all 0.15s ease;
+              " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(220,38,38,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(220,38,38,0.35)'">
+                <span style="font-size: 2rem; line-height:1;">🔴</span>
+                <span>Record EXIT</span>
               </button>
             <% } %>
           </div>
