@@ -77,7 +77,8 @@
       </div>
     </aside>
     <div class="main-shell">
-      <header class="topbar">
+      <!-- Desktop Topbar -->
+      <header class="topbar desktop-only">
         <div class="brand">
           <p class="brand-kicker">National Aviation Academy of the Philippines</p>
           <h1>Parking Management System</h1>
@@ -96,4 +97,20 @@
           </div>
         </div>
       </header>
+
+      <!-- Mobile Topbar -->
+      <header class="mobile-topbar mobile-only">
+        <div class="mobile-topbar-left">
+          <div class="mobile-avatar">N</div>
+          <div>
+            <p class="mobile-topbar-title">NAAP Parking</p>
+            <p class="mobile-topbar-sub"><%= pageTitle %></p>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <span class="chip chip-live" id="networkIndicator" style="font-size:0.7rem;">🟢 Online</span>
+          <span class="chip" id="liveClock" style="font-size:0.7rem;">--:--:--</span>
+        </div>
+      </header>
+
       <main class="container">

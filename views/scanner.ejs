@@ -46,11 +46,49 @@
     <h2>Record Movement</h2>
     <p id="gateLogInfo">Recording for selected vehicle.</p>
   </div>
-  <div id="gateLogDetails" style="margin-bottom: 1rem;"></div>
-  <div id="gateLogFeedback" style="margin-bottom: 0.75rem;"></div>
-  <div class="action-row" id="movementBtnContainer">
-    <button type="button" id="gateEntryBtn" style="background: var(--green-text); border-color: var(--green-text); flex:1;">🟢 Record ENTRY</button>
-    <button type="button" id="gateExitBtn" class="danger" style="flex:1;">🔴 Record EXIT</button>
+  <div id="gateLogDetails" style="margin-bottom: 0.75rem;"></div>
+  <div id="gateLogFeedback" style="margin-bottom: 1rem;"></div>
+  <div id="movementBtnContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+    <button type="button" id="gateEntryBtn" style="
+      background: linear-gradient(135deg, #16a34a, #15803d);
+      border: none;
+      color: #fff;
+      padding: 1.25rem 0.5rem;
+      font-size: 1rem;
+      font-weight: 800;
+      font-family: 'Outfit', sans-serif;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+      transition: all 0.15s ease;
+    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(22,163,74,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(22,163,74,0.35)'">
+      <span style="font-size: 2rem; line-height:1;">🟢</span>
+      <span>Record ENTRY</span>
+    </button>
+    <button type="button" id="gateExitBtn" style="
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      border: none;
+      color: #fff;
+      padding: 1.25rem 0.5rem;
+      font-size: 1rem;
+      font-weight: 800;
+      font-family: 'Outfit', sans-serif;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+      transition: all 0.15s ease;
+    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(220,38,38,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(220,38,38,0.35)'">
+      <span style="font-size: 2rem; line-height:1;">🔴</span>
+      <span>Record EXIT</span>
+    </button>
   </div>
 </section>
 

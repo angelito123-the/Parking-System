@@ -1,6 +1,30 @@
       </main>
     </div>
   </div>
+
+  <!-- Mobile Bottom Navigation -->
+  <nav class="mobile-bottom-nav mobile-only">
+    <a href="/" class="mobile-nav-item <%= typeof currentPath !== 'undefined' && currentPath === '/' ? 'active' : '' %>">
+      <span class="mobile-nav-icon">📊</span>
+      <span>Dashboard</span>
+    </a>
+    <a href="/scanner" class="mobile-nav-item <%= typeof currentPath !== 'undefined' && currentPath === '/scanner' ? 'active' : '' %>">
+      <span class="mobile-nav-icon">🔍</span>
+      <span>Gate</span>
+    </a>
+    <a href="/stickers" class="mobile-nav-item <%= typeof currentPath !== 'undefined' && currentPath === '/stickers' ? 'active' : '' %>">
+      <span class="mobile-nav-icon">🪪</span>
+      <span>Stickers</span>
+    </a>
+    <a href="/reports" class="mobile-nav-item <%= typeof currentPath !== 'undefined' && currentPath === '/reports' ? 'active' : '' %>">
+      <span class="mobile-nav-icon">📋</span>
+      <span>Reports</span>
+    </a>
+    <a href="/logout" class="mobile-nav-item">
+      <span class="mobile-nav-icon">⎋</span>
+      <span>Sign Out</span>
+    </a>
+  </nav>
   <script>
     (() => {
       const clock = document.getElementById("liveClock");
