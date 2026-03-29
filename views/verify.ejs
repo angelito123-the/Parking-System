@@ -1,41 +1,462 @@
-<%- include("partials/header") %>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NAAP – Gate Verification</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    body {
+      background: var(--bg);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Sticker Verification</h2>
-    <p>Validation endpoint for QR sticker authenticity.</p>
-  </div>
-  <p><strong>Status:</strong> <span class="badge badge-<%= result.result.toLowerCase() %>"><%= result.result %></span></p>
-  <p><%= result.message %></p>
-  <% if (result.scanned_at) { %>
-    <p><strong>Timestamp:</strong> <%= new Date(result.scanned_at).toLocaleString() %></p>
-  <% } %>
-  <% if (result.movement_saved) { %>
-    <p><strong>Recorded Movement:</strong> <span class="badge badge-action"><%= result.action %></span></p>
-    <p class="helper-text">Entry/exit has been recorded successfully in the dashboard.</p>
-  <% } %>
+    .verify-header {
+      background: var(--blue-1);
+      color: #fff;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
 
-  <% if (result.sticker) { %>
-    <p><strong>Student:</strong> <%= result.sticker.student_number %> - <%= result.sticker.full_name %></p>
-    <p><strong>Plate Number:</strong> <%= result.sticker.plate_number %></p>
-    <p><strong>Vehicle:</strong> <%= result.sticker.model || "-" %></p>
-    <p><strong>Sticker Code:</strong> <%= result.sticker.sticker_code %></p>
-  <% } %>
+    .verify-header-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.15);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 1rem;
+      font-family: "Outfit", sans-serif;
+      flex-shrink: 0;
+    }
 
-  <% if (result.ok) { %>
-    <hr class="divider" />
-    <h3>Select Movement</h3>
-    <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" class="form-grid">
-      <label>Gate Name</label>
-      <input name="gate" value="Main Gate" />
-      <div class="action-row">
-        <button type="submit" name="action" value="ENTRY">Record ENTRY</button>
-        <button type="submit" name="action" value="EXIT" class="danger">Record EXIT</button>
+    .verify-header-text p {
+      margin: 0;
+    }
+
+    .verify-header-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+    }
+
+    .verify-header-sub {
+      font-size: 0.72rem;
+      color: #94a3b8;
+    }
+
+    .verify-body {
+      flex: 1;
+      padding: 1.25rem;
+      max-width: 480px;
+      margin: 0 auto;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .verify-status-card {
+      border-radius: 8px;
+      padding: 1.5rem 1.25rem;
+      text-align: center;
+      margin-bottom: 1.25rem;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .verify-status-card.status-valid {
+      border-color: #bbf7d0;
+      background: var(--green-soft);
+    }
+
+    .verify-status-card.status-invalid,
+    .verify-status-card.status-revoked,
+    .verify-status-card.status-expired {
+      border-color: #fecaca;
+      background: var(--red-soft);
+    }
+
+    .verify-status-icon {
+      font-size: 3rem;
+      line-height: 1;
+      margin-bottom: 0.6rem;
+    }
+
+    .verify-status-label {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin: 0 0 0.35rem;
+      font-family: "Outfit", sans-serif;
+    }
+
+    .verify-status-label.ok { color: var(--green-text); }
+    .verify-status-label.fail { color: var(--red-text); }
+
+    .verify-status-msg {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .verify-info-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .verify-info-card h3 {
+      margin: 0 0 0.9rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 0.6rem;
+    }
+
+    .verify-info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.45rem 0;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: 0.9rem;
+    }
+
+    .verify-info-row:last-child {
+      border-bottom: none;
+    }
+
+    .verify-info-label {
+      color: var(--muted);
+      font-weight: 600;
+      flex-shrink: 0;
+      font-size: 0.82rem;
+    }
+
+    .verify-info-value {
+      font-weight: 700;
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .verify-movement-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .verify-movement-card h3 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      font-weight: 600;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 0.6rem;
+    }
+
+    .verify-gate-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      display: block;
+    }
+
+    .verify-gate-input {
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 1rem;
+      font-size: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+    }
+
+    .verify-btn-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .verify-btn {
+      display: block;
+      width: 100%;
+      padding: 0.9rem 0.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      text-align: center;
+      font-family: inherit;
+    }
+
+    .verify-btn-entry {
+      background: var(--green-text);
+      color: #fff;
+    }
+
+    .verify-btn-entry:hover {
+      background: #14532d;
+    }
+
+    .verify-btn-exit {
+      background: var(--red-text);
+      color: #fff;
+    }
+
+    .verify-btn-exit:hover {
+      background: #7f1d1d;
+    }
+
+    .verify-saved-banner {
+      background: var(--green-soft);
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .verify-saved-banner-icon {
+      font-size: 1.75rem;
+      flex-shrink: 0;
+    }
+
+    .verify-saved-banner p {
+      margin: 0;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--green-text);
+    }
+
+    .verify-saved-banner .helper-text {
+      font-weight: 400;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .verify-dup-banner {
+      background: var(--orange-soft);
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--orange-text);
+    }
+
+    .verify-footer {
+      padding: 1rem 1.25rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      border-top: 1px solid var(--line);
+    }
+
+    @media (min-width: 540px) {
+      .verify-body {
+        padding: 2rem 1.5rem;
+      }
+      .verify-btn {
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="verify-header">
+    <div class="verify-header-logo">N</div>
+    <div class="verify-header-text">
+      <p class="verify-header-title">NAAP Parking System</p>
+      <p class="verify-header-sub">Gate Verification</p>
+    </div>
+  </header>
+
+  <main class="verify-body">
+
+    <%
+      const vResult = result.result || "INVALID";
+      const isValid = result.ok === true;
+      const cardClass = isValid ? "status-valid" : `status-${vResult.toLowerCase()}`;
+      const labelClass = isValid ? "ok" : "fail";
+      let statusIcon = "❌";
+      if (isValid) statusIcon = "✅";
+      else if (vResult === "EXPIRED") statusIcon = "⌛";
+      else if (vResult === "REVOKED") statusIcon = "🚫";
+    %>
+
+    <!-- Status Card -->
+    <div class="verify-status-card <%= cardClass %>">
+      <div class="verify-status-icon"><%= statusIcon %></div>
+      <p class="verify-status-label <%= labelClass %>"><%= vResult %></p>
+      <p class="verify-status-msg"><%= result.message || "" %></p>
+      <% if (result.scanned_at) { %>
+        <p class="verify-status-msg" style="margin-top:0.3rem; font-size:0.78rem;">
+          <%= new Date(result.scanned_at).toLocaleString() %>
+        </p>
+      <% } %>
+    </div>
+
+    <!-- Movement saved banner -->
+    <% if (result.movement_saved) { %>
+      <div class="verify-saved-banner">
+        <div class="verify-saved-banner-icon"><%= result.action === "ENTRY" ? "🟢" : "🔴" %></div>
+        <div>
+          <p><%= result.action %> recorded successfully.</p>
+          <p class="helper-text">Entry/exit has been logged in the dashboard.</p>
+        </div>
       </div>
-    </form>
-  <% } else { %>
-    <p class="helper-text">Entry/exit buttons are shown only for active and valid stickers.</p>
-  <% } %>
-</section>
+    <% } %>
 
-<%- include("partials/footer") %>
+    <!-- Duplicate movement banner -->
+    <% if (result.duplicate_movement) { %>
+      <div class="verify-dup-banner">
+        ⚠️ <%= result.message %>
+      </div>
+    <% } %>
+
+    <!-- Vehicle/Student info -->
+    <% if (result.sticker) { %>
+      <div class="verify-info-card">
+        <h3>Vehicle & Student Details</h3>
+        <div class="verify-info-row">
+          <span class="verify-info-label">Student</span>
+          <span class="verify-info-value"><%= result.sticker.full_name || "-" %></span>
+        </div>
+        <div class="verify-info-row">
+          <span class="verify-info-label">ID Number</span>
+          <span class="verify-info-value"><%= result.sticker.student_number || "-" %></span>
+        </div>
+        <div class="verify-info-row">
+          <span class="verify-info-label">Plate Number</span>
+          <span class="verify-info-value"><%= result.sticker.plate_number || "-" %></span>
+        </div>
+        <div class="verify-info-row">
+          <span class="verify-info-label">Vehicle</span>
+          <span class="verify-info-value"><%= result.sticker.model || "-" %></span>
+        </div>
+        <div class="verify-info-row">
+          <span class="verify-info-label">Sticker Code</span>
+          <span class="verify-info-value"><%= result.sticker.sticker_code || "-" %></span>
+        </div>
+      </div>
+    <% } %>
+
+    <!-- Movement selection (only for valid stickers) -->
+    <% if (result.ok && !result.movement_saved) { %>
+      <div class="verify-movement-card">
+        <h3>Record Gate Movement</h3>
+        <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" id="movementForm">
+          <label class="verify-gate-label" for="gateField">Gate Name</label>
+          <input id="gateField" class="verify-gate-input" name="gate" value="Main Gate" />
+          <div class="verify-btn-group">
+            <% if (result.last_action !== 'ENTRY') { %>
+              <button type="submit" name="action" value="ENTRY" class="verify-btn verify-btn-entry" id="entryBtn">
+                🟢 Record ENTRY
+              </button>
+            <% } %>
+            <% if (result.last_action !== 'EXIT') { %>
+              <button type="submit" name="action" value="EXIT" class="verify-btn verify-btn-exit" id="exitBtn">
+                🔴 Record EXIT
+              </button>
+            <% } %>
+          </div>
+          <p id="processingMsg" style="display:none; text-align:center; margin-top:0.75rem; color: var(--muted); font-size:0.85rem;">
+            ⏳ Recording movement, please wait...
+          </p>
+        </form>
+        <script>
+          (function() {
+            const form = document.getElementById('movementForm');
+            const entryBtn = document.getElementById('entryBtn');
+            const exitBtn = document.getElementById('exitBtn');
+            const processingMsg = document.getElementById('processingMsg');
+            let submitted = false;
+
+            form.addEventListener('submit', function(e) {
+              if (submitted) {
+                e.preventDefault();
+                return;
+              }
+              submitted = true;
+              if(entryBtn) { entryBtn.disabled = true; entryBtn.style.opacity = '0.5'; }
+              if(exitBtn) { exitBtn.disabled = true; exitBtn.style.opacity = '0.5'; }
+              if(processingMsg) processingMsg.style.display = 'block';
+            });
+          })();
+        </script>
+      </div>
+    <% } %>
+
+    <% if (!result.ok && !result.sticker) { %>
+      <p style="text-align:center; color: var(--muted); font-size:0.875rem;">
+        Entry/exit buttons are available only for valid, active stickers.
+      </p>
+    <% } %>
+
+  </main>
+
+  <script>
+    // Audio Feedback Initialization
+    function playBeep(type) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        if (type === 'success') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, ctx.currentTime);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+          osc.start(); osc.stop(ctx.currentTime + 0.2);
+        } else {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(300, ctx.currentTime);
+          osc.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start(); osc.stop(ctx.currentTime + 0.3);
+        }
+      } catch(e) {}
+    }
+
+    // Play sound on first interaction (required by mobile browsers)
+    window.addEventListener('touchstart', function initAudio() {
+      <% if (!result.movement_saved && !result.duplicate_movement) { %>
+        playBeep('<%= result.ok ? 'success' : 'error' %>');
+      <% } %>
+      window.removeEventListener('touchstart', initAudio);
+    }, { once: true });
+    
+    // Or if movement was just saved successfully, play success beep immediately on next interaction bounds
+    <% if (result.movement_saved) { %>
+      window.addEventListener('touchstart', function() { playBeep('success'); }, { once: true });
+    <% } %>
+  </script>
+
+  <footer class="verify-footer">
+    National Aviation Academy of the Philippines &mdash; Parking Management System
+  </footer>
+
+</body>
+</html>

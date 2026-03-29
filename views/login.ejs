@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NAAP Parking — Admin Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy: #003366;
+      --navy-dark: #001f42;
+      --blue-soft: #e0f2fe;
+      --line: #e2e8f0;
+      --muted: #64748b;
+      --text: #1e293b;
+      --red: #991b1b;
+      --red-bg: #fee2e2;
+    }
+
+    body {
+      font-family: "Manrope", sans-serif;
+      background: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .login-card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      width: 100%;
+      max-width: 400px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 51, 102, 0.08);
+    }
+
+    .login-header {
+      background: var(--navy);
+      color: #fff;
+      padding: 2rem 2rem 1.75rem;
+      text-align: center;
+    }
+
+    .login-logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12);
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Outfit", sans-serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin: 0 auto 1rem;
+    }
+
+    .login-school {
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 0.35rem;
+    }
+
+    .login-title {
+      font-family: "Outfit", sans-serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+    }
+
+    .login-subtitle {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-top: 0.25rem;
+    }
+
+    .login-body {
+      padding: 1.75rem 2rem 2rem;
+    }
+
+    .login-error {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.75rem 0.875rem;
+      font-family: inherit;
+      font-size: 0.95rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--text);
+      background: #fff;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--navy);
+      box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1);
+    }
+
+    .login-btn {
+      width: 100%;
+      padding: 0.85rem;
+      background: var(--navy);
+      color: #fff;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      transition: background 0.15s;
+    }
+
+    .login-btn:hover {
+      background: var(--navy-dark);
+    }
+
+    .login-btn:active {
+      transform: scale(0.99);
+    }
+
+    .login-footer {
+      text-align: center;
+      padding: 1rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      border-top: 1px solid var(--line);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <div class="login-header">
+      <div class="login-logo">N</div>
+      <p class="login-school">National Aviation Academy of the Philippines</p>
+      <h1 class="login-title">Parking Management</h1>
+      <p class="login-subtitle">Admin Access Only</p>
+    </div>
+
+    <div class="login-body">
+      <% if (locals.error) { %>
+        <div class="login-error">
+          ⚠️ <%= error %>
+        </div>
+      <% } %>
+
+      <form method="post" action="/login">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            required
+            autocomplete="username"
+            placeholder="Enter your username"
+            value="<%= locals.usernameVal || '' %>"
+          />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            autocomplete="current-password"
+            placeholder="Enter your password"
+          />
+        </div>
+        <button type="submit" class="login-btn">Sign In</button>
+      </form>
+    </div>
+
+    <div class="login-footer">
+      NAAP Parking System &mdash; Authorized Personnel Only
+    </div>
+  </div>
+
+</body>
+</html>

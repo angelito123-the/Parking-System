@@ -3,7 +3,20 @@
   const stickerBaseUrl = typeof requestBaseUrl === "string" && requestBaseUrl
     ? requestBaseUrl
     : APP_BASE_URL;
+  const pageFlash = typeof flash !== 'undefined' ? flash : null;
+
+  function stickerDisplayStatus(sticker) {
+    if (sticker.status !== 'active') return sticker.status;
+    if (sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now()) return 'expired';
+    return 'active';
+  }
 %>
+
+<% if (pageFlash) { %>
+  <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
+    <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+  </div>
+<% } %>
 
 <section class="panel">
   <div class="section-head">
@@ -11,18 +24,18 @@
     <p>Create secure QR-enabled stickers for validated student vehicles.</p>
   </div>
   <form method="post" action="/stickers" class="form-grid">
-    <label>Vehicle</label>
-    <select name="vehicle_id" required>
+    <label for="st_vehicle_id">Vehicle</label>
+    <select id="st_vehicle_id" name="vehicle_id" required>
       <option value="">Select vehicle</option>
       <% vehicles.forEach(vehicle => { %>
         <option value="<%= vehicle.id %>">
-          <%= vehicle.plate_number %> - <%= vehicle.student_number %> - <%= vehicle.full_name %>
+          <%= vehicle.plate_number %> — <%= vehicle.student_number %> — <%= vehicle.full_name %>
         </option>
       <% }) %>
     </select>
 
-    <label>Expiration Date (optional)</label>
-    <input type="date" name="expires_at" />
+    <label for="st_expires">Expiration Date (optional)</label>
+    <input id="st_expires" type="date" name="expires_at" />
 
     <button type="submit">Issue Sticker</button>
   </form>
@@ -35,50 +48,62 @@
   </div>
   <div class="table-wrap">
     <table>
-    <thead>
-      <tr>
-        <th>Sticker Code</th>
-        <th>Student</th>
-        <th>Plate Number</th>
-        <th>Status</th>
-        <th>Expires</th>
-        <th>QR</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (stickers.length === 0) { %>
+      <thead>
         <tr>
-          <td colspan="7">No stickers issued yet.</td>
+          <th>Sticker Code</th>
+          <th>Student</th>
+          <th>Plate Number</th>
+          <th>Status</th>
+          <th>Expires</th>
+          <th>QR Code</th>
+          <th>Action</th>
         </tr>
-      <% } %>
-      <% stickers.forEach(sticker => { %>
-        <tr>
-          <td><%= sticker.sticker_code %></td>
-          <td><%= sticker.student_number %> - <%= sticker.full_name %></td>
-          <td><%= sticker.plate_number %></td>
-          <td>
-            <span class="badge badge-<%= sticker.status === 'active' ? 'valid' : 'revoked' %>">
-              <%= sticker.status %>
-            </span>
-          </td>
-          <td><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "-" %></td>
-          <td>
-            <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a><br />
-            <small><%= stickerBaseUrl %>/verify/<%= sticker.qr_token %></small>
-          </td>
-          <td>
-            <% if (sticker.status === "active") { %>
-              <form method="post" action="/stickers/<%= sticker.id %>/revoke">
-                <button type="submit" class="danger">Revoke</button>
-              </form>
-            <% } else { %>
-              <span>-</span>
-            <% } %>
-          </td>
-        </tr>
-      <% }) %>
-    </tbody>
+      </thead>
+      <tbody>
+        <% if (stickers.length === 0) { %>
+          <tr>
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="empty-state-icon">🪪</div>
+                <p>No stickers issued yet. Use the form above to issue one.</p>
+              </div>
+            </td>
+          </tr>
+        <% } %>
+        <% stickers.forEach(sticker => {
+          const displayStatus = stickerDisplayStatus(sticker);
+          const badgeClass = displayStatus === 'active' ? 'valid' : displayStatus;
+        %>
+          <tr>
+            <td><strong><%= sticker.sticker_code %></strong></td>
+            <td><%= sticker.student_number %> — <%= sticker.full_name %></td>
+            <td><%= sticker.plate_number %></td>
+            <td>
+              <span class="badge badge-<%= badgeClass %>">
+                <%= displayStatus %>
+              </span>
+            </td>
+            <td><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "No expiry" %></td>
+            <td>
+              <div class="action-row">
+                <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a>
+                <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">⬇ Download</a>
+              </div>
+              <small class="helper-text"><%= stickerBaseUrl %>/verify/<%= sticker.qr_token %></small>
+            </td>
+            <td>
+              <% if (sticker.status === "active") { %>
+                <form method="post" action="/stickers/<%= sticker.id %>/revoke"
+                      onsubmit="return confirm('Revoke sticker <%= sticker.sticker_code %>?')">
+                  <button type="submit" class="danger btn-sm">Revoke</button>
+                </form>
+              <% } else { %>
+                <span class="helper-text">—</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
     </table>
   </div>
 </section>

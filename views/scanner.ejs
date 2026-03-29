@@ -1,25 +1,339 @@
 <%- include("partials/header") %>
 
 <section class="panel">
-  <div class="section-head">
-    <h2>Gate Scanner Console</h2>
-    <p>Use this at security posts for quick identity verification and logging.</p>
+  <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+    <h2 style="margin:0; font-family:'Outfit',sans-serif; font-size:1.3rem;">Gate Console</h2>
+    <button id="toggleCameraBtn" class="btn" style="background:var(--navy); color:#fff; display:flex; align-items:center; gap:0.5rem; flex: 1; justify-content: center; min-width: 200px;">
+      📷 Open Scanner
+    </button>
   </div>
-  <label>Gate Name</label>
-  <input id="gateInput" value="Main Gate" />
-  <p class="helper-text">Point camera to the sticker QR code.</p>
-  <div id="reader"></div>
+  <p style="color:var(--muted); font-size:0.9rem; margin-bottom: 1.25rem;">Search for a student manually, or use the camera to scan stickers offline.</p>
+
+  <!-- In-App Camera Container -->
+  <div id="cameraWrapper" style="display:none; background:#000; border-radius:8px; overflow:hidden; margin-bottom: 1.5rem; position:relative;">
+    <div id="qr-reader" style="width:100%; min-height:300px; max-height: 60vh;"></div>
+    <p id="cameraStatus" style="position:absolute; bottom:10px; left:0; width:100%; text-align:center; color:#fff; font-size:0.85rem; background:rgba(0,0,0,0.5); margin:0; padding:0.25rem 0;">Ready</p>
+  </div>
+
+  <div class="search-grid" style="display: grid; gap: 0.75rem; align-items: end; margin-bottom: 1rem;">
+    <div>
+      <label for="gateSearchInput">Search Manually (Plate, ID, Name)</label>
+      <input id="gateSearchInput" type="search" placeholder="e.g. ABC 1234 or 2024-001" autocomplete="off" style="width:100%;" />
+    </div>
+    <div>
+      <label for="gateNameSelect">Current Gate</label>
+      <select id="gateNameSelect" style="width:100%;">
+        <option value="Main Gate">Main Gate</option>
+        <option value="Side Gate">Side Gate</option>
+        <option value="Manual Verification">Manual Verification</option>
+      </select>
+    </div>
+  </div>
+  <button type="button" id="gateSearchBtn" class="btn" style="width:100%;">Search</button>
 </section>
 
 <section class="panel">
   <div class="section-head">
-    <h2>Scan Result</h2>
-    <p>Latest verification payload.</p>
+    <h2>Scanner Results</h2>
+    <p>Select a vehicle to record gate movement.</p>
   </div>
-  <pre id="scanOutput">Waiting for scan...</pre>
+  <div id="gateSearchStatus" class="helper-text" style="margin-bottom: 0.75rem;">Waiting for scan or search...</div>
+  <div id="gateResultsContainer"></div>
+</section>
+
+<section class="panel" id="gateLogPanel" style="display:none;">
+  <div class="section-head">
+    <h2>Record Movement</h2>
+    <p id="gateLogInfo">Recording for selected vehicle.</p>
+  </div>
+  <div id="gateLogDetails" style="margin-bottom: 1rem;"></div>
+  <div id="gateLogFeedback" style="margin-bottom: 0.75rem;"></div>
+  <div class="action-row" id="movementBtnContainer">
+    <button type="button" id="gateEntryBtn" style="background: var(--green-text); border-color: var(--green-text); flex:1;">🟢 Record ENTRY</button>
+    <button type="button" id="gateExitBtn" class="danger" style="flex:1;">🔴 Record EXIT</button>
+  </div>
 </section>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script src="/scanner.js"></script>
+<script>
+  (() => {
+    const searchInput = document.getElementById("gateSearchInput");
+    const gateSelect = document.getElementById("gateNameSelect");
+    const searchBtn = document.getElementById("gateSearchBtn");
+    const statusEl = document.getElementById("gateSearchStatus");
+    const resultsEl = document.getElementById("gateResultsContainer");
+    const logPanel = document.getElementById("gateLogPanel");
+    const logInfo = document.getElementById("gateLogInfo");
+    const logDetails = document.getElementById("gateLogDetails");
+    const logFeedback = document.getElementById("gateLogFeedback");
+    const entryBtn = document.getElementById("gateEntryBtn");
+    const exitBtn = document.getElementById("gateExitBtn");
+    const toggleCameraBtn = document.getElementById("toggleCameraBtn");
+    const cameraWrapper = document.getElementById("cameraWrapper");
+
+    let selectedToken = null;
+    let selectedLabel = "";
+    let html5QrCode = null;
+
+    // --- Audio Feedback ---
+    function playBeep(type) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        if (type === 'success') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(800, ctx.currentTime);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+          osc.start(); osc.stop(ctx.currentTime + 0.2);
+        } else {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(300, ctx.currentTime);
+          osc.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.5, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start(); osc.stop(ctx.currentTime + 0.3);
+        }
+      } catch(e) {}
+    }
+
+    // --- Camera Logic ---
+    toggleCameraBtn.addEventListener("click", () => {
+      if (cameraWrapper.style.display === "none") {
+        cameraWrapper.style.display = "block";
+        toggleCameraBtn.innerHTML = "❌ Close Scanner";
+        if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess)
+          .catch(e => {
+            document.getElementById("cameraStatus").textContent = "Camera Error: " + e;
+          });
+      } else {
+        cameraWrapper.style.display = "none";
+        toggleCameraBtn.innerHTML = "📷 Open Scanner";
+        if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear());
+      }
+    });
+
+    async function onScanSuccess(decodedText) {
+      if (html5QrCode && html5QrCode.getState() === 2) {
+        html5QrCode.pause(); // Pause scanning
+      }
+
+      let token = decodedText;
+      try {
+        const url = new URL(decodedText);
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length >= 2 && parts[0] === "verify") token = parts[1];
+      } catch(e){}
+
+      statusEl.textContent = "Processing scan...";
+      resultsEl.innerHTML = "";
+      logPanel.style.display = "none";
+
+      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+      
+      if (isOffline) {
+        // Offline Scan
+        const verifyRes = await window.OfflineManager.verifyOfflineToken(token);
+        if (verifyRes.ok) {
+          playBeep('success');
+          // Fake a search result for selection UI
+          renderSearchResults([{
+            qr_token: token,
+            full_name: verifyRes.sticker.full_name,
+            plate_number: verifyRes.sticker.plate_number,
+            sticker_code: verifyRes.sticker.sticker_code,
+            student_number: verifyRes.sticker.student_number,
+            sticker_status: 'active'
+          }]);
+          // Auto-select it
+          setTimeout(() => document.querySelector('.select-vehicle-btn').click(), 100);
+        } else {
+          playBeep('error');
+          statusEl.innerHTML = `<span style="color:red">⚠️ Error: ${verifyRes.message} (Offline Mode)</span>`;
+          setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
+        }
+      } else {
+        // Online Scan - check the full API to get exact movement history for smart scanning
+        try {
+          // fetch /api/gate-lookup doesn't take tokens directly, so let's use the verify state
+          // Alternatively, we use the fact that the token is unique and do a manual search?
+          // No, token is secret. Let's do a fast fetch to a verify endpoint if needed or just use search by plate.
+          // Since we need to lookup by token online without recording yet, let's use a quick local search if possible.
+          // Wait, we have the token, we can just fetch the verify endpoint HTML and parse it? No.
+          // Let's rely on `/api/scan` directly, but `/api/scan` auto-records!
+          // Okay, if online, just do an offline roster check to find plate, then search by plate securely!
+          const verifyRes = window.OfflineManager ? await window.OfflineManager.verifyOfflineToken(token) : null;
+          if (verifyRes && verifyRes.ok) {
+            playBeep('success');
+            searchInput.value = verifyRes.sticker.plate_number;
+            await doSearch(); // Does full online search using plate
+            setTimeout(() => document.querySelector('.select-vehicle-btn')?.click(), 100);
+          } else {
+            playBeep('error');
+            statusEl.innerHTML = `<span style="color:red">⚠️ Token not found or invalid.</span>`;
+            setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
+          }
+        } catch(e) {
+            playBeep('error');
+            statusEl.textContent = "Network error during scan.";
+            setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
+        }
+      }
+    }
+
+    // --- Search Logic ---
+    function renderVehicleCard(item) {
+      const statusClass = item.sticker_status === 'active' ? 'valid' : item.sticker_status;
+      const isActive = item.sticker_status === 'active';
+      return `
+        <div class="mini-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; padding: 1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:0.5rem;">
+            <div>
+              <strong>${item.full_name || "-"}</strong>
+              <span class="helper-text" style="margin-left:0.5rem;">${item.student_number || ""}</span>
+            </div>
+            <span class="badge badge-${statusClass}">${item.sticker_status || "no sticker"}</span>
+          </div>
+          <div class="helper-text">
+            🚗 <strong>${item.plate_number || "-"}</strong>
+            ${item.model ? `· ${item.model}` : ""}
+            ${item.color ? `· ${item.color}` : ""}
+          </div>
+          <div class="helper-text">
+            🪪 Sticker: <strong>${item.sticker_code || "None"}</strong>
+            ${item.expires_at ? `· Expires: ${new Date(item.expires_at).toLocaleDateString()}` : ""}
+          </div>
+          ${isActive && item.qr_token
+            ? `<button type="button" class="select-vehicle-btn btn-sm"
+                data-token="${item.qr_token}"
+                data-label="${item.full_name} · ${item.plate_number}"
+                data-lastaction="${item.last_action || ''}">
+                Select this Vehicle
+              </button>`
+            : `<span class="helper-text">⚠️ No active sticker — cannot record movement.</span>`
+          }
+        </div>`;
+    }
+
+    function renderSearchResults(resultsData) {
+      statusEl.textContent = `Found ${resultsData.length} result(s).`;
+      resultsEl.innerHTML = resultsData.map(renderVehicleCard).join("");
+      document.querySelectorAll(".select-vehicle-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          selectedToken = btn.dataset.token;
+          selectedLabel = btn.dataset.label;
+          logInfo.textContent = selectedLabel;
+          logDetails.innerHTML = `<p class="helper-text">Gate: <strong>${gateSelect.value}</strong></p>`;
+          logFeedback.innerHTML = "";
+          logPanel.style.display = "block";
+          logPanel.scrollIntoView({ behavior: "smooth" });
+
+          // Smart Scanning (Auto-Toggle)
+          const lastAction = btn.dataset.lastaction;
+          entryBtn.style.display = "block";
+          exitBtn.style.display = "block";
+          if (lastAction === "ENTRY") {
+             entryBtn.style.display = "none";
+          } else if (lastAction === "EXIT") {
+             exitBtn.style.display = "none";
+          }
+        });
+      });
+    }
+
+    async function doSearch() {
+      const q = searchInput.value.trim();
+      if (!q) {
+        statusEl.textContent = "Please enter a search term.";
+        resultsEl.innerHTML = "";
+        return;
+      }
+      statusEl.textContent = "Searching...";
+      resultsEl.innerHTML = "";
+      logPanel.style.display = "none";
+      
+      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+
+      if (isOffline) {
+        // Search local DB
+        statusEl.textContent = "Searching Offline Roster...";
+        const offlineResults = await window.OfflineManager.searchOfflineRoster(q);
+        if (offlineResults.length === 0) {
+          statusEl.textContent = "No offline matches found.";
+        } else {
+          // Normalize format to match online output
+          const matched = offlineResults.map(v => ({
+            ...v,
+            sticker_status: 'active'
+          }));
+          renderSearchResults(matched);
+        }
+      } else {
+        // Online search
+        try {
+          const resp = await fetch(`/api/gate-lookup?q=${encodeURIComponent(q)}`);
+          const data = await resp.json();
+          if (!data.ok) return statusEl.textContent = `Error: ${data.message}`;
+          if (data.results.length === 0) {
+            statusEl.textContent = "No results found.";
+          } else {
+            renderSearchResults(data.results);
+          }
+        } catch (err) {
+          statusEl.textContent = "Network error. Try searching offline.";
+        }
+      }
+    }
+
+    searchBtn.addEventListener("click", doSearch);
+    searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+
+    // --- Record Logic ---
+    async function recordMovement(action) {
+      if (!selectedToken) return;
+      const gate = gateSelect.value || "Main Gate";
+      logFeedback.innerHTML = `<span class="helper-text">Recording ${action}...</span>`;
+      
+      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+
+      if (isOffline) {
+        // Queue movement in outbox
+        await window.OfflineManager.queueMovement(selectedToken, action, gate);
+        playBeep('success');
+        logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">✅ ${action} saved to OFFLINE QUEUE.<br><small>Will sync when connection is restored.</small></div>`;
+        logPanel.style.opacity = '0.7';
+        setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
+      } else {
+        // Direct Online Request
+        try {
+          const resp = await fetch("/api/manual-movement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: selectedToken, action, gate })
+          });
+          const data = await resp.json();
+          if (data.movement_saved) {
+            playBeep('success');
+            logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">✅ ${action} recorded to main database.</div>`;
+          } else {
+             playBeep('error');
+             logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">⚠️ ${data.message || "Unable to record"}</div>`;
+          }
+          setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
+        } catch (err) {
+          playBeep('error');
+          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">❌ Network error. Start app in true offline mode.</div>`;
+        }
+      }
+    }
+
+    entryBtn.addEventListener("click", () => recordMovement("ENTRY"));
+    exitBtn.addEventListener("click", () => recordMovement("EXIT"));
+  })();
+</script>
 
 <%- include("partials/footer") %>

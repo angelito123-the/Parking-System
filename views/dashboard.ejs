@@ -30,7 +30,7 @@
   </article>
   <article class="card">
     <h3>Currently Inside</h3>
-    <p><%= safeMetrics.currentlyInside || 0 %></p>
+    <p id="currentlyInsideCount"><%= safeMetrics.currentlyInside || 0 %></p>
   </article>
 </section>
 
@@ -38,6 +38,10 @@
   <div class="section-head">
     <h2>Currently Inside Vehicles</h2>
     <p>Live roster of vehicles currently inside campus based on latest valid movement.</p>
+  </div>
+  <div class="refresh-row" style="margin-bottom: 0.75rem;">
+    <span id="insideLastUpdated" class="helper-text">Loading...</span>
+    <button type="button" class="refresh-btn" id="refreshInsideBtn">↻ Refresh</button>
   </div>
   <div class="table-wrap">
     <table>
@@ -52,10 +56,15 @@
           <th>Minutes Inside</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="insideVehiclesBody">
         <% if (safeInsideVehicles.length === 0) { %>
-          <tr>
-            <td colspan="7">No active vehicles inside.</td>
+          <tr id="insideEmptyRow">
+            <td colspan="7">
+              <div class="empty-state">
+                <div class="empty-state-icon">🚗</div>
+                <p>No vehicles currently inside campus.</p>
+              </div>
+            </td>
           </tr>
         <% } %>
         <% safeInsideVehicles.forEach(item => { %>
@@ -91,37 +100,42 @@
     </div>
     <div class="table-wrap">
       <table id="movementTable">
-      <thead>
-        <tr>
-          <th>Date/Time</th>
-          <th>Student Number</th>
-          <th>Student Name</th>
-          <th>Plate</th>
-          <th>Sticker</th>
-          <th>Result</th>
-          <th>Movement</th>
-          <th>Gate</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% if (safeMovementLogs.length === 0) { %>
+        <thead>
           <tr>
-            <td colspan="8">No scan records yet.</td>
+            <th>Date/Time</th>
+            <th>Student Number</th>
+            <th>Student Name</th>
+            <th>Plate</th>
+            <th>Sticker</th>
+            <th>Result</th>
+            <th>Movement</th>
+            <th>Gate</th>
           </tr>
-        <% } %>
-        <% safeMovementLogs.forEach(scan => { %>
-          <tr>
-            <td><%= new Date(scan.scanned_at).toLocaleString() %></td>
-            <td><%= scan.student_number || "-" %></td>
-            <td><%= scan.full_name || "-" %></td>
-            <td><%= scan.plate_number || "-" %></td>
-            <td><%= scan.sticker_code || "-" %></td>
-            <td><span class="badge badge-<%= (scan.result || "INVALID").toLowerCase() %>"><%= scan.result || "-" %></span></td>
-            <td><span class="badge badge-action"><%= scan.action || "-" %></span></td>
-            <td><%= scan.gate || "-" %></td>
-          </tr>
-        <% }) %>
-      </tbody>
+        </thead>
+        <tbody>
+          <% if (safeMovementLogs.length === 0) { %>
+            <tr>
+              <td colspan="8">
+                <div class="empty-state">
+                  <div class="empty-state-icon">📋</div>
+                  <p>No scan records yet.</p>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeMovementLogs.forEach(scan => { %>
+            <tr>
+              <td><%= new Date(scan.scanned_at).toLocaleString() %></td>
+              <td><%= scan.student_number || "-" %></td>
+              <td><%= scan.full_name || "-" %></td>
+              <td><%= scan.plate_number || "-" %></td>
+              <td><%= scan.sticker_code || "-" %></td>
+              <td><span class="badge badge-<%= (scan.result || "INVALID").toLowerCase() %>"><%= scan.result || "-" %></span></td>
+              <td><span class="badge badge-action"><%= scan.action || "-" %></span></td>
+              <td><%= scan.gate || "-" %></td>
+            </tr>
+          <% }) %>
+        </tbody>
       </table>
     </div>
   </article>
@@ -133,7 +147,10 @@
     </div>
     <div class="updates-list">
       <% if (safeMovementLogs.length === 0) { %>
-        <p class="helper-text">No updates yet.</p>
+        <div class="empty-state">
+          <div class="empty-state-icon">🔔</div>
+          <p>No updates yet.</p>
+        </div>
       <% } %>
       <% safeMovementLogs.slice(0, 8).forEach(scan => { %>
         <div class="update-item">
@@ -143,7 +160,7 @@
               <strong><%= scan.full_name || "Unknown Student" %></strong>
               <span class="update-action <%= (scan.action || 'verify').toLowerCase() %>"><%= scan.action || "VERIFY" %></span>
             </p>
-            <p class="helper-text"><%= scan.gate || "Main Gate" %> - <%= new Date(scan.scanned_at).toLocaleString() %></p>
+            <p class="helper-text"><%= scan.gate || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleString() %></p>
           </div>
         </div>
       <% }) %>
@@ -153,37 +170,83 @@
 
 <script>
   (() => {
+    // Movement table search
     const searchInput = document.getElementById("movementSearch");
     const table = document.getElementById("movementTable");
     const countLabel = document.getElementById("movementSearchCount");
-    if (!searchInput || !table || !countLabel) return;
-
-    const rows = Array.from(table.querySelectorAll("tbody tr"));
-    const emptyRow = rows.find((row) => row.children.length === 1);
-    const dataRows = rows.filter((row) => row.children.length > 1);
-
-    function updateFilter() {
-      const query = searchInput.value.trim().toLowerCase();
-      let visibleCount = 0;
-
-      dataRows.forEach((row) => {
-        const rowText = row.textContent.toLowerCase();
-        const visible = !query || rowText.includes(query);
-        row.style.display = visible ? "" : "none";
-        if (visible) visibleCount += 1;
-      });
-
-      if (emptyRow) {
-        emptyRow.style.display = dataRows.length === 0 ? "" : "none";
+    if (searchInput && table && countLabel) {
+      const rows = Array.from(table.querySelectorAll("tbody tr"));
+      const emptyRow = rows.find((r) => r.children.length === 1);
+      const dataRows = rows.filter((r) => r.children.length > 1);
+      function updateFilter() {
+        const q = searchInput.value.trim().toLowerCase();
+        let visible = 0;
+        dataRows.forEach((row) => {
+          const match = !q || row.textContent.toLowerCase().includes(q);
+          row.style.display = match ? "" : "none";
+          if (match) visible++;
+        });
+        if (emptyRow) emptyRow.style.display = dataRows.length === 0 ? "" : "none";
+        countLabel.textContent = q
+          ? `Showing ${visible} matching records`
+          : `Showing ${dataRows.length} records`;
       }
-
-      countLabel.textContent = query
-        ? `Showing ${visibleCount} matching records`
-        : `Showing ${dataRows.length} records`;
+      searchInput.addEventListener("input", updateFilter);
+      updateFilter();
     }
 
-    searchInput.addEventListener("input", updateFilter);
-    updateFilter();
+    // Auto-refresh "Currently Inside" panel
+    const tbody = document.getElementById("insideVehiclesBody");
+    const countEl = document.getElementById("currentlyInsideCount");
+    const lastUpdatedEl = document.getElementById("insideLastUpdated");
+    const refreshBtn = document.getElementById("refreshInsideBtn");
+
+    function renderInsideRow(item) {
+      const enteredAt = item.entered_at ? new Date(item.entered_at).toLocaleString() : "-";
+      return `<tr>
+        <td>${item.student_number || "-"}</td>
+        <td>${item.full_name || "-"}</td>
+        <td>${item.plate_number || "-"}</td>
+        <td>${item.sticker_code || "-"}</td>
+        <td>${item.entry_gate || "-"}</td>
+        <td>${enteredAt}</td>
+        <td>${Number(item.minutes_inside || 0)}</td>
+      </tr>`;
+    }
+
+    async function refreshInsideVehicles() {
+      try {
+        const resp = await fetch("/api/inside-vehicles");
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        const vehicles = data.insideVehicles || [];
+        if (vehicles.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7">
+            <div class="empty-state">
+              <div class="empty-state-icon">🚗</div>
+              <p>No vehicles currently inside campus.</p>
+            </div>
+          </td></tr>`;
+        } else {
+          tbody.innerHTML = vehicles.map(renderInsideRow).join("");
+        }
+        if (countEl) countEl.textContent = vehicles.length;
+        if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        if (lastUpdatedEl) lastUpdatedEl.textContent = "Refresh failed — retrying...";
+      }
+    }
+
+    // Initial load and periodic refresh every 30 seconds
+    refreshInsideVehicles();
+    const refreshInterval = setInterval(refreshInsideVehicles, 30000);
+
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", () => {
+        refreshInsideVehicles();
+      });
+    }
   })();
 </script>
 

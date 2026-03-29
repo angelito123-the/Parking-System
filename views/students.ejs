@@ -1,22 +1,30 @@
 <%- include("partials/header") %>
 
+<% const pageFlash = typeof flash !== 'undefined' ? flash : null; %>
+
+<% if (pageFlash) { %>
+  <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
+    <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+  </div>
+<% } %>
+
 <section class="panel">
   <div class="section-head">
     <h2>Student Registration</h2>
     <p>Add officially enrolled students eligible for parking access.</p>
   </div>
   <form method="post" action="/students" class="form-grid">
-    <label>Student Number</label>
-    <input name="student_number" required />
+    <label for="s_student_number">Student Number</label>
+    <input id="s_student_number" name="student_number" required placeholder="e.g. 2024-00123" />
 
-    <label>Full Name</label>
-    <input name="full_name" required />
+    <label for="s_full_name">Full Name</label>
+    <input id="s_full_name" name="full_name" required placeholder="Last Name, First Name" />
 
-    <label>Program</label>
-    <input name="program" />
+    <label for="s_program">Program</label>
+    <input id="s_program" name="program" placeholder="e.g. BS Aviation Technology" />
 
-    <label>Email</label>
-    <input name="email" type="email" />
+    <label for="s_email">Email</label>
+    <input id="s_email" name="email" type="email" placeholder="student@school.edu.ph" />
 
     <button type="submit">Save Student</button>
   </form>
@@ -27,35 +35,86 @@
     <h2>Student Directory</h2>
     <p>Total records: <strong><%= students.length %></strong></p>
   </div>
+
+  <div class="table-tools">
+    <label for="studentSearch" class="sr-only">Search students</label>
+    <input
+      id="studentSearch"
+      type="search"
+      placeholder="Search by name, student number, program, or email..."
+    />
+    <p id="studentSearchCount" class="helper-text">Showing <%= students.length %> records</p>
+  </div>
+
   <div class="table-wrap">
-    <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Student Number</th>
-        <th>Name</th>
-        <th>Program</th>
-        <th>Email</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (students.length === 0) { %>
+    <table id="studentTable">
+      <thead>
         <tr>
-          <td colspan="5">No students registered yet.</td>
+          <th>Student Number</th>
+          <th>Name</th>
+          <th>Program</th>
+          <th>Email</th>
+          <th>Action</th>
         </tr>
-      <% } %>
-      <% students.forEach(student => { %>
-        <tr>
-          <td><%= student.id %></td>
-          <td><%= student.student_number %></td>
-          <td><%= student.full_name %></td>
-          <td><%= student.program || "-" %></td>
-          <td><%= student.email || "-" %></td>
-        </tr>
-      <% }) %>
-    </tbody>
+      </thead>
+      <tbody>
+        <% if (students.length === 0) { %>
+          <tr>
+            <td colspan="5">
+              <div class="empty-state">
+                <div class="empty-state-icon">🎓</div>
+                <p>No students registered yet. Use the form above to add one.</p>
+              </div>
+            </td>
+          </tr>
+        <% } %>
+        <% students.forEach(student => { %>
+          <tr>
+            <td><%= student.student_number %></td>
+            <td><%= student.full_name %></td>
+            <td><%= student.program || "-" %></td>
+            <td><%= student.email || "-" %></td>
+            <td>
+              <form method="post" action="/students/<%= student.id %>/delete"
+                    onsubmit="return confirm('Delete <%= student.full_name %>? This cannot be undone.')">
+                <button type="submit" class="danger btn-sm">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
     </table>
   </div>
 </section>
+
+<script>
+  (() => {
+    const searchInput = document.getElementById("studentSearch");
+    const table = document.getElementById("studentTable");
+    const countLabel = document.getElementById("studentSearchCount");
+    if (!searchInput || !table || !countLabel) return;
+
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const emptyRow = rows.find((r) => r.children.length === 1);
+    const dataRows = rows.filter((r) => r.children.length > 1);
+
+    function updateFilter() {
+      const q = searchInput.value.trim().toLowerCase();
+      let visible = 0;
+      dataRows.forEach((row) => {
+        const match = !q || row.textContent.toLowerCase().includes(q);
+        row.style.display = match ? "" : "none";
+        if (match) visible++;
+      });
+      if (emptyRow) emptyRow.style.display = dataRows.length === 0 ? "" : "none";
+      countLabel.textContent = q
+        ? `Showing ${visible} of ${dataRows.length} records`
+        : `Showing ${dataRows.length} records`;
+    }
+
+    searchInput.addEventListener("input", updateFilter);
+    updateFilter();
+  })();
+</script>
 
 <%- include("partials/footer") %>

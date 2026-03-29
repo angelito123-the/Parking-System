@@ -3,8 +3,40 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#003366">
   <title>NAAP Parking System</title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="manifest" href="/manifest.json" />
+  <script src="/offline-sync.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then(() => console.log('Service Worker registered'))
+          .catch((err) => console.error('SW registration failed:', err));
+      });
+    }
+
+    window.addEventListener('load', () => {
+      if (window.OfflineManager) {
+        OfflineManager.init((isOnline) => {
+          const badge = document.getElementById('networkIndicator');
+          if (badge) {
+            badge.textContent = isOnline ? '🟢 Online' : '🔴 Offline';
+            if (!isOnline) {
+              badge.style.background = '#fef2f2';
+              badge.style.color = '#991b1b';
+              badge.style.borderColor = '#fecaca';
+            } else {
+              badge.style.background = '';
+              badge.style.color = '';
+              badge.style.borderColor = '';
+            }
+          }
+        });
+      }
+    });
+  </script>
 </head>
 <%
   const pathNow = typeof currentPath === "string" ? currentPath : "";
@@ -15,7 +47,7 @@
     "/vehicles": "Vehicles",
     "/stickers": "Stickers",
     "/reports": "Reports",
-    "/scanner": "Scanner"
+    "/scanner": "Gate Console"
   };
   const pageTitle = pageTitleMap[pathNow] || "Verification";
 %>
@@ -36,8 +68,13 @@
         <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
         <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
         <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
-        <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Scanner</a>
+        <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Gate Console</a>
       </nav>
+      <div style="margin-top: auto; padding-top: 1.25rem; border-top: 1px solid var(--line); margin-top: 1.25rem;">
+        <a href="/logout" style="display:flex; align-items:center; gap:0.5rem; text-decoration:none; color: var(--muted); font-size:0.82rem; font-weight:600; padding:0.5rem 0.5rem; border-radius:4px; transition: background 0.15s;" onmouseover="this.style.background='#fee2e2'; this.style.color='#991b1b'" onmouseout="this.style.background='transparent'; this.style.color='var(--muted)'">
+          <span>⎋</span> Sign Out
+        </a>
+      </div>
     </aside>
     <div class="main-shell">
       <header class="topbar">
@@ -50,11 +87,11 @@
           <p class="meta-title">Current Module</p>
           <h2 class="page-title"><%= pageTitle %></h2>
           <div class="topbar-chips">
-            <span class="chip chip-live">Live Ops</span>
+            <span class="chip chip-live" id="networkIndicator">🟢 Online</span>
             <span class="chip" id="liveClock">--:--:--</span>
           </div>
           <div class="quick-links">
-            <a href="/scanner" class="quick-link">Open Scanner</a>
+            <a href="/scanner" class="quick-link">Gate Console</a>
             <a href="/reports" class="quick-link">View Reports</a>
           </div>
         </div>
