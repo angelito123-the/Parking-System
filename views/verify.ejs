@@ -368,7 +368,6 @@
           <label class="verify-gate-label" for="gateField">Gate Name</label>
           <input id="gateField" class="verify-gate-input" name="gate" value="Main Gate" />
           <div class="verify-btn-group">
-            <% if (result.last_action !== 'ENTRY') { %>
               <button type="submit" name="action" value="ENTRY" class="verify-btn" id="entryBtn" style="
                 background: linear-gradient(135deg, #16a34a, #15803d);
                 color: #fff;
@@ -384,8 +383,7 @@
                 <span style="font-size: 2rem; line-height:1;">🟢</span>
                 <span>Record ENTRY</span>
               </button>
-            <% } %>
-            <% if (result.last_action !== 'EXIT') { %>
+
               <button type="submit" name="action" value="EXIT" class="verify-btn" id="exitBtn" style="
                 background: linear-gradient(135deg, #dc2626, #b91c1c);
                 color: #fff;
@@ -401,7 +399,6 @@
                 <span style="font-size: 2rem; line-height:1;">🔴</span>
                 <span>Record EXIT</span>
               </button>
-            <% } %>
           </div>
           <p id="processingMsg" style="display:none; text-align:center; margin-top:0.75rem; color: var(--muted); font-size:0.85rem;">
             ⏳ Recording movement, please wait...
@@ -421,9 +418,14 @@
                 return;
               }
               submitted = true;
-              if(entryBtn) { entryBtn.disabled = true; entryBtn.style.opacity = '0.5'; }
-              if(exitBtn) { exitBtn.disabled = true; exitBtn.style.opacity = '0.5'; }
-              if(processingMsg) processingMsg.style.display = 'block';
+              
+              // We must use setTimeout to disable the buttons so the browser still
+              // captures and sends the button's "value" (ENTRY or EXIT) in the POST request
+              setTimeout(() => {
+                if(entryBtn) { entryBtn.disabled = true; entryBtn.style.opacity = '0.5'; }
+                if(exitBtn) { exitBtn.disabled = true; exitBtn.style.opacity = '0.5'; }
+                if(processingMsg) processingMsg.style.display = 'block';
+              }, 0);
             });
           })();
         </script>
