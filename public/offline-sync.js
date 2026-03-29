@@ -127,13 +127,39 @@ const OfflineManager = {
   // ─── OUTBOX SYNC (Upload mode) ────────────────────────────────────────────
 
   async queueMovement(token, action, gate, scannedAtMs) {
+    const timestamp = scannedAtMs || Date.now();
+    const actionUpper = action.toUpperCase();
+
+    // Prevent duplicate offline queue buildup (15-second cooldown)
+    const db = await openDB();
+    const recent = await new Promise(res => {
+      const store = db.transaction('outbox', 'readonly').objectStore('outbox');
+      store.getAll().onsuccess = (e) => res(e.target.result);
+    });
+
+    const isDuplicate = recent.some(m => 
+      m.token === token && 
+      m.action === actionUpper &&
+      (timestamp - (m.offline_timestamp || timestamp)) < 15000
+    );
+
+    if (isDuplicate) {
+      console.log("Duplicate offline scan blocked by cooldown.");
+      return { duplicate: true };
+    }
+
     const movement = {
       token,
-      action: action.toUpperCase(),
+      action: actionUpper,
       gate,
-      offline_timestamp: scannedAtMs || Date.now()
+      offline_timestamp: timestamp
     };
-    await dbTransaction('outbox', 'readwrite', store => store.add(movement));
+    
+    await new Promise(res => {
+      const tx = db.transaction('outbox', 'readwrite');
+      tx.objectStore('outbox').add(movement);
+      tx.oncomplete = () => res();
+    });
     
     // If online, immediately try to process the queue
     if (this.isOnline) {

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -38,75 +39,74 @@
     });
   </script>
 </head>
-<%
-  const pathNow = typeof currentPath === "string" ? currentPath : "";
-  const pageSlug = (pathNow === "/" ? "dashboard" : pathNow.replace(/\//g, "-").replace(/^-+/, "")) || "dashboard";
-  const pageTitleMap = {
-    "/": "Dashboard",
-    "/students": "Students",
-    "/vehicles": "Vehicles",
-    "/stickers": "Stickers",
-    "/reports": "Reports",
-    "/scanner": "Gate Console"
-  };
-  const pageTitle = pageTitleMap[pathNow] || "Verification";
-%>
-<body class="page-<%= pageSlug %>">
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="sidebar-user">
-        <div class="avatar-dot">N</div>
-        <div>
-          <p class="user-label">NAAP Guard</p>
-          <p class="user-sub">Access Control</p>
-        </div>
-      </div>
-      <p class="menu-title">Navigation</p>
-      <nav class="side-nav">
-        <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
-        <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
-        <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
-        <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
-        <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
-        <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Gate Console</a>
-      </nav>
-      <div style="margin-top: auto; padding-top: 1.25rem; border-top: 1px solid var(--line); margin-top: 1.25rem;">
-        <a href="/logout" style="display:flex; align-items:center; gap:0.5rem; text-decoration:none; color: var(--muted); font-size:0.82rem; font-weight:600; padding:0.5rem 0.5rem; border-radius:4px; transition: background 0.15s;" onmouseover="this.style.background='#fee2e2'; this.style.color='#991b1b'" onmouseout="this.style.background='transparent'; this.style.color='var(--muted)'">
-          <span>⎋</span> Sign Out
-        </a>
-      </div>
-    </aside>
-    <div class="main-shell">
-      <!-- Desktop Topbar -->
-      <header class="topbar desktop-only">
-        <div class="brand">
-          <p class="brand-kicker">National Aviation Academy of the Philippines</p>
-          <h1>Parking Management System</h1>
-          <p class="brand-sub">Student vehicle control, QR sticker issuance, and gate verification.</p>
-        </div>
-        <div class="topbar-meta">
-          <p class="meta-title">Current Module</p>
-          <h2 class="page-title"><%= pageTitle %></h2>
-          <div class="topbar-chips">
-            <span class="chip chip-live" id="networkIndicator">🟢 Online</span>
-            <span class="chip" id="liveClock">--:--:--</span>
-          </div>
-        </div>
-      </header>
+<% const pathNow=typeof currentPath==="string" ? currentPath : "" ; const pageSlug=(pathNow==="/" ? "dashboard" :
+  pathNow.replace(/\//g, "-" ).replace(/^-+/, "" )) || "dashboard" ; const pageTitleMap={ "/" : "Dashboard"
+  , "/students" : "Students" , "/vehicles" : "Vehicles" , "/stickers" : "Stickers" , "/reports" : "Reports" , "/scanner"
+  : "Gate Console" }; const pageTitle=pageTitleMap[pathNow] || "Verification" ; %>
 
-      <!-- Mobile Topbar -->
-      <header class="mobile-topbar mobile-only">
-        <div class="mobile-topbar-left">
-          <div class="mobile-avatar">N</div>
+  <body class="page-<%= pageSlug %>">
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-user">
+          <div class="avatar-dot">N</div>
           <div>
-            <p class="mobile-topbar-title">NAAP Parking</p>
-            <p class="mobile-topbar-sub"><%= pageTitle %></p>
+            <p class="user-label">NAAP Guard</p>
+            <p class="user-sub">Access Control</p>
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:0.5rem;">
-          <span class="chip chip-live" id="networkIndicator" style="font-size:0.7rem;">🟢 Online</span>
-          <span class="chip" id="liveClock" style="font-size:0.7rem;">--:--:--</span>
+        <p class="menu-title">Navigation</p>
+        <nav class="side-nav">
+          <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
+          <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
+          <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
+          <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
+          <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
+          <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Gate Console</a>
+        </nav>
+        <div style="margin-top: auto; padding-top: 1.25rem; border-top: 1px solid var(--line); margin-top: 1.25rem;">
+          <a href="/logout"
+            style="display:flex; align-items:center; gap:0.5rem; text-decoration:none; color: var(--muted); font-size:0.82rem; font-weight:600; padding:0.5rem 0.5rem; border-radius:4px; transition: background 0.15s;"
+            onmouseover="this.style.background='#fee2e2'; this.style.color='#991b1b'"
+            onmouseout="this.style.background='transparent'; this.style.color='var(--muted)'">
+            <span>⎋</span> Sign Out
+          </a>
         </div>
-      </header>
+      </aside>
+      <div class="main-shell">
+        <!-- Desktop Topbar -->
+        <header class="topbar desktop-only">
+          <div class="brand">
+            <p class="brand-kicker">National Aviation Academy of the Philippines</p>
+            <h1>Parking Management System</h1>
+            <p class="brand-sub">Student vehicle control, QR sticker issuance, and gate verification.</p>
+          </div>
+          <div class="topbar-meta">
+            <p class="meta-title">Current Module</p>
+            <h2 class="page-title">
+              <%= pageTitle %>
+            </h2>
+            <div class="topbar-chips">
+              <span class="chip chip-live" id="networkIndicator">🟢 Online</span>
+              <span class="chip" id="liveClock">--:--:--</span>
+            </div>
+          </div>
+        </header>
 
-      <main class="container">
+        <!-- Mobile Topbar -->
+        <header class="mobile-topbar mobile-only">
+          <div class="mobile-topbar-left">
+            <div class="mobile-avatar">N</div>
+            <div>
+              <p class="mobile-topbar-title">NAAP Parking</p>
+              <p class="mobile-topbar-sub">
+                <%= pageTitle %>
+              </p>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span class="chip chip-live" id="networkIndicator" style="font-size:0.7rem;">🟢 Online</span>
+            <span class="chip" id="liveClock" style="font-size:0.7rem;">--:--:--</span>
+          </div>
+        </header>
+
+        <main class="container">
