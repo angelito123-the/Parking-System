@@ -46,6 +46,67 @@
   --topbar-bg: linear-gradient(135deg, #0f2942 0%, #1e3a5f 50%, #1e40af 100%);
 }
 
+/* ── Dark Mode ──────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg: #0d1117;
+  --sidebar: #161b22;
+  --surface: #1c2128;
+  --surface-soft: #21262d;
+  --line: #30363d;
+  --line-strong: #484f58;
+  --text: #e6edf3;
+  --text-secondary: #b1bac4;
+  --muted: #8b949e;
+
+  --blue-soft: rgba(37, 99, 235, 0.12);
+  --blue-chip: rgba(59, 130, 246, 0.15);
+
+  --green-soft: rgba(21, 128, 61, 0.15);
+  --green-border: rgba(187, 247, 208, 0.2);
+  --red-soft: rgba(190, 18, 60, 0.12);
+  --red-border: rgba(254, 205, 211, 0.15);
+  --orange-soft: rgba(194, 65, 12, 0.12);
+  --orange-border: rgba(253, 215, 170, 0.15);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+[data-theme="dark"] body {
+  background-image:
+    radial-gradient(ellipse at 80% 10%, rgba(59, 130, 246, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 10% 90%, rgba(30, 64, 175, 0.03) 0%, transparent 60%);
+}
+
+/* Dark mode toggle button */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 0.15s ease;
+  box-shadow: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: none;
+  box-shadow: none;
+}
+
 * {
   box-sizing: border-box;
 }

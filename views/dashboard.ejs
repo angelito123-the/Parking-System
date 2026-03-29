@@ -170,39 +170,38 @@
 
 <script>
   (() => {
-    // Movement table search
+    // ── Movement search ──────────────────────────────────────────────
     const searchInput = document.getElementById("movementSearch");
     const table = document.getElementById("movementTable");
     const countLabel = document.getElementById("movementSearchCount");
-    if (searchInput && table && countLabel) {
-      const rows = Array.from(table.querySelectorAll("tbody tr"));
-      const emptyRow = rows.find((r) => r.children.length === 1);
-      const dataRows = rows.filter((r) => r.children.length > 1);
-      function updateFilter() {
-        const q = searchInput.value.trim().toLowerCase();
-        let visible = 0;
-        dataRows.forEach((row) => {
-          const match = !q || row.textContent.toLowerCase().includes(q);
-          row.style.display = match ? "" : "none";
-          if (match) visible++;
-        });
-        if (emptyRow) emptyRow.style.display = dataRows.length === 0 ? "" : "none";
-        countLabel.textContent = q
-          ? `Showing ${visible} matching records`
-          : `Showing ${dataRows.length} records`;
-      }
-      searchInput.addEventListener("input", updateFilter);
-      updateFilter();
+
+    function applySearch() {
+      if (!searchInput || !table || !countLabel) return;
+      const q = searchInput.value.trim().toLowerCase();
+      const rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.children.length > 1);
+      let visible = 0;
+      rows.forEach(row => {
+        const match = !q || row.textContent.toLowerCase().includes(q);
+        row.style.display = match ? "" : "none";
+        if (match) visible++;
+      });
+      countLabel.textContent = q ? `Showing ${visible} matching records` : `Showing ${rows.length} records`;
+    }
+    if (searchInput) searchInput.addEventListener("input", applySearch);
+
+    // ── PHT formatter ────────────────────────────────────────────────
+    function toPHT(dateStr) {
+      return new Date(dateStr).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
     }
 
-    // Auto-refresh "Currently Inside" panel
-    const tbody = document.getElementById("insideVehiclesBody");
-    const countEl = document.getElementById("currentlyInsideCount");
+    // ── Currently Inside table ────────────────────────────────────────
+    const insideBody    = document.getElementById("insideVehiclesBody");
+    const insideCount   = document.getElementById("currentlyInsideCount");
     const lastUpdatedEl = document.getElementById("insideLastUpdated");
-    const refreshBtn = document.getElementById("refreshInsideBtn");
+    const refreshBtn    = document.getElementById("refreshInsideBtn");
 
     function renderInsideRow(item) {
-      const enteredAt = item.entered_at ? new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : "-";
+      const enteredAt = item.entered_at ? toPHT(item.entered_at) : "-";
       return `<tr>
         <td>${item.student_number || "-"}</td>
         <td>${item.full_name || "-"}</td>
@@ -214,39 +213,111 @@
       </tr>`;
     }
 
-    async function refreshInsideVehicles() {
+    function renderEmptyInside() {
+      return `<tr><td colspan="7">
+        <div class="empty-state">
+          <div class="empty-state-icon">🚗</div>
+          <p>No vehicles currently inside campus.</p>
+        </div>
+      </td></tr>`;
+    }
+
+    // ── Movement table ────────────────────────────────────────────────
+    const movementTbody   = table ? table.querySelector("tbody") : null;
+    const latestUpdates   = document.querySelector(".updates-list");
+
+    function renderMovementRow(scan) {
+      const result  = (scan.result  || "INVALID").toLowerCase();
+      const action  = (scan.action  || "VERIFY").toLowerCase();
+      return `<tr>
+        <td>${toPHT(scan.scanned_at)}</td>
+        <td>${scan.student_number || "-"}</td>
+        <td>${scan.full_name || "-"}</td>
+        <td>${scan.plate_number || "-"}</td>
+        <td>${scan.sticker_code || "-"}</td>
+        <td><span class="badge badge-${result}">${scan.result || "-"}</span></td>
+        <td><span class="badge badge-action">${scan.action || "-"}</span></td>
+        <td>${scan.gate || "-"}</td>
+      </tr>`;
+    }
+
+    function renderUpdateItem(scan) {
+      const result = (scan.result || "invalid").toLowerCase();
+      const action = (scan.action || "verify").toLowerCase();
+      return `<div class="update-item">
+        <span class="update-dot ${result} ${action}"></span>
+        <div>
+          <p><strong>${scan.full_name || "Unknown Student"}</strong>
+            <span class="update-action ${action}">${scan.action || "VERIFY"}</span>
+          </p>
+          <p class="helper-text">${scan.gate || "Main Gate"} — ${toPHT(scan.scanned_at)}</p>
+        </div>
+      </div>`;
+    }
+
+    // ── Stat card IDs ─────────────────────────────────────────────────
+    const statIds = {
+      students:       document.querySelectorAll('.card p')[0],
+      vehicles:       document.querySelectorAll('.card p')[1],
+      activeStickers: document.querySelectorAll('.card p')[2],
+      todayEntries:   document.querySelectorAll('.card p')[3],
+      todayExits:     document.querySelectorAll('.card p')[4],
+      currentlyInside: insideCount
+    };
+
+    // ── Full dashboard refresh ────────────────────────────────────────
+    async function refreshDashboard() {
       try {
-        const resp = await fetch("/api/inside-vehicles");
+        const resp = await fetch("/api/dashboard-stats");
         const data = await resp.json();
         if (!data.ok) return;
 
+        // Update stat cards
+        const m = data.metrics || {};
+        if (statIds.students)       statIds.students.textContent       = m.students       ?? "-";
+        if (statIds.vehicles)       statIds.vehicles.textContent       = m.vehicles       ?? "-";
+        if (statIds.activeStickers) statIds.activeStickers.textContent = m.activeStickers ?? "-";
+        if (statIds.todayEntries)   statIds.todayEntries.textContent   = m.todayEntries   ?? "-";
+        if (statIds.todayExits)     statIds.todayExits.textContent     = m.todayExits     ?? "-";
+        if (insideCount)            insideCount.textContent            = m.currentlyInside ?? "-";
+
+        // Update inside vehicles
         const vehicles = data.insideVehicles || [];
-        if (vehicles.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7">
-            <div class="empty-state">
-              <div class="empty-state-icon">🚗</div>
-              <p>No vehicles currently inside campus.</p>
-            </div>
-          </td></tr>`;
-        } else {
-          tbody.innerHTML = vehicles.map(renderInsideRow).join("");
+        if (insideBody) {
+          insideBody.innerHTML = vehicles.length
+            ? vehicles.map(renderInsideRow).join("")
+            : renderEmptyInside();
         }
-        if (countEl) countEl.textContent = vehicles.length;
-        if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}`;
+
+        // Update movement table
+        const logs = data.movementLogs || [];
+        if (movementTbody) {
+          movementTbody.innerHTML = logs.length
+            ? logs.map(renderMovementRow).join("")
+            : `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records yet.</p></div></td></tr>`;
+          applySearch();
+        }
+
+        // Update latest updates sidebar
+        if (latestUpdates) {
+          latestUpdates.innerHTML = logs.length
+            ? logs.slice(0, 8).map(renderUpdateItem).join("")
+            : `<div class="empty-state"><div class="empty-state-icon">🔔</div><p>No updates yet.</p></div>`;
+        }
+
+        if (lastUpdatedEl) {
+          lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}`;
+        }
       } catch (err) {
         if (lastUpdatedEl) lastUpdatedEl.textContent = "Refresh failed — retrying...";
       }
     }
 
-    // Initial load and periodic refresh every 30 seconds
-    refreshInsideVehicles();
-    const refreshInterval = setInterval(refreshInsideVehicles, 30000);
+    // Run every 20 seconds
+    refreshDashboard();
+    setInterval(refreshDashboard, 20000);
 
-    if (refreshBtn) {
-      refreshBtn.addEventListener("click", () => {
-        refreshInsideVehicles();
-      });
-    }
+    if (refreshBtn) refreshBtn.addEventListener("click", refreshDashboard);
   })();
 </script>
 

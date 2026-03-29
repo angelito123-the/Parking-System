@@ -22,21 +22,31 @@
       if (window.OfflineManager) {
         OfflineManager.init((isOnline) => {
           const badge = document.getElementById('networkIndicator');
-          if (badge) {
-            badge.textContent = isOnline ? '🟢 Online' : '🔴 Offline';
-            if (!isOnline) {
-              badge.style.background = '#fef2f2';
-              badge.style.color = '#991b1b';
-              badge.style.borderColor = '#fecaca';
-            } else {
-              badge.style.background = '';
-              badge.style.color = '';
-              badge.style.borderColor = '';
+          const mobileBadge = document.getElementById('mobileNetworkIndicator');
+          [badge, mobileBadge].forEach(el => {
+            if (el) {
+              el.textContent = isOnline ? '🟢 Online' : '🔴 Offline';
+              if (!isOnline) {
+                el.style.background = '#fef2f2';
+                el.style.color = '#991b1b';
+                el.style.borderColor = '#fecaca';
+              } else {
+                el.style.background = '';
+                el.style.color = '';
+                el.style.borderColor = '';
+              }
             }
-          }
+          });
         });
       }
     });
+  </script>
+  <!-- Dark Mode Init (Prevent FOUC) -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
   </script>
 </head>
 <% const pathNow=typeof currentPath==="string" ? currentPath : "" ; const pageSlug=(pathNow==="/" ? "dashboard" :
@@ -86,6 +96,7 @@
               <%= pageTitle %>
             </h2>
             <div class="topbar-chips">
+              <button class="theme-toggle" id="themeToggle" title="Toggle Dark/Light Mode" style="margin-right: 0.5rem;">🌓</button>
               <span class="chip chip-live" id="networkIndicator">🟢 Online</span>
               <span class="chip" id="liveClock">--:--:--</span>
             </div>
@@ -104,9 +115,33 @@
             </div>
           </div>
           <div style="display:flex; align-items:center; gap:0.5rem;">
-            <span class="chip chip-live" id="networkIndicator" style="font-size:0.7rem;">🟢 Online</span>
+            <button class="theme-toggle" id="mobileThemeToggle" title="Toggle Dark/Light Mode" style="width: 28px; height: 28px; font-size: 0.85rem;">🌓</button>
+            <span class="chip chip-live" id="mobileNetworkIndicator" style="font-size:0.7rem;">🟢 Online</span>
             <span class="chip" id="liveClock" style="font-size:0.7rem;">--:--:--</span>
           </div>
         </header>
 
         <main class="container">
+        
+        <script>
+          // Theme Toggle Logic
+          window.addEventListener('DOMContentLoaded', () => {
+            const toggleBtn = document.getElementById('themeToggle');
+            const mobileToggleBtn = document.getElementById('mobileThemeToggle');
+            
+            const handleToggle = () => {
+              const currentTheme = document.documentElement.getAttribute('data-theme');
+              const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+              document.documentElement.setAttribute('data-theme', newTheme);
+              localStorage.setItem('theme', newTheme);
+              
+              // Update button icons if needed
+              [toggleBtn, mobileToggleBtn].forEach(btn => {
+                if(btn) btn.blur();
+              });
+            };
+
+            if (toggleBtn) toggleBtn.addEventListener('click', handleToggle);
+            if (mobileToggleBtn) mobileToggleBtn.addEventListener('click', handleToggle);
+          });
+        </script>

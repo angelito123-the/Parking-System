@@ -543,6 +543,17 @@ app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
   }
 });
 
+// API: full dashboard stats refresh (metrics + movement log)
+app.get("/api/dashboard-stats", requireAuth, async (req, res) => {
+  try {
+    const data = await getDashboardData();
+    res.json({ ok: true, ...data });
+  } catch (error) {
+    console.error("Dashboard stats API error:", error);
+    res.status(500).json({ ok: false, message: "Failed to fetch dashboard stats." });
+  }
+});
+
 app.get("/students", requireAuth, async (req, res) => {
   try {
     const [students] = await pool.query(

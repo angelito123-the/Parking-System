@@ -371,7 +371,68 @@
 
     entryBtn.addEventListener("click", () => recordMovement("ENTRY"));
     exitBtn.addEventListener("click", () => recordMovement("EXIT"));
+
+    // ── Scan History ──────────────────────────────────────────────────
+    const scanHistory = [];
+    const historyList = document.getElementById("scanHistoryList");
+    const historyEmpty = document.getElementById("scanHistoryEmpty");
+
+    function addToHistory(label, action, isOffline, isSuccess) {
+      const time = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
+      scanHistory.unshift({ label, action, isOffline, isSuccess, time });
+      if (scanHistory.length > 8) scanHistory.pop();
+      renderHistory();
+    }
+
+    function renderHistory() {
+      if (!historyList || !historyEmpty) return;
+      if (scanHistory.length === 0) {
+        historyEmpty.style.display = "";
+        historyList.innerHTML = "";
+        return;
+      }
+      historyEmpty.style.display = "none";
+      historyList.innerHTML = scanHistory.map(entry => {
+        const actionClass = entry.action === "ENTRY" ? "entry" : "exit";
+        const actionColor = entry.action === "ENTRY" ? "#15803d" : "#be123c";
+        const statusIcon  = entry.isSuccess ? "✅" : "⚠️";
+        const offlineTag  = entry.isOffline ? `<span style="font-size:0.65rem;background:var(--orange-soft);color:var(--orange-text);border:1px solid var(--orange-border);padding:0.1rem 0.4rem;border-radius:999px;font-weight:700;">OFFLINE</span>` : "";
+        return `<div style="display:flex;align-items:center;gap:0.65rem;padding:0.65rem 0.85rem;background:var(--surface-soft);border:1px solid var(--line);border-radius:var(--radius-sm);border-left:3px solid ${actionColor};">
+          <span style="font-size:1.1rem;line-height:1;">${statusIcon}</span>
+          <div style="flex:1;min-width:0;">
+            <p style="margin:0;font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${entry.label}</p>
+            <p style="margin:0;font-size:0.72rem;color:var(--muted);">${entry.time} ${offlineTag}</p>
+          </div>
+          <span class="badge badge-action" style="background:${entry.action==="ENTRY"?"var(--green-soft)":"var(--red-soft)"};color:${actionColor};border-color:${entry.action==="ENTRY"?"var(--green-border)":"var(--red-border)"};">${entry.action}</span>
+        </div>`;
+      }).join("");
+    }
+
+    // Patch recordMovement to push to history
+    const _origRecord = recordMovement;
+    // Override by wrapping it after both button listeners are attached
+    entryBtn.addEventListener("click", () => {
+      if (selectedLabel) addToHistory(selectedLabel, "ENTRY", !window.OfflineManager?.isOnline, true);
+    });
+    exitBtn.addEventListener("click", () => {
+      if (selectedLabel) addToHistory(selectedLabel, "EXIT", !window.OfflineManager?.isOnline, true);
+    });
+
+    renderHistory();
   })();
 </script>
+
+<!-- Scan History Panel -->
+<section class="panel" style="margin-top:1rem;">
+  <div class="section-head">
+    <h2>Recent Scans This Session</h2>
+    <p>Last 8 movements recorded since you opened this page.</p>
+  </div>
+  <div id="scanHistoryEmpty" style="text-align:center;padding:1.5rem;color:var(--muted);font-size:0.875rem;">
+    <div style="font-size:2rem;margin-bottom:0.5rem;opacity:0.5;">🕐</div>
+    No scans recorded yet this session.
+  </div>
+  <div id="scanHistoryList" style="display:grid;gap:0.4rem;"></div>
+</section>
 
 <%- include("partials/footer") %>
