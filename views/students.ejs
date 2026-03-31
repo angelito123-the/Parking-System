@@ -59,7 +59,7 @@
     <p id="studentSearchCount" class="helper-text">Showing <%= students.length %> records</p>
   </div>
 
-  <div class="table-wrap">
+  <div class="table-wrap desktop-only-table">
     <table id="studentTable">
       <thead>
         <tr>
@@ -98,6 +98,34 @@
       </tbody>
     </table>
   </div>
+
+  <!-- Mobile-Ready Cards -->
+  <div class="mobile-data-list" id="studentCards">
+    <% if (students.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-state-icon">🎓</div>
+        <p>No students registered yet.</p>
+      </div>
+    <% } %>
+    <% students.forEach(student => { %>
+      <div class="mobile-data-card" data-searchable="<%= student.student_number %> <%= student.full_name %> <%= student.program %> <%= student.email %>">
+        <div class="card-header">
+          <div class="card-title"><%= student.full_name %></div>
+          <span class="badge" style="background:var(--blue-soft); color:var(--blue-mid); border:1px solid rgba(37,99,235,0.2);"><%= student.student_number %></span>
+        </div>
+        <div class="card-body">
+          <div class="card-item">🎓 <strong>Program:</strong> <%= student.program || "-" %></div>
+          <div class="card-item">✉️ <strong>Email:</strong> <%= student.email || "-" %></div>
+        </div>
+        <div class="card-actions">
+          <form style="margin:0;" method="post" action="/students/<%= student.id %>/delete"
+                onsubmit="return confirm('Delete <%= student.full_name %>? This cannot be undone.')">
+            <button type="submit" class="danger btn-mobile-touch">Delete Student Record</button>
+          </form>
+        </div>
+      </div>
+    <% }) %>
+  </div>
   </section>
 </div>
 
@@ -109,21 +137,36 @@
     if (!searchInput || !table || !countLabel) return;
 
     const rows = Array.from(table.querySelectorAll("tbody tr"));
+    const cards = Array.from(document.querySelectorAll("#studentCards .mobile-data-card"));
     const emptyRow = rows.find((r) => r.children.length === 1);
-    const dataRows = rows.filter((r) => r.children.length > 1);
+    const emptyCard = document.querySelector("#studentCards .empty-state");
 
     function updateFilter() {
       const q = searchInput.value.trim().toLowerCase();
-      let visible = 0;
-      dataRows.forEach((row) => {
+      let visibleCount = 0;
+
+      // Filter Table Rows
+      rows.forEach((row) => {
+        if (row.children.length === 1) return; // Skip empty state row
         const match = !q || row.textContent.toLowerCase().includes(q);
         row.style.display = match ? "" : "none";
-        if (match) visible++;
+        if (match) visibleCount++;
       });
-      if (emptyRow) emptyRow.style.display = dataRows.length === 0 ? "" : "none";
+      if (emptyRow) emptyRow.style.display = (visibleCount === 0 && rows.length > 0) ? "" : "none";
+
+      // Filter Cards
+      let visibleCards = 0;
+      cards.forEach((card) => {
+        const text = card.dataset.searchable.toLowerCase();
+        const match = !q || text.includes(q);
+        card.style.display = match ? "flex" : "none";
+        if (match) visibleCards++;
+      });
+      if (emptyCard) emptyCard.style.display = (visibleCards === 0 && cards.length > 0) ? "block" : "none";
+
       countLabel.textContent = q
-        ? `Showing ${visible} of ${dataRows.length} records`
-        : `Showing ${dataRows.length} records`;
+        ? `Showing ${visibleCount || visibleCards} records`
+        : `Showing ${rows.length > 1 ? rows.length : cards.length} records`;
     }
 
     searchInput.addEventListener("input", updateFilter);

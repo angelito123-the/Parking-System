@@ -67,141 +67,147 @@
         </form>
       </section>
 
-    <section class="dashboard-grid">
-      <article class="panel">
+      <section class="dashboard-grid">
+        <article class="panel">
+          <div class="section-head">
+            <h2>Top Students</h2>
+            <p>Most frequently scanned students.</p>
+          </div>
+          <% if (studentStatsSafe.length===0) { %>
+            <div class="empty-state">
+              <div class="empty-state-icon">📊</div>
+              <p>No scan data found.</p>
+            </div>
+            <% } else { %>
+              <div class="table-wrap desktop-only-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Student Number</th>
+                      <th>Name</th>
+                      <th>Total Scans</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <% studentStatsSafe.forEach(item=> { %>
+                      <tr>
+                        <td><strong><%= item.student_number %></strong></td>
+                        <td><%= item.full_name %></td>
+                        <td><strong><%= item.total_scans %></strong></td>
+                      </tr>
+                      <% }) %>
+                  </tbody>
+                </table>
+              </div>
+              <!-- Mobile Cards for Top Students -->
+              <div class="mobile-data-list">
+                <% studentStatsSafe.forEach(item => { %>
+                  <div class="mobile-data-card">
+                    <div class="card-header">
+                      <div class="card-title"><%= item.full_name %></div>
+                      <span class="badge" style="background:var(--blue-soft); color:var(--blue-mid);"><%= item.total_scans %> Scans</span>
+                    </div>
+                    <div class="card-body">
+                      <div class="card-item">🆔 <strong>ID:</strong> <%= item.student_number %></div>
+                    </div>
+                  </div>
+                <% }) %>
+              </div>
+              <% } %>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <h2>Gate and Hour Trends</h2>
+            <p>Traffic distribution snapshots.</p>
+          </div>
+          <div class="mini-list">
+            <h4>By Gate</h4>
+            <% if (gateStatsSafe.length===0) { %>
+              <div class="empty-state"><p>No gate data.</p></div>
+              <% } else { %>
+                <% gateStatsSafe.forEach(item=> { %>
+                  <div class="mini-row">
+                    <span><%= item.gate || "Unspecified" %></span>
+                    <strong><%= item.total %></strong>
+                  </div>
+                  <% }) %>
+              <% } %>
+          </div>
+          <div class="mini-list" style="margin-top:1.5rem;">
+            <h4>By Hour</h4>
+            <% if (hourStatsSafe.length===0) { %>
+              <div class="empty-state"><p>No hourly data.</p></div>
+              <% } else { %>
+                <% hourStatsSafe.forEach(item=> { %>
+                  <div class="mini-row">
+                    <span><%= item.hour_slot %></span>
+                    <strong><%= item.total %></strong>
+                  </div>
+                  <% }) %>
+              <% } %>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
         <div class="section-head">
-          <h2>Top Students by Scans</h2>
-          <p>Most frequently scanned students in the selected period.</p>
+          <h2 style="font-size: 1.25rem;">Detailed Scan Records</h2>
+          <p>Total: <strong><%= rowsSafe.length %></strong> records.</p>
         </div>
-        <% if (studentStatsSafe.length===0) { %>
+        <% if (rowsSafe.length===0) { %>
           <div class="empty-state">
-            <div class="empty-state-icon">📊</div>
-            <p>No scan data found for the selected date range and gate filter.</p>
+            <div class="empty-state-icon">📋</div>
+            <p>No scan records found.</p>
           </div>
           <% } else { %>
-            <div class="table-wrap">
+            <div class="table-wrap desktop-only-table">
               <table>
                 <thead>
                   <tr>
-                    <th>Student Number</th>
-                    <th>Name</th>
-                    <th>Total Scans</th>
+                    <th>Date/Time</th>
+                    <th>Student</th>
+                    <th>Plate</th>
+                    <th>Sticker</th>
+                    <th>Result</th>
+                    <th>Movement</th>
+                    <th>Gate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <% studentStatsSafe.forEach(item=> { %>
+                  <% rowsSafe.forEach(row=> { %>
                     <tr>
-                      <td>
-                        <%= item.student_number %>
-                      </td>
-                      <td>
-                        <%= item.full_name %>
-                      </td>
-                      <td><strong>
-                          <%= item.total_scans %>
-                        </strong></td>
+                      <td style="color: var(--muted); font-size:0.8rem;"><%= new Date(row.scanned_at).toLocaleString('en-US', { hour:'numeric', minute:'numeric', month:'short', day:'numeric' }) %></td>
+                      <td><strong><%= row.student_number || "-" %></strong><br><small><%= row.full_name || "" %></small></td>
+                      <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= row.plate_number || "-" %></span></td>
+                      <td><%= row.sticker_code || "-" %></td>
+                      <td><span class="badge badge-<%= (row.result || " INVALID").toLowerCase() %>"><%= row.result || "-" %></span></td>
+                      <td><span class="badge badge-action"><%= row.action || "-" %></span></td>
+                      <td><%= row.gate || "-" %></td>
                     </tr>
                     <% }) %>
                 </tbody>
               </table>
             </div>
+
+            <!-- Mobile-Ready Cards for Detailed Records -->
+            <div class="mobile-data-list">
+              <% rowsSafe.forEach(row => { %>
+                <div class="mobile-data-card">
+                  <div class="card-header">
+                    <div class="card-title"><%= row.full_name || "Guest" %></div>
+                    <span class="badge badge-action"><%= row.action %></span>
+                  </div>
+                  <div class="card-body">
+                    <div class="card-item">🚗 <strong>Plate:</strong> <%= row.plate_number || "-" %></div>
+                    <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-<%= (row.result || 'INVALID').toLowerCase() %>"><%= row.result %></span></div>
+                    <div class="card-item">📅 <strong>Time:</strong> <%= new Date(row.scanned_at).toLocaleTimeString() %></div>
+                  </div>
+                </div>
+              <% }) %>
+            </div>
             <% } %>
-      </article>
-
-      <article class="panel">
-        <div class="section-head">
-          <h2>Gate and Hour Trends</h2>
-          <p>Traffic distribution by gate and time of day.</p>
-        </div>
-        <div class="mini-list">
-          <h4>By Gate</h4>
-          <% if (gateStatsSafe.length===0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">🚧</div>
-              <p>No gate data for this period.</p>
-            </div>
-            <% } else { %>
-              <% gateStatsSafe.forEach(item=> { %>
-                <div class="mini-row">
-                  <span>
-                    <%= item.gate || "Unspecified" %>
-                  </span>
-                  <strong>
-                    <%= item.total %>
-                  </strong>
-                </div>
-                <% }) %>
-                  <% } %>
-        </div>
-        <div class="mini-list">
-          <h4>By Hour</h4>
-          <% if (hourStatsSafe.length===0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">⏰</div>
-              <p>No hourly data for this period.</p>
-            </div>
-            <% } else { %>
-              <% hourStatsSafe.forEach(item=> { %>
-                <div class="mini-row">
-                  <span>
-                    <%= item.hour_slot %>
-                  </span>
-                  <strong>
-                    <%= item.total %>
-                  </strong>
-                </div>
-                <% }) %>
-                  <% } %>
-        </div>
-      </article>
-    </section>
-
-    <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
-      <div class="section-head">
-        <h2 style="font-size: 1.25rem;">Detailed Scan Records</h2>
-        <p>Complete scan logs for the selected range. Showing <strong>
-            <%= rowsSafe.length %>
-          </strong> records.</p>
-      </div>
-      <% if (rowsSafe.length===0) { %>
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <p>No scan records found for the selected filters.</p>
-          <p>Try widening the date range or changing the gate filter.</p>
-        </div>
-        <% } else { %>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date/Time</th>
-                  <th>Student Number</th>
-                  <th>Name</th>
-                  <th>Plate</th>
-                  <th>Sticker</th>
-                  <th>Result</th>
-                  <th>Action</th>
-                  <th>Gate</th>
-                </tr>
-              </thead>
-              <tbody>
-                <% rowsSafe.forEach(row=> { %>
-                  <tr>
-                    <td style="color: var(--muted);"><%= new Date(row.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
-                    <td><strong><%= row.student_number || "-" %></strong></td>
-                    <td><%= row.full_name || "-" %></td>
-                    <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= row.plate_number || "-" %></span></td>
-                    <td><%= row.sticker_code || "-" %></td>
-                    <td><span class="badge badge-<%= (row.result || " INVALID").toLowerCase() %>"><%= row.result || "-" %></span></td>
-                    <td><span class="badge badge-action"><%= row.action || "-" %></span></td>
-                    <td><%= row.gate || "-" %></td>
-                  </tr>
-                  <% }) %>
-              </tbody>
-            </table>
-          </div>
-          <% } %>
-    </section>
-  </div> <!-- overlap-wrapper end -->
+      </section>
+    </div> <!-- overlap-wrapper end -->
 
     <%- include("partials/footer") %>

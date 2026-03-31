@@ -33,13 +33,13 @@
       <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2.5rem; background: transparent;">
         <div class="section-head">
           <h2 style="font-size: 1.25rem;">Overview of Inside Vehicles</h2>
-          <p>Live roster of vehicles currently inside campus based on latest valid movement.</p>
+          <p>Live roster of vehicles currently inside campus.</p>
         </div>
         <div class="refresh-row" style="margin-bottom: 0.75rem;">
           <span id="insideLastUpdated" class="helper-text">Loading...</span>
           <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn" style="background: var(--surface-soft); color: var(--text); border: 1px solid var(--line);">↻ Refresh</button>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap desktop-only-table">
           <table>
             <thead>
               <tr>
@@ -48,15 +48,13 @@
                 <th>Plate</th>
                 <th>Sticker</th>
                 <th>Gate</th>
-                <th>Entered At</th>
-                <th>Minutes</th>
                 <th style="text-align: right; padding-right: 1.5rem;">Action</th>
               </tr>
             </thead>
             <tbody id="insideVehiclesBody">
               <% if (safeInsideVehicles.length === 0) { %>
                 <tr id="insideEmptyRow" style="box-shadow: none;">
-                  <td colspan="8" style="background: transparent; border: none;">
+                  <td colspan="6" style="background: transparent; border: none;">
                     <div class="empty-state">
                       <div class="empty-state-icon">🚗</div>
                       <p>No vehicles currently inside campus.</p>
@@ -71,8 +69,6 @@
                   <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= item.plate_number || "-" %></span></td>
                   <td><span class="badge badge-active"><%= item.sticker_code || "-" %></span></td>
                   <td><%= item.entry_gate || "-" %></td>
-                  <td style="color: var(--muted);"><%= new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
-                  <td><%= Number(item.minutes_inside || 0) %></td>
                   <td style="text-align: right;">
                     <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
                   </td>
@@ -80,6 +76,32 @@
               <% }) %>
             </tbody>
           </table>
+        </div>
+
+        <!-- Mobile-Ready Cards for Inside Vehicles -->
+        <div class="mobile-data-list" id="insideVehiclesCards">
+          <% if (safeInsideVehicles.length === 0) { %>
+            <div class="empty-state">
+              <div class="empty-state-icon">🚗</div>
+              <p>No vehicles inside campus.</p>
+            </div>
+          <% } %>
+          <% safeInsideVehicles.forEach(item => { %>
+            <div class="mobile-data-card" data-sticker-id="<%= item.sticker_id %>">
+              <div class="card-header">
+                <div class="card-title"><%= item.full_name || "Unknown" %></div>
+                <span class="badge badge-active"><%= item.sticker_code || "-" %></span>
+              </div>
+              <div class="card-body">
+                <div class="card-item">🚗 <strong>Plate:</strong> <%= item.plate_number || "-" %></div>
+                <div class="card-item">🚪 <strong>Gate:</strong> <%= item.entry_gate || "-" %></div>
+                <div class="card-item">⏰ <strong>In:</strong> <%= new Date(item.entered_at).toLocaleTimeString() %></div>
+              </div>
+              <div class="card-actions">
+                <button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit Vehicle</button>
+              </div>
+            </div>
+          <% }) %>
         </div>
       </section>
 
@@ -92,16 +114,15 @@
         <div class="table-tools">
           <label for="movementSearch" class="sr-only">Search student name or plate</label>
           <input id="movementSearch" type="search"
-            placeholder="Search by student name, plate, student number, or sticker..." />
+            placeholder="Search by name, plate, or student number..." />
           <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap desktop-only-table">
           <table id="movementTable">
             <thead>
               <tr>
                 <th>Date/Time</th>
-                <th>Student Number</th>
-                <th>Student Name</th>
+                <th>Student</th>
                 <th>Plate</th>
                 <th>Sticker</th>
                 <th>Result</th>
@@ -111,8 +132,8 @@
             </thead>
             <tbody>
               <% if (safeMovementLogs.length===0) { %>
-                <tr>
-                  <td colspan="8">
+                <tr id="movementEmptyRow" style="box-shadow: none;">
+                  <td colspan="7" style="background: transparent; border: none;">
                     <div class="empty-state">
                       <div class="empty-state-icon">📋</div>
                       <p>No scan records yet.</p>
@@ -121,15 +142,12 @@
                 </tr>
                 <% } %>
                   <% safeMovementLogs.forEach(scan=> { %>
-                    <tr>
-                      <td>
-                        <%= new Date(scan.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
+                    <tr class="movement-row">
+                      <td style="color:var(--muted); font-size:0.8rem;">
+                        <%= new Date(scan.scanned_at).toLocaleString('en-US', { hour: 'numeric', minute: 'numeric' }) %>
                       </td>
                       <td>
-                        <%= scan.student_number || "-" %>
-                      </td>
-                      <td>
-                        <%= scan.full_name || "-" %>
+                        <strong><%= scan.student_number || "-" %></strong><br><small><%= scan.full_name || "" %></small>
                       </td>
                       <td>
                         <%= scan.plate_number || "-" %>
@@ -137,25 +155,46 @@
                       <td>
                         <%= scan.sticker_code || "-" %>
                       </td>
-                      <td><span class="badge badge-<%= (scan.result || " INVALID").toLowerCase() %>"><%= scan.result
-                            || "-" %></span></td>
-                      <td><span class="badge badge-action">
-                          <%= scan.action || "-" %>
-                        </span></td>
+                      <td><span class="badge badge-<%= (scan.result || " INVALID").toLowerCase() %>"><%= scan.result %></span></td>
+                      <td><span class="badge badge-<%= (scan.action || " ").toLowerCase() %>"><%= scan.action %></span></td>
                       <td>
-                        <%= scan.gate || "-" %>
+                        <%= scan.gate_name || "-" %>
                       </td>
                     </tr>
                     <% }) %>
             </tbody>
           </table>
         </div>
+
+        <!-- Mobile-Ready Cards for Movement Logs -->
+        <div class="mobile-data-list" id="movementCards">
+          <% if (safeMovementLogs.length === 0) { %>
+            <div class="empty-state">
+              <div class="empty-state-icon">📋</div>
+              <p>No scan records yet.</p>
+            </div>
+          <% } %>
+          <% safeMovementLogs.forEach(scan => { %>
+            <div class="mobile-data-card" data-searchable="<%= (scan.full_name || '').toLowerCase() %> <%= (scan.plate_number || '').toLowerCase() %> <%= (scan.student_number || '').toLowerCase() %>">
+              <div class="card-header">
+                <div class="card-title text-truncate" style="max-width: 60%;"><%= scan.full_name || "Guest" %></div>
+                <span class="badge badge-<%= (scan.action || ' ').toLowerCase() %>"><%= scan.action %></span>
+              </div>
+              <div class="card-body">
+                <div class="card-item">🚗 <strong>Plate:</strong> <%= scan.plate_number || "-" %></div>
+                <div class="card-item">🪪 <strong>Sticker:</strong> <%= scan.sticker_code || "-" %></div>
+                <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-<%= (scan.result || 'INVALID').toLowerCase() %>"><%= scan.result %></span></div>
+                <div class="card-item">📅 <strong>Time:</strong> <%= new Date(scan.scanned_at).toLocaleTimeString() %></div>
+              </div>
+            </div>
+          <% }) %>
+        </div>
       </article>
 
       <article class="panel">
         <div class="section-head">
           <h2>Latest Updates</h2>
-          <p>Most recent gate activity snapshots.</p>
+          <p>Recent gate activity snapshots.</p>
         </div>
         <div class="updates-list">
           <% if (safeMovementLogs.length===0) { %>
@@ -178,8 +217,7 @@
                       </span>
                     </p>
                     <p class="helper-text">
-                      <%= scan.gate || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleString('en-US', {
-                          timeZone: 'Asia/Manila' }) %>
+                      <%= scan.gate_name || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleTimeString() %>
                     </p>
                   </div>
                 </div>
@@ -190,7 +228,6 @@
 
     <script>
       (() => {
-        // ── Movement search ──────────────────────────────────────────────
         const searchInput = document.getElementById("movementSearch");
         const table = document.getElementById("movementTable");
         const countLabel = document.getElementById("movementSearchCount");
@@ -198,32 +235,44 @@
         function applySearch() {
           if (!searchInput || !table || !countLabel) return;
           const q = searchInput.value.trim().toLowerCase();
-          const rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.children.length > 1);
-          let visible = 0;
+          const rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.id !== 'movementEmptyRow');
+          let tableVisible = 0;
           rows.forEach(row => {
             const match = !q || row.textContent.toLowerCase().includes(q);
             row.style.display = match ? "" : "none";
-            if (match) visible++;
+            if (match) tableVisible++;
           });
-          countLabel.textContent = q ? `Showing ${visible} matching records` : `Showing ${rows.length} records`;
+          
+          const cardsList = document.getElementById("movementCards");
+          const cardItems = cardsList ? Array.from(cardsList.querySelectorAll(".mobile-data-card")) : [];
+          const emptyCardState = cardsList ? cardsList.querySelector(".empty-state") : null;
+          let cardsVisible = 0;
+          
+          cardItems.forEach(card => {
+            const searchable = card.dataset.searchable.toLowerCase();
+            const match = !q || searchable.includes(q);
+            card.style.display = match ? "flex" : "none";
+            if (match) cardsVisible++;
+          });
+
+          if (emptyCardState) emptyCardState.style.display = (cardsVisible === 0 && cardItems.length > 0) ? "block" : "none";
+          countLabel.textContent = q ? `Found ${tableVisible || cardsVisible} records` : `Showing ${rows.length || cardItems.length} records`;
         }
         if (searchInput) searchInput.addEventListener("input", applySearch);
 
-        // ── PHT formatter ────────────────────────────────────────────────
         function toPHT(dateStr) {
           return new Date(dateStr).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
         }
 
-        // ── Currently Inside table ────────────────────────────────────────
         const insideBody = document.getElementById("insideVehiclesBody");
         const insideCount = document.getElementById("currentlyInsideCount");
         const lastUpdatedEl = document.getElementById("insideLastUpdated");
         const refreshBtn = document.getElementById("refreshInsideBtn");
 
         window.forceExit = async function(stickerId, btn) {
-          if (!confirm("Are you sure you want to force exit this vehicle?")) return;
+          if (!confirm("Force exit this vehicle?")) return;
           btn.disabled = true;
-          btn.textContent = "Exiting...";
+          btn.textContent = "...";
           try {
             const res = await fetch("/api/force-exit", {
               method: "POST",
@@ -231,64 +280,67 @@
               body: JSON.stringify({ sticker_id: stickerId })
             });
             const data = await res.json();
-            if (data.ok) {
-              refreshDashboard();
-            } else {
-              alert("Failed: " + data.message);
-              btn.disabled = false;
-              btn.textContent = "Force Exit";
-            }
-          } catch (e) {
-            console.error(e);
-            alert("Error communicating with server.");
-            btn.disabled = false;
-            btn.textContent = "Force Exit";
-          }
+            if (data.ok) refreshDashboard();
+            else { alert(data.message); btn.disabled = false; btn.textContent = "Force Exit"; }
+          } catch (e) { alert("Error"); btn.disabled = false; btn.textContent = "Force Exit"; }
         };
 
         function renderInsideRow(item) {
-          const enteredAt = item.entered_at ? toPHT(item.entered_at) : "-";
           return `<tr>
         <td><strong>${item.student_number || "-"}</strong></td>
         <td>${item.full_name || "-"}</td>
-        <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;">${item.plate_number || "-"}</span></td>
+        <td><span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.plate_number || "-"}</span></td>
         <td><span class="badge badge-active">${item.sticker_code || "-"}</span></td>
         <td>${item.entry_gate || "-"}</td>
-        <td style="color: var(--muted);">${enteredAt}</td>
-        <td>${Number(item.minutes_inside || 0)}</td>
-        <td style="text-align: right;">
-          <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button>
-        </td>
+        <td style="text-align:right;"><button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button></td>
       </tr>`;
         }
 
-        function renderEmptyInside() {
-          return `<tr id="insideEmptyRow" style="box-shadow: none;">
-        <td colspan="8" style="background: transparent; border: none;">
-        <div class="empty-state">
-          <div class="empty-state-icon">🚗</div>
-          <p>No vehicles currently inside campus.</p>
-        </div>
-      </td></tr>`;
+        function renderInsideCard(item) {
+          return `<div class="mobile-data-card" data-sticker-id="${item.sticker_id}">
+            <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div><span class="badge badge-active">${item.sticker_code || "-"}</span></div>
+            <div class="card-body">
+              <div class="card-item">🚗 <strong>Plate:</strong> ${item.plate_number || "-"}</div>
+              <div class="card-item">🚪 <strong>Gate:</strong> ${item.entry_gate || "-"}</div>
+              <div class="card-item">⏰ <strong>PHT:</strong> ${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</div>
+            </div>
+            <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit Vehicle</button></div>
+          </div>`;
         }
 
-        // ── Movement table ────────────────────────────────────────────────
+        function renderEmptyInside() {
+          return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles inside.</p></div>`;
+        }
+
         const movementTbody = table ? table.querySelector("tbody") : null;
+        const movementCards = document.getElementById("movementCards");
         const latestUpdates = document.querySelector(".updates-list");
 
         function renderMovementRow(scan) {
           const result = (scan.result || "INVALID").toLowerCase();
-          const action = (scan.action || "VERIFY").toLowerCase();
-          return `<tr>
+          const action = (scan.action || " ").toLowerCase();
+          return `<tr class="movement-row">
         <td>${toPHT(scan.scanned_at)}</td>
-        <td>${scan.student_number || "-"}</td>
-        <td>${scan.full_name || "-"}</td>
+        <td><strong>${scan.student_number || "-"}</strong><br><small>${scan.full_name || ""}</small></td>
         <td>${scan.plate_number || "-"}</td>
         <td>${scan.sticker_code || "-"}</td>
         <td><span class="badge badge-${result}">${scan.result || "-"}</span></td>
-        <td><span class="badge badge-action">${scan.action || "-"}</span></td>
-        <td>${scan.gate || "-"}</td>
+        <td><span class="badge badge-${action}">${scan.action || "-"}</span></td>
+        <td>${scan.gate_name || "-"}</td>
       </tr>`;
+        }
+
+        function renderMovementCard(scan) {
+          const result = (scan.result || "INVALID").toLowerCase();
+          const action = (scan.action || " ").toLowerCase();
+          return `<div class="mobile-data-card" data-searchable="${scan.full_name} ${scan.plate_number} ${scan.student_number}">
+            <div class="card-header"><div class="card-title text-truncate" style="max-width:60%;">${scan.full_name || "Guest"}</div><span class="badge badge-${action}">${scan.action || "VERIFY"}</span></div>
+            <div class="card-body">
+              <div class="card-item">🚗 <strong>Plate:</strong> ${scan.plate_number || "-"}</div>
+              <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-${result}">${scan.result}</span></div>
+              <div class="card-item">📅 <strong>Time:</strong> ${new Date(scan.scanned_at).toLocaleTimeString()}</div>
+            </div>
+          </div>`;
         }
 
         function renderUpdateItem(scan) {
@@ -296,16 +348,11 @@
           const action = (scan.action || "verify").toLowerCase();
           return `<div class="update-item">
         <span class="update-dot ${result} ${action}"></span>
-        <div>
-          <p><strong>${scan.full_name || "Unknown Student"}</strong>
-            <span class="update-action ${action}">${scan.action || "VERIFY"}</span>
-          </p>
-          <p class="helper-text">${scan.gate || "Main Gate"} — ${toPHT(scan.scanned_at)}</p>
-        </div>
+        <div><p><strong>${scan.full_name || "Unknown Student"}</strong> <span class="update-action ${action}">${scan.action || "VERIFY"}</span></p>
+          <p class="helper-text">${scan.gate_name || "Main Gate"} — ${toPHT(scan.scanned_at)}</p></div>
       </div>`;
         }
 
-        // ── Stat card IDs ─────────────────────────────────────────────────
         const statIds = {
           students: document.querySelectorAll('.hero-card p')[0],
           vehicles: document.querySelectorAll('.hero-card p')[1],
@@ -313,58 +360,57 @@
           currentlyInside: insideCount
         };
 
-        // ── Full dashboard refresh ────────────────────────────────────────
         async function refreshDashboard() {
           try {
             const resp = await fetch("/api/dashboard-stats");
             const data = await resp.json();
             if (!data.ok) return;
 
-            // Update stat cards
             const m = data.metrics || {};
             if (statIds.students) statIds.students.textContent = m.students ?? "-";
             if (statIds.vehicles) statIds.vehicles.textContent = m.vehicles ?? "-";
             if (statIds.activeStickers) statIds.activeStickers.textContent = m.activeStickers ?? "-";
             if (insideCount) insideCount.textContent = m.currentlyInside ?? "-";
 
-            // Update inside vehicles
             const vehicles = data.insideVehicles || [];
+            const insideCardsList = document.getElementById("insideVehiclesCards");
             if (insideBody) {
               insideBody.innerHTML = vehicles.length
                 ? vehicles.map(renderInsideRow).join("")
+                : `<tr id="insideEmptyRow"><td colspan="6">${renderEmptyInside()}</td></tr>`;
+            }
+            if (insideCardsList) {
+               insideCardsList.innerHTML = vehicles.length
+                ? vehicles.map(renderInsideCard).join("")
                 : renderEmptyInside();
             }
 
-            // Update movement table
             const logs = data.movementLogs || [];
             if (movementTbody) {
               movementTbody.innerHTML = logs.length
                 ? logs.map(renderMovementRow).join("")
-                : `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records yet.</p></div></td></tr>`;
-              applySearch();
+                : `<tr id="movementEmptyRow"><td colspan="7"><div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records yet.</p></div></td></tr>`;
             }
+            if (movementCards) {
+               movementCards.innerHTML = logs.length
+                ? logs.map(renderMovementCard).join("")
+                : `<div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records.</p></div>`;
+            }
+            applySearch();
 
-            // Update latest updates sidebar
             if (latestUpdates) {
               latestUpdates.innerHTML = logs.length
                 ? logs.slice(0, 8).map(renderUpdateItem).join("")
                 : `<div class="empty-state"><div class="empty-state-icon">🔔</div><p>No updates yet.</p></div>`;
             }
 
-            if (lastUpdatedEl) {
-              lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' })}`;
-            }
-          } catch (err) {
-            if (lastUpdatedEl) lastUpdatedEl.textContent = "Refresh failed — retrying...";
-          }
+            if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+          } catch (err) { console.error(err); }
         }
 
-        // Run every 20 seconds
         refreshDashboard();
         setInterval(refreshDashboard, 20000);
-
         if (refreshBtn) refreshBtn.addEventListener("click", refreshDashboard);
       })();
     </script>
-
     <%- include("partials/footer") %>

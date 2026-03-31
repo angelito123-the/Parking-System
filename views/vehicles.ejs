@@ -53,7 +53,7 @@
       <h2 style="font-size: 1.25rem;">Vehicle Registry</h2>
       <p>Manage existing records.</p>
     </div>
-  <div class="table-wrap">
+  <div class="table-wrap desktop-only-table">
     <table>
       <thead>
         <tr>
@@ -92,6 +92,34 @@
         <% }) %>
       </tbody>
     </table>
+  </div>
+
+  <!-- Mobile-Ready Cards -->
+  <div class="mobile-data-list">
+    <% if (vehicles.length === 0) { %>
+      <div class="empty-state">
+        <div class="empty-state-icon">🚗</div>
+        <p>No vehicles registered yet.</p>
+      </div>
+    <% } %>
+    <% vehicles.forEach(vehicle => { %>
+      <div class="mobile-data-card">
+        <div class="card-header">
+          <div class="card-title"><%= vehicle.plate_number %></div>
+          <span class="badge" style="background:var(--surface-soft); color:var(--text); border:1px solid var(--line);"><%= vehicle.color || "No Color" %></span>
+        </div>
+        <div class="card-body">
+          <div class="card-item">👤 <strong>Owner:</strong> <%= vehicle.full_name %> (<%= vehicle.student_number %>)</div>
+          <div class="card-item">🚘 <strong>Model:</strong> <%= vehicle.model || "-" %></div>
+        </div>
+        <div class="card-actions">
+          <form style="margin:0;" method="post" action="/vehicles/<%= vehicle.id %>/delete"
+                onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>?')">
+            <button type="submit" class="danger btn-mobile-touch">Delete Vehicle</button>
+          </form>
+        </div>
+      </div>
+    <% }) %>
   </div>
   </section>
 </div>
