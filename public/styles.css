@@ -1368,7 +1368,7 @@ body.is-leaving .main-shell {
   align-items: center; 
   overflow-x: auto; 
 }
-@media (max-width: 768px) { .top-nav-links { display: none !important; } }
+/* Mobile Top Nav Scrollable (Override display: none) */
 .top-nav-links a { 
   color: rgba(255, 255, 255, 0.7); 
   text-decoration: none; 
@@ -1423,4 +1423,57 @@ body.is-leaving .main-shell {
   position: relative;
   z-index: 10;
   min-height: 400px;
+}
+
+/* ── Mobile Responsiveness for Redesign ────────────────────── */
+@media (max-width: 768px) {
+  .top-nav {
+    padding: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+  }
+  .top-nav-links {
+    width: 100%;
+    justify-content: flex-start;
+    padding-bottom: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+  }
+  .top-nav-links a { font-size: 0.9rem; }
+  
+  .dashboard-hero {
+    padding: 1.5rem 1rem 4rem;
+  }
+  .hero-greeting h1 {
+    font-size: 1.5rem;
+  }
+  .hero-card {
+    min-width: 150px;
+    padding: 1rem;
+  }
+  .hero-card p {
+    font-size: 1.4rem;
+  }
+  
+  .overlap-wrapper {
+    margin: -2.5rem 1rem 1rem;
+    padding: 1rem;
+    border-radius: var(--radius-lg);
+  }
+  .overlap-wrapper .panel .section-head h2 { font-size: 1.1rem !important; }
+  
+  .table-wrap {
+    margin: 0 -1rem;
+    padding: 0 1rem;
+    width: calc(100% + 2rem);
+  }
+  
+  table { min-width: 600px; }
+  td, th { padding: 0.75rem 0.5rem; font-size: 0.8rem; }
+  td:first-child { padding-left: 1rem; }
+  td:last-child { padding-right: 1rem; }
+  
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
