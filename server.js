@@ -221,6 +221,7 @@ async function getDashboardData() {
   );
   const [insideVehicles] = await pool.query(
     `SELECT
+       s.id AS sticker_id,
        latest.scanned_at AS entered_at,
        latest.gate AS entry_gate,
        TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
@@ -506,6 +507,7 @@ app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
   try {
     const [insideVehicles] = await pool.query(
       `SELECT
+         s.id AS sticker_id,
          latest.scanned_at AS entered_at,
          latest.gate AS entry_gate,
          TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
@@ -888,6 +890,33 @@ app.post("/api/manual-movement", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Manual movement error:", error);
     res.status(500).json({ ok: false, message: "Failed to record movement." });
+  }
+});
+
+// API: force exit for a sticker (admin only)
+app.post("/api/force-exit", requireAuth, async (req, res) => {
+  const { sticker_id, gate } = req.body;
+  if (!sticker_id) return res.status(400).json({ ok: false, message: "Missing sticker_id" });
+
+  try {
+    const scanLog = await insertScanLog(
+      sticker_id,
+      "VALID",
+      "EXIT",
+      gate || "Admin Console",
+      "Forced Exit by Admin"
+    );
+
+    res.json({
+      ok: true,
+      movement_saved: true,
+      action: "EXIT",
+      scan_log_id: scanLog?.id || null,
+      scanned_at: scanLog?.scanned_at || null
+    });
+  } catch (error) {
+    console.error("Force exit error:", error);
+    res.status(500).json({ ok: false, message: "Failed to force exit." });
   }
 });
 
