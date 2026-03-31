@@ -1434,38 +1434,50 @@ body.is-leaving .main-shell {
 @media (max-width: 768px) {
   .top-nav {
     padding: 1rem;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1rem;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.75rem;
   }
   .top-nav-links {
     width: 100%;
-    justify-content: flex-start;
-    padding-bottom: 0.5rem;
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+    gap: 1.25rem;
     -webkit-overflow-scrolling: touch;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 0.75rem;
   }
-  .top-nav-links a { font-size: 0.9rem; }
+  .top-nav-links a { font-size: 0.85rem; padding: 0.25rem 0; }
+  .top-nav-actions { width: 100%; justify-content: center; margin-top: 0.25rem; }
   
   .dashboard-hero {
-    padding: 1.5rem 1rem 4rem;
+    padding: 1.5rem 1rem 3.5rem;
+    text-align: center;
   }
+  .hero-greeting h2 { font-size: 0.75rem; }
   .hero-greeting h1 {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
+  }
+  .hero-cards {
+    margin-top: 1rem;
+    justify-content: flex-start;
   }
   .hero-card {
-    min-width: 150px;
-    padding: 1rem;
+    min-width: 140px;
+    padding: 1rem 0.75rem;
   }
+  .hero-card h3 { font-size: 0.65rem; }
   .hero-card p {
-    font-size: 1.4rem;
+    font-size: 1.25rem;
   }
   
   .overlap-wrapper {
-    margin: -2.5rem 1rem 1rem;
-    padding: 1rem;
+    margin: -1.75rem 0.75rem 1rem;
+    padding: 1.25rem 1rem;
     border-radius: var(--radius-lg);
   }
-  .overlap-wrapper .panel .section-head h2 { font-size: 1.1rem !important; }
+  .overlap-wrapper .panel .section-head h2 { font-size: 1.05rem !important; }
   
   .table-wrap {
     margin: 0 -1rem;
@@ -1473,10 +1485,10 @@ body.is-leaving .main-shell {
     width: calc(100% + 2rem);
   }
   
-  table { min-width: 600px; }
-  td, th { padding: 0.75rem 0.5rem; font-size: 0.8rem; }
-  td:first-child { padding-left: 1rem; }
-  td:last-child { padding-right: 1rem; }
+  table { min-width: 500px; }
+  td, th { padding: 0.6rem 0.4rem; font-size: 0.75rem; }
+  td:first-child { padding-left: 0.75rem; }
+  td:last-child { padding-right: 0.75rem; }
   
   .form-grid {
     grid-template-columns: 1fr;
