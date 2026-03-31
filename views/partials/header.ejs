@@ -58,22 +58,25 @@
     <div class="app-shell">
       <!-- Top Navigation -->
       <nav class="top-nav">
-        <div class="brand">
-          <h1>NAAP Parking</h1>
+        <div class="top-nav-upper">
+          <div class="brand">
+            <h1>NAAP Parking</h1>
+          </div>
+          <div class="top-nav-actions">
+            <button class="theme-toggle" id="themeToggle" title="Toggle Mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">🌓</button>
+            <span class="chip chip-live desktop-only" id="networkIndicator" style="border-radius:999px;">🟢 Online</span>
+            <a href="/logout" style="color:rgba(255,255,255,0.7); text-decoration:none; font-size:1.2rem; margin:0 0.5rem;" title="Sign Out">⎋</a>
+            <div class="avatar-dot" style="width:32px; height:32px; font-size:0.8rem; box-shadow:none;">N</div>
+          </div>
         </div>
-        <div class="top-nav-links desktop-only">
+        
+        <div class="top-nav-links">
           <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
           <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
           <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
           <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
           <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
           <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Gate Console</a>
-        </div>
-        <div class="top-nav-actions">
-          <button class="theme-toggle" id="themeToggle" title="Toggle Mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">🌓</button>
-          <span class="chip chip-live desktop-only" id="networkIndicator" style="border-radius:999px;">🟢 Online</span>
-          <a href="/logout" style="color:rgba(255,255,255,0.7); text-decoration:none; font-size:1.2rem; margin:0 0.5rem;" title="Sign Out">⎋</a>
-          <div class="avatar-dot" style="width:36px; height:36px; font-size:0.85rem; box-shadow:none;">N</div>
         </div>
       </nav>
 
