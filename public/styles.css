@@ -82,6 +82,11 @@
     radial-gradient(ellipse at 10% 90%, rgba(30, 64, 175, 0.03) 0%, transparent 60%);
 }
 
+/* Dark Mode Color Overrides for Readability */
+[data-theme="dark"] .section-head h2 { color: var(--text); }
+[data-theme="dark"] .card p { color: var(--text); }
+[data-theme="dark"] .link-btn { color: var(--blue-light); }
+
 /* Dark mode toggle button */
 .theme-toggle {
   display: flex;
