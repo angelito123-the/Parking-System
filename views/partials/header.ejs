@@ -51,7 +51,7 @@
 </head>
 <% const pathNow=typeof currentPath==="string" ? currentPath : "" ; const pageSlug=(pathNow==="/" ? "dashboard" :
   pathNow.replace(/\//g, "-" ).replace(/^-+/, "" )) || "dashboard" ; const pageTitleMap={ "/" : "Dashboard"
-  , "/students" : "Students" , "/vehicles" : "Vehicles" , "/stickers" : "Stickers" , "/reports" : "Reports" , "/scanner"
+  , "/students" : "Students & Vehicles" , "/stickers" : "Stickers" , "/reports" : "Reports" , "/scanner"
   : "Gate Console" }; const pageTitle=pageTitleMap[pathNow] || "Verification" ; %>
 
   <body class="page-<%= pageSlug %>">
@@ -72,8 +72,7 @@
         
         <div class="top-nav-links">
           <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
-          <a href="/students" class="<%= pathNow === '/students' ? 'active' : '' %>">Students</a>
-          <a href="/vehicles" class="<%= pathNow === '/vehicles' ? 'active' : '' %>">Vehicles</a>
+          <a href="/students" class="<%= (pathNow === '/students' || pathNow === '/vehicles') ? 'active' : '' %>">Students &amp; Vehicles</a>
           <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
           <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
           <a href="/scanner" class="<%= pathNow === '/scanner' ? 'active' : '' %>">Gate Console</a>

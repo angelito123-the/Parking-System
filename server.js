@@ -208,6 +208,7 @@ async function getDashboardData() {
        sl.result,
        sl.action,
        sl.gate,
+       ps.slot_code AS parking_slot,
        s.sticker_code,
        st.full_name,
        st.student_number,
@@ -216,6 +217,7 @@ async function getDashboardData() {
      LEFT JOIN stickers s ON s.id = sl.sticker_id
      LEFT JOIN vehicles v ON v.id = s.vehicle_id
      LEFT JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
      ORDER BY sl.scanned_at DESC
      LIMIT 50`
   );
@@ -224,13 +226,15 @@ async function getDashboardData() {
        s.id AS sticker_id,
        latest.scanned_at AS entered_at,
        latest.gate AS entry_gate,
+       latest.slot_id,
+       ps.slot_code AS parking_slot,
        TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
        s.sticker_code,
        st.student_number,
        st.full_name,
        v.plate_number
      FROM (
-       SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at
+       SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at, sl.slot_id
        FROM scan_logs sl
        JOIN (
          SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
@@ -248,6 +252,7 @@ async function getDashboardData() {
      JOIN stickers s ON s.id = latest.sticker_id
      JOIN vehicles v ON v.id = s.vehicle_id
      JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = latest.slot_id
      WHERE latest.action = 'ENTRY'
      ORDER BY latest.scanned_at ASC
      LIMIT 20`
@@ -276,6 +281,7 @@ async function getReportsData(filters) {
       sl.result,
       sl.action,
       sl.gate,
+      ps.slot_code AS parking_slot,
       sl.notes,
       s.sticker_code,
       st.student_number,
@@ -285,6 +291,7 @@ async function getReportsData(filters) {
      LEFT JOIN stickers s ON s.id = sl.sticker_id
      LEFT JOIN vehicles v ON v.id = s.vehicle_id
      LEFT JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
      WHERE ${whereSql}
      ORDER BY sl.scanned_at DESC`,
     params
@@ -346,17 +353,99 @@ async function getReportsData(filters) {
   };
 }
 
-async function insertScanLog(stickerId, result, action, gate, notes) {
-  return insertScanLogWithDb(pool, stickerId, result, action, gate, notes);
+async function getAvailableParkingSlots(db = pool) {
+  const [rows] = await db.query(
+    `SELECT id, slot_code, zone
+     FROM parking_slots
+     WHERE status = 'available'
+       AND current_sticker_id IS NULL
+     ORDER BY zone ASC, slot_code ASC`
+  );
+  return rows;
 }
 
-async function insertScanLogWithDb(db, stickerId, result, action, gate, notes) {
+async function getCurrentParkingSlotBySticker(stickerId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT id, slot_code, zone
+     FROM parking_slots
+     WHERE current_sticker_id = ?
+     LIMIT 1`,
+    [stickerId]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function assignParkingSlot(db, stickerId, slotId) {
+  const [slotRows] = await db.query(
+    `SELECT id, slot_code, zone, status, current_sticker_id
+     FROM parking_slots
+     WHERE id = ?
+     FOR UPDATE`,
+    [slotId]
+  );
+
+  if (slotRows.length === 0) {
+    throw new Error("Selected parking slot does not exist.");
+  }
+
+  const slot = slotRows[0];
+  if (slot.status !== "available") {
+    throw new Error("Selected parking slot is not available.");
+  }
+  if (slot.current_sticker_id) {
+    throw new Error("Selected parking slot is already occupied.");
+  }
+
+  await db.query(
+    `UPDATE parking_slots
+     SET current_sticker_id = NULL
+     WHERE current_sticker_id = ?`,
+    [stickerId]
+  );
+  await db.query(
+    `UPDATE parking_slots
+     SET current_sticker_id = ?
+     WHERE id = ?`,
+    [stickerId, slotId]
+  );
+
+  return { id: slot.id, slot_code: slot.slot_code, zone: slot.zone };
+}
+
+async function releaseParkingSlot(db, stickerId) {
+  const [rows] = await db.query(
+    `SELECT id, slot_code, zone
+     FROM parking_slots
+     WHERE current_sticker_id = ?
+     FOR UPDATE`,
+    [stickerId]
+  );
+
+  const slot = rows.length > 0 ? rows[0] : null;
+  if (slot) {
+    await db.query(
+      `UPDATE parking_slots
+       SET current_sticker_id = NULL
+       WHERE id = ?`,
+      [slot.id]
+    );
+  }
+
+  return slot;
+}
+
+async function insertScanLog(stickerId, result, action, gate, notes, options = {}) {
+  return insertScanLogWithDb(pool, stickerId, result, action, gate, notes, options);
+}
+
+async function insertScanLogWithDb(db, stickerId, result, action, gate, notes, options = {}) {
+  const slotId = options.slotId || null;
   const [insertResult] = await db.query(
-    "INSERT INTO scan_logs (sticker_id, result, action, gate, notes) VALUES (?, ?, ?, ?, ?)",
-    [stickerId, result, action, gate, notes]
+    "INSERT INTO scan_logs (sticker_id, result, action, gate, slot_id, notes) VALUES (?, ?, ?, ?, ?, ?)",
+    [stickerId, result, action, gate, slotId, notes]
   );
   const [logRows] = await db.query(
-    "SELECT id, scanned_at FROM scan_logs WHERE id = ? LIMIT 1",
+    "SELECT id, scanned_at, slot_id FROM scan_logs WHERE id = ? LIMIT 1",
     [insertResult.insertId]
   );
 
@@ -365,7 +454,7 @@ async function insertScanLogWithDb(db, stickerId, result, action, gate, notes) {
 
 async function getLastValidMovement(stickerId, db = pool) {
   const [rows] = await db.query(
-    `SELECT id, action, scanned_at
+    `SELECT id, action, scanned_at, slot_id
      FROM scan_logs
      WHERE sticker_id = ?
        AND result = 'VALID'
@@ -448,7 +537,21 @@ async function resolveScan(token, gate = "Main Gate") {
     }
 
     const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
-    const scanLog = await insertScanLogWithDb(connection, sticker.id, "VALID", action, gate, "Verified");
+    const slot = action === "EXIT"
+      ? await getCurrentParkingSlotBySticker(sticker.id, connection)
+      : null;
+    const scanLog = await insertScanLogWithDb(
+      connection,
+      sticker.id,
+      "VALID",
+      action,
+      gate,
+      "Verified",
+      { slotId: slot?.id || null }
+    );
+    if (action === "EXIT") {
+      await releaseParkingSlot(connection, sticker.id);
+    }
     await connection.commit();
 
     return {
@@ -510,13 +613,15 @@ app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
          s.id AS sticker_id,
          latest.scanned_at AS entered_at,
          latest.gate AS entry_gate,
+         latest.slot_id,
+         ps.slot_code AS parking_slot,
          TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
          s.sticker_code,
          st.student_number,
          st.full_name,
          v.plate_number
        FROM (
-         SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at
+         SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at, sl.slot_id
          FROM scan_logs sl
          JOIN (
            SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
@@ -534,6 +639,7 @@ app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
        JOIN stickers s ON s.id = latest.sticker_id
        JOIN vehicles v ON v.id = s.vehicle_id
        JOIN students st ON st.id = v.student_id
+       LEFT JOIN parking_slots ps ON ps.id = latest.slot_id
        WHERE latest.action = 'ENTRY'
        ORDER BY latest.scanned_at ASC
        LIMIT 20`
@@ -558,17 +664,33 @@ app.get("/api/dashboard-stats", requireAuth, async (req, res) => {
 
 app.get("/students", requireAuth, async (req, res) => {
   try {
-    const [students] = await pool.query(
+    const [studentRows] = await pool.query(
       "SELECT * FROM students ORDER BY created_at DESC, id DESC"
     );
+    const [vehicleRows] = await pool.query(
+      `SELECT v.* FROM vehicles v ORDER BY v.created_at ASC, v.id ASC`
+    );
+    // Attach vehicles array to each student
+    const students = studentRows.map(s => ({
+      ...s,
+      vehicles: vehicleRows.filter(v => v.student_id === s.id)
+    }));
     const flash = req.query.success
       ? { type: "success", message: "Student saved successfully." }
+      : req.query.vsuccess
+      ? { type: "success", message: "Vehicle registered successfully." }
+      : req.query.esuccess
+      ? { type: "success", message: "Record updated successfully." }
       : req.query.error === "duplicate"
       ? { type: "error", message: "A student with that student number already exists." }
+      : req.query.error === "vduplicate"
+      ? { type: "error", message: "A vehicle with that plate number already exists." }
       : req.query.error === "delete"
       ? { type: "error", message: "Unable to delete student — they may still have linked vehicles." }
       : req.query.deleted
       ? { type: "success", message: "Student deleted successfully." }
+      : req.query.vdeleted
+      ? { type: "success", message: "Vehicle deleted successfully." }
       : null;
     res.render("students", { students, flash });
   } catch (error) {
@@ -578,18 +700,48 @@ app.get("/students", requireAuth, async (req, res) => {
 });
 
 app.post("/students", requireAuth, async (req, res) => {
-  const { student_number, full_name, program, email } = req.body;
+  const { student_number, full_name, program, email, plate_number, model, color } = req.body;
+  const connection = await pool.getConnection();
   try {
-    await pool.query(
+    await connection.beginTransaction();
+    const [result] = await connection.query(
       "INSERT INTO students (student_number, full_name, program, email) VALUES (?, ?, ?, ?)",
       [student_number, full_name, program || null, email || null]
     );
+    // If plate_number provided, also register a vehicle
+    if (plate_number && plate_number.trim()) {
+      await connection.query(
+        "INSERT INTO vehicles (student_id, plate_number, model, color) VALUES (?, ?, ?, ?)",
+        [result.insertId, plate_number.trim(), model || null, color || null]
+      );
+    }
+    await connection.commit();
     res.redirect("/students?success=1");
   } catch (error) {
+    await connection.rollback();
     if (error.code === "ER_DUP_ENTRY") {
       return res.redirect("/students?error=duplicate");
     }
     console.error("Create student error:", error);
+    res.redirect("/students?error=1");
+  } finally {
+    connection.release();
+  }
+});
+
+app.post("/students/:id/edit", requireAuth, async (req, res) => {
+  const { student_number, full_name, program, email } = req.body;
+  try {
+    await pool.query(
+      "UPDATE students SET student_number = ?, full_name = ?, program = ?, email = ? WHERE id = ?",
+      [student_number, full_name, program || null, email || null, req.params.id]
+    );
+    res.redirect("/students?esuccess=1");
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.redirect("/students?error=duplicate");
+    }
+    console.error("Edit student error:", error);
     res.redirect("/students?error=1");
   }
 });
@@ -604,29 +756,9 @@ app.post("/students/:id/delete", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/vehicles", requireAuth, async (req, res) => {
-  try {
-    const [students] = await pool.query(
-      "SELECT id, student_number, full_name FROM students ORDER BY full_name ASC"
-    );
-    const [vehicles] = await pool.query(
-      `SELECT v.*, s.student_number, s.full_name
-       FROM vehicles v
-       JOIN students s ON s.id = v.student_id
-       ORDER BY v.created_at DESC, v.id DESC`
-    );
-    const flash = req.query.success
-      ? { type: "success", message: "Vehicle saved successfully." }
-      : req.query.error === "delete"
-      ? { type: "error", message: "Unable to delete vehicle — it may still have linked stickers." }
-      : req.query.deleted
-      ? { type: "success", message: "Vehicle deleted successfully." }
-      : null;
-    res.render("vehicles", { vehicles, students, flash });
-  } catch (error) {
-    console.error("Vehicles error:", error);
-    res.status(500).send("An error occurred loading vehicles.");
-  }
+// /vehicles → redirect to unified page
+app.get("/vehicles", requireAuth, (req, res) => {
+  res.redirect("/students");
 });
 
 app.post("/vehicles", requireAuth, async (req, res) => {
@@ -636,20 +768,40 @@ app.post("/vehicles", requireAuth, async (req, res) => {
       "INSERT INTO vehicles (student_id, plate_number, model, color) VALUES (?, ?, ?, ?)",
       [student_id, plate_number, model || null, color || null]
     );
-    res.redirect("/vehicles?success=1");
+    res.redirect("/students?vsuccess=1");
   } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.redirect("/students?error=vduplicate");
+    }
     console.error("Create vehicle error:", error);
-    res.redirect("/vehicles?error=1");
+    res.redirect("/students?error=1");
+  }
+});
+
+app.post("/vehicles/:id/edit", requireAuth, async (req, res) => {
+  const { plate_number, model, color } = req.body;
+  try {
+    await pool.query(
+      "UPDATE vehicles SET plate_number = ?, model = ?, color = ? WHERE id = ?",
+      [plate_number, model || null, color || null, req.params.id]
+    );
+    res.redirect("/students?esuccess=1");
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.redirect("/students?error=vduplicate");
+    }
+    console.error("Edit vehicle error:", error);
+    res.redirect("/students?error=1");
   }
 });
 
 app.post("/vehicles/:id/delete", requireAuth, async (req, res) => {
   try {
     await pool.query("DELETE FROM vehicles WHERE id = ?", [req.params.id]);
-    res.redirect("/vehicles?deleted=1");
+    res.redirect("/students?vdeleted=1");
   } catch (error) {
     console.error("Delete vehicle error:", error);
-    res.redirect("/vehicles?error=delete");
+    res.redirect("/students?error=delete");
   }
 });
 
@@ -728,12 +880,16 @@ app.get("/verify/:token", async (req, res) => {
     // Get sticker info without logging automatically
     const verification = await getVerificationState(req.params.token);
     let lastAction = null;
+    let currentSlot = null;
+    let availableSlots = [];
     if (verification.ok && verification.sticker) {
        const lastMovement = await getLastValidMovement(verification.sticker.id);
        if (lastMovement) lastAction = lastMovement.action;
+       currentSlot = await getCurrentParkingSlotBySticker(verification.sticker.id);
+       availableSlots = await getAvailableParkingSlots();
     }
-    const result = { ...verification, last_action: lastAction };
-    res.render("verify", { result });
+    const result = { ...verification, last_action: lastAction, current_slot: currentSlot };
+    res.render("verify", { result, availableSlots });
   } catch (error) {
     console.error("Verify GET error:", error);
     res.status(500).send("An error occurred during verification.");
@@ -743,6 +899,7 @@ app.get("/verify/:token", async (req, res) => {
 app.post("/verify/:token/movement", async (req, res) => {
   const selectedAction = String(req.body.action || "").toUpperCase();
   const gate = req.body.gate || "Manual Verification";
+  const slotId = req.body.slot_id ? Number(req.body.slot_id) : null;
 
   if (!["ENTRY", "EXIT"].includes(selectedAction)) {
     return res.status(400).send("Invalid action. Please choose ENTRY or EXIT.");
@@ -751,7 +908,7 @@ app.post("/verify/:token/movement", async (req, res) => {
   try {
     const verification = await getVerificationState(req.params.token);
     if (!verification.ok) {
-      return res.render("verify", { result: verification });
+      return res.render("verify", { result: verification, availableSlots: [] });
     }
 
     const sticker = verification.sticker;
@@ -760,6 +917,7 @@ app.post("/verify/:token/movement", async (req, res) => {
     let duplicate_movement = false;
     let savedAction = selectedAction;
     let scanLog = null;
+    let currentSlot = null;
 
     try {
       await connection.beginTransaction();
@@ -771,7 +929,26 @@ app.post("/verify/:token/movement", async (req, res) => {
         await connection.rollback();
         duplicate_movement = true;
       } else {
-        scanLog = await insertScanLogWithDb(connection, sticker.id, "VALID", selectedAction, gate, "Movement selected manually");
+        if (selectedAction === "ENTRY") {
+          if (!slotId) {
+            throw new Error("Please choose a parking slot before recording entry.");
+          }
+          currentSlot = await assignParkingSlot(connection, sticker.id, slotId);
+        } else {
+          currentSlot = await getCurrentParkingSlotBySticker(sticker.id, connection);
+        }
+        scanLog = await insertScanLogWithDb(
+          connection,
+          sticker.id,
+          "VALID",
+          selectedAction,
+          gate,
+          "Movement selected manually",
+          { slotId: currentSlot?.id || null }
+        );
+        if (selectedAction === "EXIT") {
+          await releaseParkingSlot(connection, sticker.id);
+        }
         await connection.commit();
         movement_saved = true;
       }
@@ -785,6 +962,7 @@ app.post("/verify/:token/movement", async (req, res) => {
     const result = {
       ...verification,
       action: savedAction,
+      current_slot: currentSlot,
       movement_saved,
       duplicate_movement,
       message: duplicate_movement
@@ -793,10 +971,27 @@ app.post("/verify/:token/movement", async (req, res) => {
       scan_log_id: scanLog?.id || null,
       scanned_at: scanLog?.scanned_at || null
     };
-    res.render("verify", { result });
+    const availableSlots = movement_saved && selectedAction === "ENTRY"
+      ? []
+      : await getAvailableParkingSlots();
+    res.render("verify", { result, availableSlots });
   } catch (error) {
     console.error("Movement error:", error);
-    res.status(500).send("An error occurred recording movement.");
+    const verification = await getVerificationState(req.params.token).catch(() => null);
+    const currentSlot = verification?.ok && verification?.sticker
+      ? await getCurrentParkingSlotBySticker(verification.sticker.id).catch(() => null)
+      : null;
+    const availableSlots = await getAvailableParkingSlots().catch(() => []);
+    res.status(400).render("verify", {
+      result: {
+        ...(verification || { ok: false, result: "INVALID", message: "An error occurred recording movement." }),
+        current_slot: currentSlot,
+        movement_saved: false,
+        duplicate_movement: false,
+        message: error.message || "An error occurred recording movement."
+      },
+      availableSlots
+    });
   }
 });
 
@@ -822,7 +1017,22 @@ app.get("/api/gate-lookup", requireAuth, async (req, res) => {
          s.status AS sticker_status,
          s.sticker_code,
          s.qr_token,
-         s.expires_at
+         s.expires_at,
+         (
+           SELECT sl2.action
+           FROM scan_logs sl2
+           WHERE sl2.sticker_id = s.id
+             AND sl2.result = 'VALID'
+             AND sl2.action IN ('ENTRY', 'EXIT')
+           ORDER BY sl2.scanned_at DESC, sl2.id DESC
+           LIMIT 1
+         ) AS last_action,
+         (
+           SELECT ps.slot_code
+           FROM parking_slots ps
+           WHERE ps.current_sticker_id = s.id
+           LIMIT 1
+         ) AS current_slot
        FROM vehicles v
        JOIN students st ON st.id = v.student_id
        LEFT JOIN stickers s ON s.id = (
@@ -846,10 +1056,21 @@ app.get("/api/gate-lookup", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/parking-slots", requireAuth, async (req, res) => {
+  try {
+    const slots = await getAvailableParkingSlots();
+    res.json({ ok: true, slots });
+  } catch (error) {
+    console.error("Parking slots API error:", error);
+    res.status(500).json({ ok: false, message: "Failed to load parking slots.", slots: [] });
+  }
+});
+
 // API: manually record ENTRY or EXIT for a sticker (by qr_token)
 app.post("/api/manual-movement", requireAuth, async (req, res) => {
-  const { token, action, gate } = req.body;
+  const { token, action, gate, slot_id } = req.body;
   const selectedAction = String(action || "").toUpperCase();
+  const slotId = slot_id ? Number(slot_id) : null;
 
   if (!token) return res.status(400).json({ ok: false, message: "Missing sticker token." });
   if (!["ENTRY", "EXIT"].includes(selectedAction)) {
@@ -862,34 +1083,66 @@ app.post("/api/manual-movement", requireAuth, async (req, res) => {
       return res.json({ ok: false, message: verification.message, movement_saved: false });
     }
 
-    const lastMovement = await getLastValidMovement(verification.sticker.id);
-    if (lastMovement && lastMovement.action === selectedAction) {
-      return res.json({
-        ok: false,
-        movement_saved: false,
-        duplicate_movement: true,
-        message: `Vehicle's last recorded movement is already ${selectedAction}.`
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [verification.sticker.id]);
+
+      const lastMovement = await getLastValidMovement(verification.sticker.id, connection);
+      if (lastMovement && lastMovement.action === selectedAction) {
+        await connection.rollback();
+        return res.json({
+          ok: false,
+          movement_saved: false,
+          duplicate_movement: true,
+          message: `Vehicle's last recorded movement is already ${selectedAction}.`
+        });
+      }
+
+      let currentSlot = null;
+      if (selectedAction === "ENTRY") {
+        if (!slotId) {
+          await connection.rollback();
+          return res.status(400).json({ ok: false, message: "Please select a parking slot before recording entry." });
+        }
+        currentSlot = await assignParkingSlot(connection, verification.sticker.id, slotId);
+      } else {
+        currentSlot = await getCurrentParkingSlotBySticker(verification.sticker.id, connection);
+      }
+
+      const scanLog = await insertScanLogWithDb(
+        connection,
+        verification.sticker.id,
+        "VALID",
+        selectedAction,
+        gate || "Manual Gate",
+        "Recorded via Gate Console",
+        { slotId: currentSlot?.id || null }
+      );
+
+      if (selectedAction === "EXIT") {
+        await releaseParkingSlot(connection, verification.sticker.id);
+      }
+
+      await connection.commit();
+
+      res.json({
+        ok: true,
+        movement_saved: true,
+        action: selectedAction,
+        parking_slot: currentSlot?.slot_code || null,
+        scan_log_id: scanLog?.id || null,
+        scanned_at: scanLog?.scanned_at || null
       });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
     }
-
-    const scanLog = await insertScanLog(
-      verification.sticker.id,
-      "VALID",
-      selectedAction,
-      gate || "Manual Gate",
-      "Recorded via Gate Console"
-    );
-
-    res.json({
-      ok: true,
-      movement_saved: true,
-      action: selectedAction,
-      scan_log_id: scanLog?.id || null,
-      scanned_at: scanLog?.scanned_at || null
-    });
   } catch (error) {
     console.error("Manual movement error:", error);
-    res.status(500).json({ ok: false, message: "Failed to record movement." });
+    res.status(400).json({ ok: false, message: error.message || "Failed to record movement." });
   }
 });
 
@@ -899,24 +1152,40 @@ app.post("/api/force-exit", requireAuth, async (req, res) => {
   if (!sticker_id) return res.status(400).json({ ok: false, message: "Missing sticker_id" });
 
   try {
-    const scanLog = await insertScanLog(
-      sticker_id,
-      "VALID",
-      "EXIT",
-      gate || "Admin Console",
-      "Forced Exit by Admin"
-    );
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker_id]);
+      const currentSlot = await getCurrentParkingSlotBySticker(sticker_id, connection);
+      const scanLog = await insertScanLogWithDb(
+        connection,
+        sticker_id,
+        "VALID",
+        "EXIT",
+        gate || "Admin Console",
+        "Forced Exit by Admin",
+        { slotId: currentSlot?.id || null }
+      );
+      await releaseParkingSlot(connection, sticker_id);
+      await connection.commit();
 
-    res.json({
-      ok: true,
-      movement_saved: true,
-      action: "EXIT",
-      scan_log_id: scanLog?.id || null,
-      scanned_at: scanLog?.scanned_at || null
-    });
+      res.json({
+        ok: true,
+        movement_saved: true,
+        action: "EXIT",
+        parking_slot: currentSlot?.slot_code || null,
+        scan_log_id: scanLog?.id || null,
+        scanned_at: scanLog?.scanned_at || null
+      });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error("Force exit error:", error);
-    res.status(500).json({ ok: false, message: "Failed to force exit." });
+    res.status(400).json({ ok: false, message: error.message || "Failed to force exit." });
   }
 });
 
@@ -935,6 +1204,7 @@ app.get("/reports", requireAuth, async (req, res) => {
         "result",
         "action",
         "gate",
+        "parking_slot",
         "notes"
       ];
       const lines = [header.join(",")];
@@ -949,6 +1219,7 @@ app.get("/reports", requireAuth, async (req, res) => {
             escapeCsv(row.result),
             escapeCsv(row.action),
             escapeCsv(row.gate),
+            escapeCsv(row.parking_slot),
             escapeCsv(row.notes)
           ].join(",")
         );
