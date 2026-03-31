@@ -2,17 +2,30 @@
 
 <% const pageFlash = typeof flash !== 'undefined' ? flash : null; %>
 
-<% if (pageFlash) { %>
-  <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
-    <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Vehicle Management</h1>
   </div>
-<% } %>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Registered Vehicles</h3>
+      <p><%= vehicles.length %></p>
+    </div>
+  </div>
+  <% if (pageFlash) { %>
+    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
+      <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+    </div>
+  <% } %>
+</section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Vehicle Registration</h2>
-    <p>Bind each vehicle to an authorized student profile.</p>
-  </div>
+<div class="overlap-wrapper" style="display: grid; gap: 3rem;">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Vehicle Registration</h2>
+      <p>Bind each vehicle to an authorized student profile.</p>
+    </div>
   <form method="post" action="/vehicles" class="form-grid">
     <label for="v_student_id">Student</label>
     <select id="v_student_id" name="student_id" required>
@@ -35,11 +48,11 @@
   </form>
 </section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Vehicle Registry</h2>
-    <p>Total records: <strong><%= vehicles.length %></strong></p>
-  </div>
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Vehicle Registry</h2>
+      <p>Manage existing records.</p>
+    </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -53,8 +66,8 @@
       </thead>
       <tbody>
         <% if (vehicles.length === 0) { %>
-          <tr>
-            <td colspan="5">
+          <tr style="box-shadow: none;">
+            <td colspan="5" style="background: transparent; border: none;">
               <div class="empty-state">
                 <div class="empty-state-icon">🚗</div>
                 <p>No vehicles registered yet. Use the form above to add one.</p>
@@ -64,13 +77,14 @@
         <% } %>
         <% vehicles.forEach(vehicle => { %>
           <tr>
-            <td><%= vehicle.student_number %> — <%= vehicle.full_name %></td>
-            <td><%= vehicle.plate_number %></td>
-            <td><%= vehicle.model || "-" %></td>
-            <td><%= vehicle.color || "-" %></td>
-            <td>
+            <td><strong><%= vehicle.student_number %></strong> <span style="color:var(--muted); font-size:0.8rem; margin-left:0.5rem;"><%= vehicle.full_name %></span></td>
+            <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= vehicle.plate_number %></span></td>
+            <td style="color: var(--muted);"><%= vehicle.model || "-" %></td>
+            <td style="color: var(--muted);"><%= vehicle.color || "-" %></td>
+            <td style="text-align: right; padding-right: 1.5rem;">
               <form method="post" action="/vehicles/<%= vehicle.id %>/delete"
-                    onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>? This cannot be undone.')">
+                    onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>? This cannot be undone.')"
+                    style="margin:0; text-align:right;">
                 <button type="submit" class="danger btn-sm">Delete</button>
               </form>
             </td>
@@ -79,6 +93,7 @@
       </tbody>
     </table>
   </div>
-</section>
+  </section>
+</div>
 
 <%- include("partials/footer") %>

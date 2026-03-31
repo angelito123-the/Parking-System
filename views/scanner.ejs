@@ -1,13 +1,20 @@
 <%- include("partials/header") %>
 
-<section class="panel">
-  <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-    <h2 style="margin:0; font-family:'Outfit',sans-serif; font-size:1.3rem;">Gate Console</h2>
-    <button id="toggleCameraBtn" class="btn" style="background:var(--navy); color:#fff; display:flex; align-items:center; gap:0.5rem; flex: 1; justify-content: center; min-width: 200px;">
-      📷 Open Scanner
-    </button>
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Gate Console HUD</h1>
   </div>
-  <p style="color:var(--muted); font-size:0.9rem; margin-bottom: 1.25rem;">Search for a student manually, or use the camera to scan stickers offline.</p>
+  <p style="color: rgba(255,255,255,0.8); margin-top: 0.5rem;">Stationary operator dashboard. Search for students manually or launch the camera reader.</p>
+</section>
+
+<div class="overlap-wrapper" style="display: grid; gap: 2rem;">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+      <button id="toggleCameraBtn" class="btn" style="background:var(--navy); color:#fff; display:flex; align-items:center; gap:0.5rem; flex: 1; justify-content: center; min-width: 200px; padding: 1rem; font-size: 1.1rem; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);">
+        📷 Launch Camera Scanner
+      </button>
+    </div>
 
   <!-- In-App Camera Container -->
   <div id="cameraWrapper" style="display:none; background:#000; border-radius:8px; overflow:hidden; margin-bottom: 1.5rem; position:relative;">
@@ -32,7 +39,7 @@
   <button type="button" id="gateSearchBtn" class="btn" style="width:100%;">Search</button>
 </section>
 
-<section class="panel">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
   <div class="section-head">
     <h2>Scanner Results</h2>
     <p>Select a vehicle to record gate movement.</p>
@@ -41,7 +48,7 @@
   <div id="gateResultsContainer"></div>
 </section>
 
-<section class="panel" id="gateLogPanel" style="display:none;">
+  <section class="panel" id="gateLogPanel" style="display:none; border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
   <div class="section-head">
     <h2>Record Movement</h2>
     <p id="gateLogInfo">Recording for selected vehicle.</p>
@@ -423,7 +430,7 @@
 </script>
 
 <!-- Scan History Panel -->
-<section class="panel" style="margin-top:1rem;">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
   <div class="section-head">
     <h2>Recent Scans This Session</h2>
     <p>Last 8 movements recorded since you opened this page.</p>
@@ -434,5 +441,6 @@
   </div>
   <div id="scanHistoryList" style="display:grid;gap:0.4rem;"></div>
 </section>
+</div> <!-- end overlap-wrapper -->
 
 <%- include("partials/footer") %>

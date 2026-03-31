@@ -2,17 +2,30 @@
 
 <% const pageFlash = typeof flash !== 'undefined' ? flash : null; %>
 
-<% if (pageFlash) { %>
-  <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
-    <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Student Management</h1>
   </div>
-<% } %>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Enrolled Students</h3>
+      <p><%= students.length %></p>
+    </div>
+  </div>
+  <% if (pageFlash) { %>
+    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
+      <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+    </div>
+  <% } %>
+</section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Student Registration</h2>
-    <p>Add officially enrolled students eligible for parking access.</p>
-  </div>
+<div class="overlap-wrapper" style="display: grid; gap: 3rem;">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Student Registration</h2>
+      <p>Add officially enrolled students eligible for parking access.</p>
+    </div>
   <form method="post" action="/students" class="form-grid">
     <label for="s_student_number">Student Number</label>
     <input id="s_student_number" name="student_number" required placeholder="e.g. 2024-00123" />
@@ -30,11 +43,11 @@
   </form>
 </section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Student Directory</h2>
-    <p>Total records: <strong><%= students.length %></strong></p>
-  </div>
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Student Directory</h2>
+      <p>Manage existing records.</p>
+    </div>
 
   <div class="table-tools">
     <label for="studentSearch" class="sr-only">Search students</label>
@@ -59,8 +72,8 @@
       </thead>
       <tbody>
         <% if (students.length === 0) { %>
-          <tr>
-            <td colspan="5">
+          <tr style="box-shadow: none;">
+            <td colspan="5" style="background: transparent; border: none;">
               <div class="empty-state">
                 <div class="empty-state-icon">🎓</div>
                 <p>No students registered yet. Use the form above to add one.</p>
@@ -70,12 +83,12 @@
         <% } %>
         <% students.forEach(student => { %>
           <tr>
-            <td><%= student.student_number %></td>
+            <td><strong><%= student.student_number %></strong></td>
             <td><%= student.full_name %></td>
             <td><%= student.program || "-" %></td>
-            <td><%= student.email || "-" %></td>
-            <td>
-              <form method="post" action="/students/<%= student.id %>/delete"
+            <td style="color: var(--muted);"><%= student.email || "-" %></td>
+            <td style="text-align: right; padding-right: 1.5rem;">
+              <form style="margin:0; text-align:right;" method="post" action="/students/<%= student.id %>/delete"
                     onsubmit="return confirm('Delete <%= student.full_name %>? This cannot be undone.')">
                 <button type="submit" class="danger btn-sm">Delete</button>
               </form>
@@ -85,7 +98,8 @@
       </tbody>
     </table>
   </div>
-</section>
+  </section>
+</div>
 
 <script>
   (() => {

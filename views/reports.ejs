@@ -3,73 +3,69 @@
     const studentStatsSafe=Array.isArray(studentStats) ? studentStats : []; const hourStatsSafe=Array.isArray(hourStats)
     ? hourStats : []; %>
 
-    <section class="panel">
-      <div class="section-head">
-        <h2>Analytics and Reports</h2>
-        <p>Filter scan history, review operational metrics, and export CSV for documentation.</p>
+    <section class="dashboard-hero">
+      <div class="hero-greeting">
+        <h2>Analytics</h2>
+        <h1>System Reports</h1>
       </div>
-      <form method="get" action="/reports" class="filters-grid">
-        <div>
-          <label>From</label>
-          <input type="date" name="from" value="<%= filters.from %>" />
+      <div class="hero-cards">
+        <div class="hero-card">
+          <h3>Total Scans</h3>
+          <p><%= summary.totalScans %></p>
         </div>
-        <div>
-          <label>To</label>
-          <input type="date" name="to" value="<%= filters.to %>" />
+        <div class="hero-card">
+          <h3>Valid Scans</h3>
+          <p><%= summary.validScans %></p>
         </div>
-        <div>
-          <label>Gate</label>
-          <select name="gate">
-            <option value="ALL" <%=filters.gate==="ALL" ? "selected" : "" %>>All Gates</option>
-            <% gateStatsSafe.forEach(item=> { %>
-              <% const gateName=item.gate || "Unspecified" ; %>
-                <option value="<%= gateName %>" <%=filters.gate===gateName ? "selected" : "" %>><%= gateName %>
-                </option>
-                <% }) %>
-          </select>
+        <div class="hero-card">
+          <h3>Total Entries</h3>
+          <p><%= summary.totalEntries %></p>
         </div>
-        <div class="filters-actions">
-          <button type="submit">Apply Filters</button>
-          <a class="link-btn"
-            href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">
-            ⬇ Export CSV
-          </a>
+        <div class="hero-card">
+          <h3>Total Exits</h3>
+          <p><%= summary.totalExits %></p>
         </div>
-      </form>
+        <div class="hero-card" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+          <h3>Unique Students</h3>
+          <p><%= summary.uniqueStudents %></p>
+        </div>
+      </div>
     </section>
 
-    <section class="cards">
-      <article class="card">
-        <h3>Total Scans</h3>
-        <p>
-          <%= summary.totalScans %>
-        </p>
-      </article>
-      <article class="card">
-        <h3>Valid Scans</h3>
-        <p>
-          <%= summary.validScans %>
-        </p>
-      </article>
-      <article class="card">
-        <h3>Total Entries</h3>
-        <p>
-          <%= summary.totalEntries %>
-        </p>
-      </article>
-      <article class="card">
-        <h3>Total Exits</h3>
-        <p>
-          <%= summary.totalExits %>
-        </p>
-      </article>
-      <article class="card">
-        <h3>Unique Students</h3>
-        <p>
-          <%= summary.uniqueStudents %>
-        </p>
-      </article>
-    </section>
+    <div class="overlap-wrapper" style="display: grid; gap: 3rem;">
+      <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+        <div class="section-head">
+          <h2 style="font-size: 1.25rem;">Data Filters & Export</h2>
+          <p>Filter scan history and review operational metrics.</p>
+        </div>
+        <form method="get" action="/reports" class="filters-grid">
+          <div>
+            <label>From</label>
+            <input type="date" name="from" value="<%= filters.from %>" style="border: 1px solid var(--line);" />
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" name="to" value="<%= filters.to %>" style="border: 1px solid var(--line);" />
+          </div>
+          <div>
+            <label>Gate</label>
+            <select name="gate" style="border: 1px solid var(--line);">
+              <option value="ALL" <%=filters.gate==="ALL" ? "selected" : "" %>>All Gates</option>
+              <% gateStatsSafe.forEach(item=> { %>
+                <% const gateName=item.gate || "Unspecified" ; %>
+                  <option value="<%= gateName %>" <%=filters.gate===gateName ? "selected" : "" %>><%= gateName %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="filters-actions">
+            <button type="submit" style="background: var(--blue-mid); color: #fff;">Apply Filters</button>
+            <a class="link-btn"
+              href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">
+              ⬇ Export CSV
+            </a>
+          </div>
+        </form>
+      </section>
 
     <section class="dashboard-grid">
       <article class="panel">
@@ -160,9 +156,9 @@
       </article>
     </section>
 
-    <section class="panel">
+    <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
       <div class="section-head">
-        <h2>Detailed Scan Records</h2>
+        <h2 style="font-size: 1.25rem;">Detailed Scan Records</h2>
         <p>Complete scan logs for the selected range. Showing <strong>
             <%= rowsSafe.length %>
           </strong> records.</p>
@@ -191,29 +187,14 @@
               <tbody>
                 <% rowsSafe.forEach(row=> { %>
                   <tr>
-                    <td>
-                      <%= new Date(row.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
-                    </td>
-                    <td>
-                      <%= row.student_number || "-" %>
-                    </td>
-                    <td>
-                      <%= row.full_name || "-" %>
-                    </td>
-                    <td>
-                      <%= row.plate_number || "-" %>
-                    </td>
-                    <td>
-                      <%= row.sticker_code || "-" %>
-                    </td>
-                    <td><span class="badge badge-<%= (row.result || " INVALID").toLowerCase() %>"><%= row.result || "-"
-                          %></span></td>
-                    <td><span class="badge badge-action">
-                        <%= row.action || "-" %>
-                      </span></td>
-                    <td>
-                      <%= row.gate || "-" %>
-                    </td>
+                    <td style="color: var(--muted);"><%= new Date(row.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></td>
+                    <td><strong><%= row.student_number || "-" %></strong></td>
+                    <td><%= row.full_name || "-" %></td>
+                    <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= row.plate_number || "-" %></span></td>
+                    <td><%= row.sticker_code || "-" %></td>
+                    <td><span class="badge badge-<%= (row.result || " INVALID").toLowerCase() %>"><%= row.result || "-" %></span></td>
+                    <td><span class="badge badge-action"><%= row.action || "-" %></span></td>
+                    <td><%= row.gate || "-" %></td>
                   </tr>
                   <% }) %>
               </tbody>
@@ -221,5 +202,6 @@
           </div>
           <% } %>
     </section>
+  </div> <!-- overlap-wrapper end -->
 
     <%- include("partials/footer") %>

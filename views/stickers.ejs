@@ -12,17 +12,34 @@
   }
 %>
 
-<% if (pageFlash) { %>
-  <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
-    <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Sticker Management</h1>
   </div>
-<% } %>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Total Issued</h3>
+      <p><%= stickers.length %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+      <h3>Active Stickers</h3>
+      <p><%= stickers.filter(s => s.status === 'active').length %></p>
+    </div>
+  </div>
+  <% if (pageFlash) { %>
+    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
+      <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+    </div>
+  <% } %>
+</section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Sticker Issuance</h2>
-    <p>Create secure QR-enabled stickers for validated student vehicles.</p>
-  </div>
+<div class="overlap-wrapper" style="display: grid; gap: 3rem;">
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Sticker Issuance</h2>
+      <p>Create secure QR-enabled stickers for validated student vehicles.</p>
+    </div>
   <form method="post" action="/stickers" class="form-grid">
     <label for="st_vehicle_id">Vehicle</label>
     <select id="st_vehicle_id" name="vehicle_id" required>
@@ -41,11 +58,11 @@
   </form>
 </section>
 
-<section class="panel">
-  <div class="section-head">
-    <h2>Issued Stickers</h2>
-    <p>Total records: <strong><%= stickers.length %></strong></p>
-  </div>
+  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
+    <div class="section-head">
+      <h2 style="font-size: 1.25rem;">Issued Stickers</h2>
+      <p>Total records: <strong><%= stickers.length %></strong></p>
+    </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -61,8 +78,8 @@
       </thead>
       <tbody>
         <% if (stickers.length === 0) { %>
-          <tr>
-            <td colspan="7">
+          <tr style="box-shadow: none;">
+            <td colspan="7" style="background: transparent; border: none;">
               <div class="empty-state">
                 <div class="empty-state-icon">🪪</div>
                 <p>No stickers issued yet. Use the form above to issue one.</p>
@@ -76,25 +93,26 @@
         %>
           <tr>
             <td><strong><%= sticker.sticker_code %></strong></td>
-            <td><%= sticker.student_number %> — <%= sticker.full_name %></td>
-            <td><%= sticker.plate_number %></td>
+            <td><%= sticker.student_number %> <span style="color:var(--muted); font-size:0.8rem; margin-left:0.5rem;"><%= sticker.full_name %></span></td>
+            <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= sticker.plate_number %></span></td>
             <td>
               <span class="badge badge-<%= badgeClass %>">
                 <%= displayStatus %>
               </span>
             </td>
-            <td><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "No expiry" %></td>
+            <td style="color: var(--muted);"><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "No expiry" %></td>
             <td>
-              <div class="action-row">
-                <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a>
-                <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">⬇ Download</a>
+              <div class="action-row" style="gap: 1rem;">
+                <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn" style="text-decoration:none; color:var(--blue-mid); font-weight:600; font-size:0.8rem;">View QR</a>
+                <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn" style="text-decoration:none; color:var(--text); font-weight:600; font-size:0.8rem;">⬇ Download</a>
               </div>
-              <small class="helper-text"><%= stickerBaseUrl %>/verify/<%= sticker.qr_token %></small>
+              <small class="helper-text" style="display:block; margin-top:0.25rem;"><%= stickerBaseUrl %>/verify/<%= sticker.qr_token %></small>
             </td>
-            <td>
+            <td style="text-align: right; padding-right: 1.5rem;">
               <% if (sticker.status === "active") { %>
                 <form method="post" action="/stickers/<%= sticker.id %>/revoke"
-                      onsubmit="return confirm('Revoke sticker <%= sticker.sticker_code %>?')">
+                      onsubmit="return confirm('Revoke sticker <%= sticker.sticker_code %>?')"
+                      style="margin:0; text-align:right;">
                   <button type="submit" class="danger btn-sm">Revoke</button>
                 </form>
               <% } else { %>
@@ -106,6 +124,8 @@
       </tbody>
     </table>
   </div>
+  </section>
+</div>
 </section>
 
 <%- include("partials/footer") %>
