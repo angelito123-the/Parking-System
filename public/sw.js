@@ -1,11 +1,15 @@
-const CACHE_NAME = 'naap-parking-v3';
+const CACHE_NAME = 'naap-parking-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/login',
   '/scanner',
+  '/scanner/auto',
   '/styles.css',
   '/manifest.json',
   '/offline-sync.js',
+  '/js/qr-behavior-classifier.js',
+  '/js/ml-qr-detector.js',
+  'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
   'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
   'https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap'
 ];

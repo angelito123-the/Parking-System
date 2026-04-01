@@ -34,6 +34,8 @@
     <div class="auto-indicator-row">
       <span id="chipAutoState" class="auto-chip state-live">Auto-Scan Active</span>
       <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
+      <span id="chipMlState" class="auto-chip state-idle">ML Detect: Warmup</span>
+      <span id="chipRiskState" class="auto-chip state-idle">Risk: Unchecked</span>
       <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/2</span>
       <span id="chipCooldownState" class="auto-chip state-idle">Cooldown: Ready</span>
     </div>
@@ -116,6 +118,9 @@
   </section>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="/js/qr-behavior-classifier.js"></script>
+<script src="/js/ml-qr-detector.js"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -135,6 +140,8 @@
 
     const chipAutoState = document.getElementById("chipAutoState");
     const chipCameraState = document.getElementById("chipCameraState");
+    const chipMlState = document.getElementById("chipMlState");
+    const chipRiskState = document.getElementById("chipRiskState");
     const chipStabilityState = document.getElementById("chipStabilityState");
     const chipCooldownState = document.getElementById("chipCooldownState");
 
@@ -182,6 +189,9 @@
     let pendingSticker = null;
     let pendingSlotOverview = null;
 
+    let lastRiskAssessment = null;
+    let latestMlMeta = null;
+
     let stableCandidateToken = "";
     let stableCandidateHits = 0;
     let stableCandidateFirstSeenMs = 0;
@@ -193,6 +203,106 @@
       if (!element) return;
       element.textContent = text;
       element.className = `auto-chip state-${state}`;
+    }
+
+    function setRiskChip(risk) {
+      if (!risk || !chipRiskState) {
+        setChip(chipRiskState, "Risk: Unchecked", "idle");
+        return;
+      }
+      const scorePercent = Math.round((Number(risk.riskScore) || 0) * 100);
+      if (risk.riskLevel === "high") {
+        setChip(chipRiskState, `Risk: High (${scorePercent}%)`, "error");
+        return;
+      }
+      if (risk.riskLevel === "medium") {
+        setChip(chipRiskState, `Risk: Medium (${scorePercent}%)`, "warning");
+        return;
+      }
+      setChip(chipRiskState, `Risk: Low (${scorePercent}%)`, "live");
+    }
+
+    function normalizeRiskAssessment(riskPayload, fallbackRisk = null) {
+      if (!riskPayload || typeof riskPayload !== "object") {
+        return fallbackRisk || null;
+      }
+      const level = String(
+        riskPayload.riskLevel
+        || riskPayload.risk_level
+        || fallbackRisk?.riskLevel
+        || "low"
+      ).toLowerCase();
+      const normalizedLevel = level === "high" || level === "medium" || level === "low"
+        ? level
+        : "low";
+      const scoreRaw = Number(
+        riskPayload.riskScore
+        ?? riskPayload.risk_score
+        ?? fallbackRisk?.riskScore
+        ?? 0
+      );
+      const score = Math.max(0, Math.min(1, Number.isFinite(scoreRaw) ? scoreRaw : 0));
+      const reasons = Array.isArray(riskPayload.reasons)
+        ? riskPayload.reasons
+        : (Array.isArray(riskPayload.risk_reasons) ? riskPayload.risk_reasons : []);
+      return {
+        riskLevel: normalizedLevel,
+        riskScore: Math.round(score * 1000) / 1000,
+        reasons: reasons
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      };
+    }
+
+    function classifyQrBehavior(rawValue) {
+      if (!window.QRBehaviorClassifier || typeof window.QRBehaviorClassifier.classify !== "function") {
+        return {
+          riskScore: 0,
+          riskLevel: "low",
+          reasons: ["Behavior classifier unavailable."],
+          features: {}
+        };
+      }
+      return window.QRBehaviorClassifier.classify(rawValue);
+    }
+
+    function renderRiskMeta(risk) {
+      if (!risk) return "";
+      const reasons = Array.isArray(risk.reasons) ? risk.reasons : [];
+      const leadReason = reasons[0] || "No anomaly reason available.";
+      return `
+        <p><strong>Risk:</strong> ${(risk.riskLevel || "low").toUpperCase()} (${Math.round((Number(risk.riskScore) || 0) * 100)}%)</p>
+        <p><strong>Signal:</strong> ${leadReason}</p>
+      `;
+    }
+
+    function renderMlMeta(meta) {
+      if (!meta) return "";
+      const confidence = Number(meta.ml_confidence ?? meta.confidence ?? 0);
+      const processMs = Number(meta.process_ms ?? meta.processMs ?? 0);
+      return `
+        <p><strong>Detection Confidence:</strong> ${Math.round(confidence * 100)}%</p>
+        <p><strong>Frame Process:</strong> ${processMs > 0 ? `${Math.round(processMs)}ms` : "N/A"}</p>
+      `;
+    }
+
+    function updateMlChip(meta) {
+      latestMlMeta = meta || null;
+      if (!meta) {
+        setChip(chipMlState, "ML Detect: Idle", "idle");
+        return;
+      }
+
+      const confidence = Number(meta.confidence || meta.ml_confidence || 0);
+      const confidencePercent = Math.round(confidence * 100);
+      if (confidence >= 0.58) {
+        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "live");
+      } else if (confidence >= 0.4) {
+        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "warning");
+      } else {
+        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "idle");
+      }
     }
 
     function updateStabilityChip() {
@@ -372,7 +482,8 @@
         }
       } else {
         const responseText = await response.text();
-        if (response.status === 401) {
+        const redirectedToLogin = response.redirected && /\/login(?:[/?#]|$)/i.test(response.url || "");
+        if (response.status === 401 || redirectedToLogin) {
           data = { ok: false, message: "Session expired. Please log in again on this device." };
         } else if (!responseText.trim()) {
           data = { ok: false, message: `Empty server response (${response.status}).` };
@@ -381,7 +492,7 @@
         }
       }
 
-      if (!response.ok) {
+      if (!response.ok || !contentType.includes("application/json")) {
         throw new Error(data.message || `Request failed (${response.status})`);
       }
 
@@ -539,6 +650,7 @@
       setCameraStatus("Reinitializing camera...", "ok");
       setChip(chipCameraState, "Reinitializing", "warning");
       setChip(chipAutoState, "Recovering Scanner", "warning");
+      setChip(chipMlState, "ML Detect: Reinit", "warning");
 
       await startCamera();
     }
@@ -593,11 +705,35 @@
       };
     }
 
-    async function processStableToken(token) {
+    async function processStableToken(token, decodedText, decodeMeta = null) {
       processingScan = true;
       setProcessingOverlay(true);
       setChip(chipAutoState, "Processing", "warning");
       await pauseScanner();
+      lastRiskAssessment = classifyQrBehavior(decodedText || token);
+      setRiskChip(lastRiskAssessment);
+      if (lastRiskAssessment?.riskLevel === "high") {
+        pushSessionEvent(
+          "RISK",
+          "warning",
+          "High-risk QR content flagged",
+          (lastRiskAssessment.reasons && lastRiskAssessment.reasons[0]) || "Suspicious payload pattern detected."
+        );
+      } else if (lastRiskAssessment?.riskLevel === "medium") {
+        pushSessionEvent(
+          "RISK",
+          "warning",
+          "Medium-risk QR content",
+          (lastRiskAssessment.reasons && lastRiskAssessment.reasons[0]) || "Potentially unusual payload detected."
+        );
+      }
+      if (decodeMeta) {
+        updateMlChip({
+          confidence: decodeMeta.ml_confidence ?? decodeMeta.confidence,
+          processMs: decodeMeta.process_ms,
+          model: decodeMeta.model || null
+        });
+      }
       setResultState("processing", "Processing QR scan", "Verifying sticker and determining movement...");
 
       try {
@@ -605,10 +741,19 @@
           token,
           gate: gateSelect.value,
           defer_entry_confirmation: deferEntryConfirmation,
-          snapshot_data_url: captureSnapshotDataUrl()
+          snapshot_data_url: captureSnapshotDataUrl(),
+          behavior_risk_level: lastRiskAssessment?.riskLevel || null,
+          behavior_risk_score: Number(lastRiskAssessment?.riskScore || 0),
+          behavior_risk_reasons: Array.isArray(lastRiskAssessment?.reasons)
+            ? lastRiskAssessment.reasons.slice(0, 3)
+            : [],
+          detection_confidence: Number(decodeMeta?.ml_confidence || decodeMeta?.confidence || 0),
+          detection_model: decodeMeta?.model || (window.MLQrCodeScanner ? "MLQrCodeScanner" : "html5-qrcode")
         };
 
         const data = await postJson("/api/auto-scan/detect", payload);
+        lastRiskAssessment = normalizeRiskAssessment(data.behavior_risk, lastRiskAssessment);
+        setRiskChip(lastRiskAssessment);
 
         if (data.duplicate_scan) {
           hideEntryPanel();
@@ -617,7 +762,8 @@
           setResultState(
             "warning",
             "Duplicate scan ignored",
-            data.message || `Please wait ${waitSeconds} seconds before scanning this sticker again.`
+            data.message || `Please wait ${waitSeconds} seconds before scanning this sticker again.`,
+            `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
           );
           pushSessionEvent("DUPLICATE", "warning", "Duplicate blocked", `Cooldown active (${waitSeconds}s)`);
           playTone("warn");
@@ -633,7 +779,7 @@
             "invalid",
             `Unauthorized (${statusLabel})`,
             data.message || "QR sticker is not valid.",
-            data.sticker ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>` : ""
+            `${data.sticker ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>` : ""}${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
           );
           pushSessionEvent("VERIFY", "error", `Scan rejected (${statusLabel})`, data.message || "Unauthorized sticker");
           playTone("warn");
@@ -652,6 +798,8 @@
               <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
               <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
               <p><strong>Released Slot:</strong> ${data.released_slot || "N/A"}</p>
+              ${renderMlMeta(decodeMeta)}
+              ${renderRiskMeta(lastRiskAssessment)}
             `
           );
           pushSessionEvent("EXIT", "ok", "Exit saved", `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`);
@@ -672,6 +820,8 @@
               <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
               <p><strong>Gate:</strong> ${gateSelect.value}</p>
               <p><strong>Queue ID:</strong> ${data.pending_entry_id || "-"}</p>
+              ${renderMlMeta(decodeMeta)}
+              ${renderRiskMeta(lastRiskAssessment)}
             `
           );
           setChip(chipAutoState, "Queued for Guard", "warning");
@@ -705,6 +855,8 @@
               <p><strong>Student:</strong> ${pendingSticker?.full_name || "-"}</p>
               <p><strong>Plate:</strong> ${pendingSticker?.plate_number || "-"}</p>
               <p><strong>Vehicle Type:</strong> ${pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-"}</p>
+              ${renderMlMeta(decodeMeta)}
+              ${renderRiskMeta(lastRiskAssessment)}
             `
           );
           setChip(chipAutoState, "Awaiting Guard", "warning");
@@ -714,12 +866,12 @@
         }
 
         hideEntryPanel();
-        setResultState("warning", "Scan completed", data.message || "No action was recorded.");
+        setResultState("warning", "Scan completed", data.message || "No action was recorded.", `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`);
         pushSessionEvent("VERIFY", "warning", "No movement saved", data.message || "Review scanner result");
         await resumeScanner(900);
       } catch (error) {
         hideEntryPanel();
-        setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.");
+        setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.", `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`);
         setCameraStatus(error.message || "Scan failed", "error");
         pushSessionEvent("ERROR", "error", "Scan processing error", error.message || "Unknown scanner error");
         playTone("warn");
@@ -730,9 +882,17 @@
       }
     }
 
-    async function handleDecodedText(decodedText) {
+    async function handleDecodedText(decodedText, decodeMeta = null) {
       if (!cameraStarted || processingScan) return;
       if (entryConfirmPanel.style.display !== "none") return;
+
+      if (decodeMeta) {
+        updateMlChip({
+          confidence: decodeMeta.ml_confidence ?? decodeMeta.confidence,
+          processMs: decodeMeta.process_ms,
+          model: decodeMeta.model || null
+        });
+      }
 
       const token = extractToken(decodedText);
       if (!token) return;
@@ -763,16 +923,34 @@
 
       resetStability();
       setLocalCooldown(token, LOCAL_DEDUP_FLOOR_MS);
-      await processStableToken(token);
+      await processStableToken(token, decodedText, decodeMeta);
     }
 
     async function startCamera() {
       if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode("autoQrReader");
+        if (window.MLQrCodeScanner) {
+          html5QrCode = new window.MLQrCodeScanner("autoQrReader", {
+            targetFps: 30,
+            confidenceThreshold: 0.58,
+            maxProcessWidth: 640,
+            perspectiveSize: 280,
+            onMlMetrics: (metrics) => {
+              updateMlChip({
+                confidence: metrics?.confidence,
+                processMs: metrics?.processMs,
+                model: metrics?.usedDetector ? "BarcodeDetector+jsQR" : "jsQR-fallback"
+              });
+            }
+          });
+          setChip(chipMlState, "ML Detect: Enabled", "live");
+        } else {
+          html5QrCode = new Html5Qrcode("autoQrReader");
+          setChip(chipMlState, "ML Detect: Fallback", "warning");
+        }
       }
 
       const config = {
-        fps: 14,
+        fps: 30,
         qrbox: { width: 260, height: 260 },
         aspectRatio: 1.333333,
         disableFlip: false
@@ -797,6 +975,9 @@
         setCameraStatus("Rear camera active", "ok");
         setChip(chipAutoState, "Auto-Scan Active", "live");
         setChip(chipCameraState, "Camera Ready", "live");
+        if (!window.MLQrCodeScanner) {
+          setChip(chipMlState, "ML Detect: Fallback", "warning");
+        }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
         return;
       } catch (_rearError) {
@@ -804,7 +985,13 @@
       }
 
       try {
-        const devices = await Html5Qrcode.getCameras();
+        const getCamerasFn = typeof html5QrCode.constructor.getCameras === "function"
+          ? html5QrCode.constructor.getCameras.bind(html5QrCode.constructor)
+          : (typeof Html5Qrcode !== "undefined" && typeof Html5Qrcode.getCameras === "function"
+            ? Html5Qrcode.getCameras.bind(Html5Qrcode)
+            : null);
+
+        const devices = getCamerasFn ? await getCamerasFn() : [];
         if (!devices || devices.length === 0) {
           throw new Error("No camera found on this device.");
         }
@@ -815,6 +1002,9 @@
         setCameraStatus("Camera active", "ok");
         setChip(chipAutoState, "Auto-Scan Active", "live");
         setChip(chipCameraState, "Camera Ready", "live");
+        if (!window.MLQrCodeScanner) {
+          setChip(chipMlState, "ML Detect: Fallback", "warning");
+        }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
       } catch (error) {
         cameraStarted = false;
@@ -826,6 +1016,7 @@
         setCameraStatus(prettyMessage, "error");
         setChip(chipCameraState, "Camera Error", "error");
         setChip(chipAutoState, "Scanner Stopped", "idle");
+        setChip(chipMlState, "ML Detect: Offline", "error");
         setResultState("error", "Camera unavailable", prettyMessage);
         pushSessionEvent("ERROR", "error", "Camera unavailable", prettyMessage);
       }
@@ -854,6 +1045,8 @@
       setCameraStatus("Camera stopped");
       setChip(chipCameraState, "Camera Stopped", "idle");
       setChip(chipAutoState, "Scanner Stopped", "idle");
+      setChip(chipMlState, "ML Detect: Idle", "idle");
+      setChip(chipRiskState, "Risk: Unchecked", "idle");
       resetStability();
       setProcessingOverlay(false);
     }
@@ -906,13 +1099,22 @@
           token: pendingToken,
           gate: gateSelect.value,
           slot_id: selectedSlotId,
-          snapshot_data_url: captureSnapshotDataUrl()
+          snapshot_data_url: captureSnapshotDataUrl(),
+          behavior_risk_level: lastRiskAssessment?.riskLevel || null,
+          behavior_risk_score: Number(lastRiskAssessment?.riskScore || 0),
+          behavior_risk_reasons: Array.isArray(lastRiskAssessment?.reasons)
+            ? lastRiskAssessment.reasons.slice(0, 3)
+            : [],
+          detection_confidence: Number(latestMlMeta?.confidence || latestMlMeta?.ml_confidence || 0),
+          detection_model: latestMlMeta?.model || (window.MLQrCodeScanner ? "MLQrCodeScanner" : "html5-qrcode")
         };
 
         const data = await postJson("/api/auto-scan/confirm-entry", payload);
         if (!data.ok) {
           throw new Error(data.message || "Failed to save entry.");
         }
+        lastRiskAssessment = normalizeRiskAssessment(data.behavior_risk, lastRiskAssessment);
+        setRiskChip(lastRiskAssessment);
 
         setLocalCooldown(pendingToken, cooldownSeconds * 1000);
 
@@ -926,6 +1128,7 @@
             <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
             <p><strong>Assigned Slot:</strong> ${data.parking_slot || "-"}</p>
             <p><strong>Assigned Area:</strong> ${data.assigned_area || "-"}</p>
+            ${renderRiskMeta(lastRiskAssessment)}
           `
         );
 
@@ -954,6 +1157,8 @@
     renderSessionEvents();
     updateStabilityChip();
     updateCooldownChip();
+    setRiskChip(null);
+    updateMlChip(null);
     startCamera();
   })();
 </script>

@@ -133,6 +133,39 @@ function normalizeScanStatus(result) {
   return "UNKNOWN";
 }
 
+function normalizeBehaviorRiskPayload(body = {}) {
+  const rawLevel = String(body.behavior_risk_level || "").trim().toLowerCase();
+  const riskLevel = rawLevel === "high" || rawLevel === "medium" || rawLevel === "low"
+    ? rawLevel
+    : "low";
+  const riskScore = Math.max(0, Math.min(1, Number(body.behavior_risk_score) || 0));
+  const riskReasons = Array.isArray(body.behavior_risk_reasons)
+    ? body.behavior_risk_reasons
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .slice(0, 3)
+    : [];
+  const detectionConfidence = Math.max(0, Math.min(1, Number(body.detection_confidence) || 0));
+  const detectionModel = String(body.detection_model || "").trim() || null;
+  return {
+    risk_level: riskLevel,
+    risk_score: Math.round(riskScore * 1000) / 1000,
+    risk_reasons: riskReasons,
+    detection_confidence: Math.round(detectionConfidence * 1000) / 1000,
+    detection_model: detectionModel
+  };
+}
+
+function buildRiskSummaryNote(riskPayload) {
+  if (!riskPayload || !riskPayload.risk_level) return "";
+  const level = String(riskPayload.risk_level || "low").toUpperCase();
+  const score = Math.round((Number(riskPayload.risk_score) || 0) * 100);
+  const reason = Array.isArray(riskPayload.risk_reasons) && riskPayload.risk_reasons.length
+    ? `; ${riskPayload.risk_reasons[0]}`
+    : "";
+  return `[BehaviorRisk ${level} ${score}%${reason}]`;
+}
+
 function normalizeQrTokenInput(rawInput) {
   const raw = String(rawInput || "").trim();
   if (!raw) return "";
@@ -1623,13 +1656,19 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
   const deferEntryConfirmation = req.body.defer_entry_confirmation === true
     || String(req.body.defer_entry_confirmation || "").toLowerCase() === "true"
     || String(req.body.defer_entry_confirmation || "") === "1";
+  const behaviorRisk = normalizeBehaviorRiskPayload(req.body);
+  const riskNote = buildRiskSummaryNote(behaviorRisk);
   const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
     ? req.body.snapshot_data_url
     : "";
   const guardName = req.session?.adminUser || "guard";
 
   if (!token) {
-    return res.status(400).json({ ok: false, message: "Missing QR token." });
+    return res.status(400).json({
+      ok: false,
+      message: "Missing QR token.",
+      behavior_risk: behaviorRisk
+    });
   }
 
   try {
@@ -1650,7 +1689,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
         verification.result || "INVALID",
         "VERIFY",
         gate,
-        "Auto camera verification failed",
+        `Auto camera verification failed ${riskNote}`.trim(),
         {
           gateId: gate,
           qrValue: token,
@@ -1669,6 +1708,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
         action: "VERIFY",
         movement_saved: false,
         requires_confirmation: false,
+        behavior_risk: behaviorRisk,
         snapshot_path: scanLog?.snapshot_path || snapshotPath || null,
         scan_log_id: scanLog?.id || null,
         scanned_at: scanLog?.scanned_at || null
@@ -1695,6 +1735,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
           seconds_since_last_scan: duplicateInfo.secondsSinceLastScan,
           action: lastMovement?.action || null,
           sticker: getAutoStickerPayload(sticker),
+          behavior_risk: behaviorRisk,
           scanned_at: lastMovement?.scanned_at || null
         });
       }
@@ -1716,6 +1757,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
               pending_entry_id: existingPending.id,
               message: "Entry is already queued for guard confirmation.",
               sticker: getAutoStickerPayload(sticker),
+              behavior_risk: behaviorRisk,
               snapshot_path: existingPending.snapshot_path || null,
               queued_at: existingPending.created_at || null
             });
@@ -1751,6 +1793,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
             pending_entry_id: queuedEntry?.id || null,
             message: "ENTRY detected. Waiting for guard confirmation on monitor console.",
             sticker: getAutoStickerPayload(sticker),
+            behavior_risk: behaviorRisk,
             snapshot_path: queuedEntry?.snapshot_path || snapshotPath || null,
             queued_at: queuedEntry?.created_at || null
           });
@@ -1766,6 +1809,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
           requires_confirmation: true,
           message: "Valid sticker detected. Select a parking slot and confirm ENTRY.",
           sticker: getAutoStickerPayload(sticker),
+          behavior_risk: behaviorRisk,
           parkingSlotOverview
         });
       }
@@ -1785,7 +1829,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
         "VALID",
         "EXIT",
         gate,
-        "Auto camera exit",
+        `Auto camera exit ${riskNote}`.trim(),
         {
           gateId: gate,
           slotId: currentSlot?.id || null,
@@ -1814,6 +1858,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
           : "EXIT recorded successfully.",
         released_slot: currentSlot?.slot_code || null,
         sticker: getAutoStickerPayload(sticker),
+        behavior_risk: behaviorRisk,
         snapshot_path: scanLog?.snapshot_path || snapshotPath || null,
         scan_log_id: scanLog?.id || null,
         scanned_at: scanLog?.scanned_at || null
@@ -1828,7 +1873,8 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
     console.error("Auto detect scan error:", error);
     res.status(500).json({
       ok: false,
-      message: error.message || "Failed to process automatic scan."
+      message: error.message || "Failed to process automatic scan.",
+      behavior_risk: behaviorRisk
     });
   }
 });
@@ -1838,22 +1884,36 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
   const slotId = Number(req.body.slot_id);
+  const behaviorRisk = normalizeBehaviorRiskPayload(req.body);
+  const riskNote = buildRiskSummaryNote(behaviorRisk);
   const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
     ? req.body.snapshot_data_url
     : "";
   const guardName = req.session?.adminUser || "guard";
 
   if (!token) {
-    return res.status(400).json({ ok: false, message: "Missing QR token." });
+    return res.status(400).json({
+      ok: false,
+      message: "Missing QR token.",
+      behavior_risk: behaviorRisk
+    });
   }
   if (!Number.isInteger(slotId) || slotId <= 0) {
-    return res.status(400).json({ ok: false, message: "Please choose a parking slot before recording entry." });
+    return res.status(400).json({
+      ok: false,
+      message: "Please choose a parking slot before recording entry.",
+      behavior_risk: behaviorRisk
+    });
   }
 
   try {
     const verification = await getVerificationState(token);
     if (!verification.ok) {
-      return res.status(400).json({ ok: false, message: verification.message });
+      return res.status(400).json({
+        ok: false,
+        message: verification.message,
+        behavior_risk: behaviorRisk
+      });
     }
 
     const sticker = verification.sticker;
@@ -1871,7 +1931,8 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
           duplicate_scan: true,
           message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
           cooldown_seconds: SCAN_COOLDOWN_SECONDS,
-          seconds_since_last_scan: duplicateInfo.secondsSinceLastScan
+          seconds_since_last_scan: duplicateInfo.secondsSinceLastScan,
+          behavior_risk: behaviorRisk
         });
       }
 
@@ -1880,7 +1941,8 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
         return res.status(400).json({
           ok: false,
           duplicate_movement: true,
-          message: "Vehicle is already marked as inside. Record EXIT first."
+          message: "Vehicle is already marked as inside. Record EXIT first.",
+          behavior_risk: behaviorRisk
         });
       }
 
@@ -1898,7 +1960,7 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
         "VALID",
         "ENTRY",
         gate,
-        "Auto camera entry confirmed by guard",
+        `Auto camera entry confirmed by guard ${riskNote}`.trim(),
         {
           gateId: gate,
           slotId: assignedSlot.id,
@@ -1921,6 +1983,7 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
         action: "ENTRY",
         message: `ENTRY recorded. Assigned slot ${assignedSlot.slot_code}.`,
         sticker: getAutoStickerPayload(sticker),
+        behavior_risk: behaviorRisk,
         parking_slot: assignedSlot.slot_code,
         assigned_area: assignedSlot.zone,
         assigned_by_guard: guardName,
@@ -1937,7 +2000,11 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
     }
   } catch (error) {
     console.error("Auto confirm entry error:", error);
-    res.status(400).json({ ok: false, message: error.message || "Failed to record entry." });
+    res.status(400).json({
+      ok: false,
+      message: error.message || "Failed to record entry.",
+      behavior_risk: behaviorRisk
+    });
   }
 });
 
