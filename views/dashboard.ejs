@@ -128,7 +128,7 @@
                 <tr class="<%= item.is_overstay ? 'inside-row-overstay' : '' %>">
                   <td><strong><%= item.student_number || "-" %></strong></td>
                   <td><%= item.full_name || "-" %></td>
-                  <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= item.plate_number || "-" %></span></td>
+                  <td><span class="badge badge-soft badge-plate"><%= item.plate_number || "-" %></span></td>
                   <td><span class="badge badge-active"><%= item.sticker_code || "-" %></span></td>
                   <td><%= item.parking_slot || "-" %></td>
                   <td><%= item.entry_gate || "-" %></td>
@@ -528,7 +528,7 @@
           return `<tr class="${item.is_overstay ? "inside-row-overstay" : ""}">
         <td><strong>${item.student_number || "-"}</strong></td>
         <td>${item.full_name || "-"}</td>
-        <td><span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.plate_number || "-"}</span></td>
+        <td><span class="badge badge-soft badge-plate">${item.plate_number || "-"}</span></td>
         <td><span class="badge badge-active">${item.sticker_code || "-"}</span></td>
         <td>${item.parking_slot || "-"}</td>
         <td>${item.entry_gate || "-"}</td>
@@ -965,12 +965,12 @@
           const exitedAtText = item.exited_at ? toPHT(item.exited_at) : "Still parked";
           const durationText = item.duration_label || "-";
           const statusChip = item.is_ongoing
-            ? `<span class="badge" style="background:#dcfce7; color:#166534; border:1px solid #86efac;">ONGOING</span>`
-            : `<span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">COMPLETED</span>`;
+            ? `<span class="badge badge-inside">ONGOING</span>`
+            : `<span class="badge badge-soft">COMPLETED</span>`;
           return `<div class="slot-history-card">
             <div class="slot-history-card-head">
               <strong>${item.full_name || "Unknown Student"}</strong>
-              <span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.parking_slot || "-"}</span>
+              <span class="badge badge-soft">${item.parking_slot || "-"}</span>
             </div>
             <div>${statusChip}</div>
             <div class="slot-history-card-meta">Student No: <strong>${item.student_number || "-"}</strong></div>

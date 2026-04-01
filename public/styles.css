@@ -788,6 +788,20 @@ a:hover {
   border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
+.badge-soft,
+.badge-plate {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+[data-theme="dark"] .badge-soft,
+[data-theme="dark"] .badge-plate {
+  background: rgba(51, 65, 85, 0.58);
+  color: #dbe7f7;
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
 /* ── Flash messages ────────────────────────────────── */
 .flash {
   display: flex;
@@ -3986,6 +4000,13 @@ td, th { padding: 0.6rem 0.4rem; font-size: 0.75rem; }
   --brand-accent-soft: #eaf2ff;
 }
 
+[data-theme="dark"] {
+  --surface-elevated: rgba(15, 23, 42, 0.78);
+  --brand-ink: #e6edf7;
+  --brand-accent: #60a5fa;
+  --brand-accent-soft: rgba(59, 130, 246, 0.2);
+}
+
 body {
   font-family: "Manrope", sans-serif;
   line-height: 1.5;
@@ -4094,6 +4115,11 @@ body {
   background: rgba(23, 30, 44, 0.8);
 }
 
+[data-theme="dark"] .top-nav {
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.46);
+}
+
 body.page-dashboard .overlap-wrapper > .panel[style*="border:none"],
 body.page-admin .overlap-wrapper > .panel[style*="border:none"],
 body.page-students .overlap-wrapper > .panel[style*="border:none"],
@@ -4105,6 +4131,16 @@ body.page-reports .overlap-wrapper > .panel[style*="border:none"] {
   box-shadow: var(--shadow-sm) !important;
   padding: 1.25rem !important;
   margin-bottom: 1rem !important;
+}
+
+[data-theme="dark"] body.page-dashboard .overlap-wrapper > .panel[style*="border:none"],
+[data-theme="dark"] body.page-admin .overlap-wrapper > .panel[style*="border:none"],
+[data-theme="dark"] body.page-students .overlap-wrapper > .panel[style*="border:none"],
+[data-theme="dark"] body.page-stickers .overlap-wrapper > .panel[style*="border:none"],
+[data-theme="dark"] body.page-reports .overlap-wrapper > .panel[style*="border:none"] {
+  border-color: rgba(100, 116, 139, 0.36) !important;
+  background: var(--surface-elevated) !important;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.32) !important;
 }
 
 .panel {
@@ -4122,6 +4158,10 @@ body.page-reports .overlap-wrapper > .panel[style*="border:none"] {
   color: var(--brand-ink);
 }
 
+[data-theme="dark"] .section-head h2 {
+  color: var(--brand-ink);
+}
+
 input,
 select,
 textarea {
@@ -4131,9 +4171,22 @@ textarea {
   background: #ffffff;
 }
 
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  border-color: rgba(148, 163, 184, 0.36);
+  background: rgba(15, 23, 42, 0.84);
+  color: var(--text);
+}
+
 input::placeholder,
 textarea::placeholder {
   color: #89a0b7;
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: #90a4be;
 }
 
 input:focus,
@@ -4182,6 +4235,11 @@ button.btn-sm,
   background: var(--surface-soft);
 }
 
+[data-theme="dark"] .table-wrap {
+  border-color: rgba(100, 116, 139, 0.34);
+  background: rgba(15, 23, 42, 0.64);
+}
+
 table {
   border-spacing: 0 0.62rem;
 }
@@ -4199,6 +4257,11 @@ td {
   border-bottom: 1px solid var(--line);
 }
 
+[data-theme="dark"] td {
+  border-color: rgba(100, 116, 139, 0.32);
+  background: rgba(15, 23, 42, 0.66);
+}
+
 td:first-child {
   border-left: 1px solid var(--line);
   border-top-left-radius: 12px;
@@ -4214,6 +4277,10 @@ td:last-child {
 tbody tr:hover {
   transform: none;
   box-shadow: none;
+}
+
+[data-theme="dark"] tbody tr:hover td {
+  background: rgba(30, 41, 59, 0.72);
 }
 
 .badge {
@@ -4275,6 +4342,16 @@ tbody tr:hover {
 
 .btn-ghost:hover {
   background: #ecf4ff !important;
+}
+
+[data-theme="dark"] .btn-ghost {
+  border-color: rgba(96, 165, 250, 0.48) !important;
+  background: rgba(30, 64, 175, 0.28) !important;
+  color: #bfdbfe !important;
+}
+
+[data-theme="dark"] .btn-ghost:hover {
+  background: rgba(30, 64, 175, 0.4) !important;
 }
 
 .req {
@@ -4435,6 +4512,15 @@ tbody tr:hover {
   box-shadow: none !important;
 }
 
+[data-theme="dark"] .btn-edit-sm,
+[data-theme="dark"] .btn-save-sm,
+[data-theme="dark"] .btn-edit-xs,
+[data-theme="dark"] .btn-add-vehicle {
+  border-color: rgba(96, 165, 250, 0.45) !important;
+  background: rgba(30, 64, 175, 0.3) !important;
+  color: #bfdbfe !important;
+}
+
 .btn-delete-sm,
 .btn-delete-xs,
 .btn-cancel-sm {
@@ -4442,6 +4528,18 @@ tbody tr:hover {
   background: var(--red-soft) !important;
   color: #b11b44 !important;
   box-shadow: none !important;
+}
+
+[data-theme="dark"] .btn-delete-sm,
+[data-theme="dark"] .btn-delete-xs,
+[data-theme="dark"] .btn-cancel-sm {
+  border-color: rgba(252, 165, 165, 0.45) !important;
+  background: rgba(190, 18, 60, 0.28) !important;
+  color: #fecdd3 !important;
+}
+
+[data-theme="dark"] .sc-name {
+  color: #e2e8f0;
 }
 
 /* Scanner Action Buttons */
