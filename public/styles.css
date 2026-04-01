@@ -671,7 +671,7 @@ label {
 
 input,
 select,
-button {
+button:not(.icon-btn) {
   font: inherit;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
@@ -692,7 +692,7 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-button {
+button:not(.icon-btn) {
   width: fit-content;
   border: none;
   color: #fff;
@@ -703,22 +703,22 @@ button {
   box-shadow: 0 2px 6px rgba(30, 64, 175, 0.25);
 }
 
-button:hover {
+button:not(.icon-btn):hover {
   background: linear-gradient(135deg, var(--navy), var(--blue-1));
   box-shadow: 0 4px 12px rgba(30, 64, 175, 0.35);
   transform: translateY(-1px);
 }
 
-button:active {
+button:not(.icon-btn):active {
   transform: translateY(0px);
 }
 
-button.danger {
+button:not(.icon-btn).danger {
   background: linear-gradient(135deg, #be123c, #991b1b);
   box-shadow: 0 2px 6px rgba(190, 18, 60, 0.25);
 }
 
-button.danger:hover {
+button:not(.icon-btn).danger:hover {
   background: linear-gradient(135deg, #9f1239, #7f1d1d);
 }
 
@@ -4196,7 +4196,7 @@ textarea:focus {
   border-color: rgba(43, 109, 232, 0.72);
 }
 
-button {
+button:not(.icon-btn) {
   border-radius: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
