@@ -3,486 +3,468 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NAAP – Gate Verification</title>
+  <title>NAAP - Gate Verification</title>
   <link rel="stylesheet" href="/styles.css" />
   <style>
     body {
-      background: var(--bg);
       margin: 0;
-      padding: 0;
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
+      background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+      font-family: "Outfit", sans-serif;
+      color: #0f172a;
+    }
+
+    .verify-shell {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1.2rem;
     }
 
     .verify-header {
-      background: var(--blue-1);
+      background: linear-gradient(135deg, #0f172a, #1e293b 60%, #334155);
+      border-radius: 16px;
+      padding: 1rem 1.2rem;
       color: #fff;
-      padding: 1rem 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
+      margin-bottom: 1rem;
+      border: 1px solid rgba(148, 163, 184, 0.25);
     }
 
-    .verify-header-logo {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.15);
+    .verify-header h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      letter-spacing: 0.02em;
+    }
+
+    .verify-header p {
+      margin: 0.2rem 0 0;
+      color: #cbd5e1;
+      font-size: 0.84rem;
+    }
+
+    .verify-grid {
       display: grid;
-      place-items: center;
-      font-weight: 700;
-      font-size: 1rem;
-      font-family: "Outfit", sans-serif;
-      flex-shrink: 0;
+      grid-template-columns: 1fr;
+      gap: 1rem;
     }
 
-    .verify-header-text p {
-      margin: 0;
-    }
-
-    .verify-header-title {
-      font-size: 0.95rem;
-      font-weight: 700;
-    }
-
-    .verify-header-sub {
-      font-size: 0.72rem;
-      color: #94a3b8;
-    }
-
-    .verify-body {
-      flex: 1;
-      padding: 1.25rem;
-      max-width: 480px;
-      margin: 0 auto;
-      width: 100%;
-      box-sizing: border-box;
-    }
-
-    .verify-status-card {
-      border-radius: 8px;
-      padding: 1.5rem 1.25rem;
-      text-align: center;
-      margin-bottom: 1.25rem;
-      border: 1px solid var(--line);
+    .verify-card {
       background: #fff;
+      border: 1px solid #dbe3ef;
+      border-radius: 14px;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+      padding: 1rem;
     }
 
-    .verify-status-card.status-valid {
-      border-color: #bbf7d0;
-      background: var(--green-soft);
-    }
-
-    .verify-status-card.status-invalid,
-    .verify-status-card.status-revoked,
-    .verify-status-card.status-expired {
-      border-color: #fecaca;
-      background: var(--red-soft);
-    }
-
-    .verify-status-icon {
-      font-size: 3rem;
-      line-height: 1;
-      margin-bottom: 0.6rem;
-    }
-
-    .verify-status-label {
-      font-size: 1.4rem;
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border-radius: 999px;
+      border: 1px solid;
       font-weight: 700;
-      margin: 0 0 0.35rem;
-      font-family: "Outfit", sans-serif;
-    }
-
-    .verify-status-label.ok { color: var(--green-text); }
-    .verify-status-label.fail { color: var(--red-text); }
-
-    .verify-status-msg {
-      margin: 0;
-      font-size: 0.9rem;
-      color: var(--muted);
-    }
-
-    .verify-info-card {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 1.1rem 1.25rem;
-      margin-bottom: 1.25rem;
-    }
-
-    .verify-info-card h3 {
-      margin: 0 0 0.9rem;
       font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-      font-weight: 600;
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 0.6rem;
+      padding: 0.35rem 0.7rem;
+      margin-bottom: 0.75rem;
     }
 
-    .verify-info-row {
+    .status-chip.valid {
+      color: #166534;
+      background: #dcfce7;
+      border-color: #86efac;
+    }
+
+    .status-chip.invalid,
+    .status-chip.revoked,
+    .status-chip.expired {
+      color: #991b1b;
+      background: #fee2e2;
+      border-color: #fca5a5;
+    }
+
+    .verify-label {
+      margin: 0 0 0.3rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .verify-msg {
+      margin: 0;
+      font-size: 0.92rem;
+      color: #334155;
+    }
+
+    .verify-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.55rem;
+      margin-top: 0.85rem;
+    }
+
+    .verify-summary div {
+      border: 1px solid #dbe3ef;
+      border-radius: 10px;
+      padding: 0.55rem;
+      background: #f8fafc;
+      text-align: center;
+    }
+
+    .verify-summary span {
+      display: block;
+      font-size: 0.72rem;
+      color: #64748b;
+      margin-bottom: 0.2rem;
+    }
+
+    .verify-summary strong {
+      font-size: 1rem;
+    }
+
+    .info-list {
+      display: grid;
+      gap: 0.5rem;
+    }
+
+    .info-row {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
       gap: 0.5rem;
-      padding: 0.45rem 0;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid #eef2f7;
+      padding-bottom: 0.45rem;
       font-size: 0.9rem;
     }
 
-    .verify-info-row:last-child {
+    .info-row:last-child {
       border-bottom: none;
+      padding-bottom: 0;
     }
 
-    .verify-info-label {
-      color: var(--muted);
+    .info-row .k {
+      color: #64748b;
       font-weight: 600;
-      flex-shrink: 0;
-      font-size: 0.82rem;
     }
 
-    .verify-info-value {
-      font-weight: 700;
+    .info-row .v {
       text-align: right;
+      font-weight: 700;
+      color: #0f172a;
       word-break: break-word;
     }
 
-    .verify-movement-card {
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 1.1rem 1.25rem;
-      margin-bottom: 1.25rem;
+    .map-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
     }
 
-    .verify-movement-card h3 {
-      margin: 0 0 0.75rem;
-      font-size: 0.8rem;
+    .legend {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      font-size: 0.74rem;
+      color: #475569;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 4px;
+      border: 1px solid #cbd5e1;
+    }
+
+    .dot.available { background: #16a34a; border-color: #15803d; }
+    .dot.occupied { background: #ef4444; border-color: #b91c1c; }
+    .dot.disabled { background: #94a3b8; border-color: #64748b; }
+
+    .zone-block {
+      border: 1px solid #dbe3ef;
+      border-radius: 12px;
+      padding: 0.7rem;
+      background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+      margin-bottom: 0.7rem;
+    }
+
+    .zone-title {
+      margin: 0 0 0.6rem;
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+      color: #334155;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
-      font-weight: 600;
-      border-bottom: 1px solid var(--line);
-      padding-bottom: 0.6rem;
+      font-weight: 700;
     }
 
-    .verify-gate-label {
-      font-size: 0.85rem;
-      font-weight: 600;
-      margin-bottom: 0.35rem;
-      display: block;
-    }
-
-    .verify-gate-input {
-      width: 100%;
-      box-sizing: border-box;
-      margin-bottom: 1rem;
-      font-size: 1rem;
-      padding: 0.75rem;
-      border-radius: 6px;
-      border: 1px solid var(--line);
-    }
-
-    .verify-btn-group {
+    .slot-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+      gap: 0.45rem;
+    }
+
+    .slot-btn {
+      border: none;
+      border-radius: 10px;
+      min-height: 70px;
+      font-weight: 800;
+      font-size: 0.8rem;
+      color: #fff;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      padding: 0.2rem;
+      display: grid;
+      place-items: center;
+      text-align: center;
+    }
+
+    .slot-btn small {
+      display: block;
+      font-weight: 500;
+      font-size: 0.62rem;
+      opacity: 0.9;
+      margin-top: 0.1rem;
+    }
+
+    .slot-btn.available { background: #16a34a; }
+    .slot-btn.occupied { background: #ef4444; cursor: not-allowed; }
+    .slot-btn.disabled { background: #94a3b8; cursor: not-allowed; }
+
+    .slot-btn.available:hover,
+    .slot-btn.available:focus-visible {
+      transform: translateY(-1px);
+      box-shadow: 0 5px 14px rgba(22, 163, 74, 0.3);
+      outline: none;
+    }
+
+    .slot-btn.selected {
+      box-shadow: 0 0 0 3px #bfdbfe, 0 6px 14px rgba(30, 64, 175, 0.28);
+      transform: translateY(-1px);
+    }
+
+    .movement-form {
+      display: grid;
       gap: 0.75rem;
     }
 
-    .verify-btn {
-      display: block;
+    .movement-form input {
       width: 100%;
-      padding: 0.9rem 0.5rem;
-      font-size: 1rem;
-      font-weight: 700;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      text-align: center;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 0.7rem 0.75rem;
+      font-size: 0.95rem;
       font-family: inherit;
     }
 
-    .verify-btn-entry {
-      background: var(--green-text);
+    .movement-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.55rem;
+    }
+
+    .movement-btn {
+      border: none;
+      border-radius: 10px;
+      padding: 0.85rem;
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: 800;
+      cursor: pointer;
       color: #fff;
     }
 
-    .verify-btn-entry:hover {
-      background: #14532d;
+    .movement-btn.entry { background: linear-gradient(135deg, #16a34a, #15803d); }
+    .movement-btn.exit { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+
+    .notice {
+      border-radius: 10px;
+      border: 1px solid;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.83rem;
+      margin-bottom: 0.75rem;
     }
 
-    .verify-btn-exit {
-      background: var(--red-text);
-      color: #fff;
+    .notice.ok {
+      background: #dcfce7;
+      border-color: #86efac;
+      color: #166534;
     }
 
-    .verify-btn-exit:hover {
-      background: #7f1d1d;
+    .notice.warn {
+      background: #ffedd5;
+      border-color: #fdba74;
+      color: #9a3412;
     }
 
-    .verify-saved-banner {
-      background: var(--green-soft);
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.25rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .verify-saved-banner-icon {
-      font-size: 1.75rem;
-      flex-shrink: 0;
-    }
-
-    .verify-saved-banner p {
-      margin: 0;
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--green-text);
-    }
-
-    .verify-saved-banner .helper-text {
-      font-weight: 400;
-      color: var(--muted);
-      font-size: 0.8rem;
-    }
-
-    .verify-dup-banner {
-      background: var(--orange-soft);
-      border: 1px solid #fed7aa;
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.25rem;
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--orange-text);
-    }
-
-    .verify-footer {
-      padding: 1rem 1.25rem;
-      text-align: center;
-      color: var(--muted);
-      font-size: 0.75rem;
-      border-top: 1px solid var(--line);
-    }
-
-    @media (min-width: 540px) {
-      .verify-body {
-        padding: 2rem 1.5rem;
-      }
-      .verify-btn {
-        padding: 1rem;
+    @media (min-width: 860px) {
+      .verify-grid {
+        grid-template-columns: 340px 1fr;
       }
     }
   </style>
 </head>
 <body>
+  <%
+    const vResult = result.result || "INVALID";
+    const statusClass = result.ok ? "valid" : String(vResult).toLowerCase();
+    const slotOverview = parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
+    const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
+    const grouped = slots.reduce((acc, slot) => {
+      const key = slot.zone || "General";
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(slot);
+      return acc;
+    }, {});
+  %>
 
-  <header class="verify-header">
-    <div class="verify-header-logo">N</div>
-    <div class="verify-header-text">
-      <p class="verify-header-title">NAAP Parking System</p>
-      <p class="verify-header-sub">Gate Verification</p>
-    </div>
-  </header>
+  <div class="verify-shell">
+    <header class="verify-header">
+      <h1>NAAP Parking Verification</h1>
+      <p>Gate entry authorization and slot assignment panel</p>
+    </header>
 
-  <main class="verify-body">
+    <div class="verify-grid">
+      <section class="verify-card">
+        <div class="status-chip <%= statusClass %>"><%= vResult %></div>
+        <p class="verify-label">Verification Message</p>
+        <p class="verify-msg"><%= result.message || "No message available." %></p>
 
-    <%
-      const vResult = result.result || "INVALID";
-      const isValid = result.ok === true;
-      const cardClass = isValid ? "status-valid" : `status-${vResult.toLowerCase()}`;
-      const labelClass = isValid ? "ok" : "fail";
-      let statusIcon = "❌";
-      if (isValid) statusIcon = "✅";
-      else if (vResult === "EXPIRED") statusIcon = "⌛";
-      else if (vResult === "REVOKED") statusIcon = "🚫";
-    %>
+        <% if (result.scanned_at) { %>
+          <p class="verify-label" style="margin-top:0.75rem;">Last Scan Timestamp</p>
+          <p class="verify-msg"><%= new Date(result.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %></p>
+        <% } %>
 
-    <!-- Status Card -->
-    <div class="verify-status-card <%= cardClass %>">
-      <div class="verify-status-icon"><%= statusIcon %></div>
-      <p class="verify-status-label <%= labelClass %>"><%= vResult %></p>
-      <p class="verify-status-msg"><%= result.message || "" %></p>
-      <% if (result.scanned_at) { %>
-        <p class="verify-status-msg" style="margin-top:0.3rem; font-size:0.78rem;">
-          <%= new Date(result.scanned_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
-        </p>
-      <% } %>
-    </div>
-
-    <!-- Movement saved banner -->
-    <% if (result.movement_saved) { %>
-      <div class="verify-saved-banner">
-        <div class="verify-saved-banner-icon"><%= result.action === "ENTRY" ? "🟢" : "🔴" %></div>
-        <div>
-          <p><%= result.action %> recorded successfully.</p>
-          <p class="helper-text">Entry/exit has been logged in the dashboard.</p>
-        </div>
-      </div>
-    <% } %>
-
-    <!-- Duplicate movement banner -->
-    <% if (result.duplicate_movement) { %>
-      <div class="verify-dup-banner">
-        ⚠️ <%= result.message %>
-      </div>
-    <% } %>
-
-    <!-- Vehicle/Student info -->
-    <% if (result.sticker) { %>
-      <div class="verify-info-card">
-        <h3>Vehicle & Student Details</h3>
-        <div class="verify-info-row">
-          <span class="verify-info-label">Student</span>
-          <span class="verify-info-value"><%= result.sticker.full_name || "-" %></span>
-        </div>
-        <div class="verify-info-row">
-          <span class="verify-info-label">ID Number</span>
-          <span class="verify-info-value"><%= result.sticker.student_number || "-" %></span>
-        </div>
-        <div class="verify-info-row">
-          <span class="verify-info-label">Plate Number</span>
-          <span class="verify-info-value"><%= result.sticker.plate_number || "-" %></span>
-        </div>
-        <div class="verify-info-row">
-          <span class="verify-info-label">Vehicle</span>
-          <span class="verify-info-value"><%= result.sticker.model || "-" %></span>
-        </div>
-        <div class="verify-info-row">
-          <span class="verify-info-label">Sticker Code</span>
-          <span class="verify-info-value"><%= result.sticker.sticker_code || "-" %></span>
-        </div>
-      </div>
-    <% } %>
-
-    <!-- Movement selection (only for valid stickers) -->
-    <% if (result.ok && !result.movement_saved) { %>
-      <div class="verify-movement-card">
-        <h3>Record Gate Movement</h3>
-        <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" id="movementForm">
-          <label class="verify-gate-label" for="gateField">Gate Name</label>
-          <input id="gateField" class="verify-gate-input" name="gate" value="Main Gate" />
-          <div class="verify-btn-group">
-              <button type="submit" name="action" value="ENTRY" class="verify-btn" id="entryBtn" style="
-                background: linear-gradient(135deg, #16a34a, #15803d);
-                color: #fff;
-                padding: 1.25rem 0.5rem;
-                font-weight: 800;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 0.4rem;
-                box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
-                transition: all 0.15s ease;
-              " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(22,163,74,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(22,163,74,0.35)'">
-                <span style="font-size: 2rem; line-height:1;">🟢</span>
-                <span>Record ENTRY</span>
-              </button>
-
-              <button type="submit" name="action" value="EXIT" class="verify-btn" id="exitBtn" style="
-                background: linear-gradient(135deg, #dc2626, #b91c1c);
-                color: #fff;
-                padding: 1.25rem 0.5rem;
-                font-weight: 800;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 0.4rem;
-                box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
-                transition: all 0.15s ease;
-              " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(220,38,38,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(220,38,38,0.35)'">
-                <span style="font-size: 2rem; line-height:1;">🔴</span>
-                <span>Record EXIT</span>
-              </button>
+        <% if (result.movement_saved) { %>
+          <div class="notice ok" style="margin-top:0.9rem;">
+            Movement recorded successfully: <strong><%= result.action %></strong>
           </div>
-          <p id="processingMsg" style="display:none; text-align:center; margin-top:0.75rem; color: var(--muted); font-size:0.85rem;">
-            ⏳ Recording movement, please wait...
-          </p>
-        </form>
-        <script>
-          (function() {
-            const form = document.getElementById('movementForm');
-            const entryBtn = document.getElementById('entryBtn');
-            const exitBtn = document.getElementById('exitBtn');
-            const processingMsg = document.getElementById('processingMsg');
-            let submitted = false;
+        <% } %>
 
-            form.addEventListener('submit', function(e) {
-              if (submitted) {
-                e.preventDefault();
-                return;
-              }
-              submitted = true;
-              
-              // We must use setTimeout to disable the buttons so the browser still
-              // captures and sends the button's "value" (ENTRY or EXIT) in the POST request
-              setTimeout(() => {
-                if(entryBtn) { entryBtn.disabled = true; entryBtn.style.opacity = '0.5'; }
-                if(exitBtn) { exitBtn.disabled = true; exitBtn.style.opacity = '0.5'; }
-                if(processingMsg) processingMsg.style.display = 'block';
-              }, 0);
-            });
-          })();
-        </script>
-      </div>
-    <% } %>
+        <% if (result.duplicate_movement) { %>
+          <div class="notice warn" style="margin-top:0.9rem;">
+            <%= result.message %>
+          </div>
+        <% } %>
 
-    <% if (!result.ok && !result.sticker) { %>
-      <p style="text-align:center; color: var(--muted); font-size:0.875rem;">
-        Entry/exit buttons are available only for valid, active stickers.
-      </p>
-    <% } %>
+        <% if (result.sticker) { %>
+          <p class="verify-label" style="margin-top:0.9rem;">Student and Vehicle</p>
+          <div class="info-list">
+            <div class="info-row"><span class="k">Student</span><span class="v"><%= result.sticker.full_name || "-" %></span></div>
+            <div class="info-row"><span class="k">Student Number</span><span class="v"><%= result.sticker.student_number || "-" %></span></div>
+            <div class="info-row"><span class="k">Plate Number</span><span class="v"><%= result.sticker.plate_number || "-" %></span></div>
+            <div class="info-row"><span class="k">Vehicle</span><span class="v"><%= result.sticker.model || "-" %></span></div>
+            <div class="info-row"><span class="k">Sticker</span><span class="v"><%= result.sticker.sticker_code || "-" %></span></div>
+            <div class="info-row"><span class="k">Current Slot</span><span class="v"><%= result.current_slot ? result.current_slot.slot_code : "Not Assigned" %></span></div>
+          </div>
+        <% } %>
+      </section>
 
-  </main>
+      <section class="verify-card">
+        <div class="map-head">
+          <div>
+            <p class="verify-label" style="margin:0;">Campus Overview</p>
+            <p class="verify-msg" style="font-size:0.82rem; margin-top:0.2rem;">Select only green slots for ENTRY.</p>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="dot available"></span>Available</span>
+            <span class="legend-item"><span class="dot occupied"></span>Occupied</span>
+            <span class="legend-item"><span class="dot disabled"></span>Disabled</span>
+          </div>
+        </div>
+
+        <div class="verify-summary">
+          <div><span>Total</span><strong><%= slotOverview.summary?.total || 0 %></strong></div>
+          <div><span>Available</span><strong style="color:#15803d;"><%= slotOverview.summary?.available || 0 %></strong></div>
+          <div><span>Occupied</span><strong style="color:#b91c1c;"><%= slotOverview.summary?.occupied || 0 %></strong></div>
+        </div>
+
+        <% if (result.ok && !result.movement_saved) { %>
+          <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" id="movementForm" class="movement-form" style="margin-top:0.95rem;">
+            <label class="verify-label" for="gateField" style="margin-bottom:0;">Gate Name</label>
+            <input id="gateField" name="gate" value="Main Gate" />
+            <input type="hidden" name="slot_id" id="slotIdField" value="" />
+
+            <% Object.keys(grouped).forEach(zone => { %>
+              <div class="zone-block">
+                <p class="zone-title"><%= zone %></p>
+                <div class="slot-grid">
+                  <% grouped[zone].forEach(slot => { %>
+                    <button
+                      type="button"
+                      class="slot-btn <%= slot.occupancy %>"
+                      data-slot-id="<%= slot.id %>"
+                      data-occupancy="<%= slot.occupancy %>"
+                      data-slot-code="<%= slot.slot_code %>"
+                      <%= slot.is_selectable ? "" : "disabled" %>>
+                      <span><%= slot.slot_code %></span>
+                      <small><%= slot.occupancy.toUpperCase() %></small>
+                    </button>
+                  <% }) %>
+                </div>
+              </div>
+            <% }) %>
+
+            <div class="movement-actions">
+              <button type="submit" name="action" value="ENTRY" id="entryBtn" class="movement-btn entry">Record ENTRY</button>
+              <button type="submit" name="action" value="EXIT" id="exitBtn" class="movement-btn exit">Record EXIT</button>
+            </div>
+            <p id="movementHint" class="verify-msg" style="font-size:0.8rem; margin:0;"></p>
+          </form>
+        <% } %>
+
+        <% if (!result.ok && !result.sticker) { %>
+          <p class="verify-msg" style="margin-top:0.95rem;">Entry and exit controls are shown only for valid active stickers.</p>
+        <% } %>
+      </section>
+    </div>
+  </div>
 
   <script>
-    // Audio Feedback Initialization
-    function playBeep(type) {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        if (type === 'success') {
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(800, ctx.currentTime);
-          gain.gain.setValueAtTime(0.5, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-          osc.start(); osc.stop(ctx.currentTime + 0.2);
-        } else {
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(300, ctx.currentTime);
-          osc.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
-          gain.gain.setValueAtTime(0.5, ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-          osc.start(); osc.stop(ctx.currentTime + 0.3);
+    (() => {
+      const form = document.getElementById("movementForm");
+      if (!form) return;
+
+      const slotButtons = Array.from(document.querySelectorAll(".slot-btn.available"));
+      const slotIdField = document.getElementById("slotIdField");
+      const entryBtn = document.getElementById("entryBtn");
+      const exitBtn = document.getElementById("exitBtn");
+      const movementHint = document.getElementById("movementHint");
+      let selectedSlotCode = "";
+
+      slotButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          slotButtons.forEach((item) => item.classList.remove("selected"));
+          btn.classList.add("selected");
+          slotIdField.value = btn.dataset.slotId || "";
+          selectedSlotCode = btn.dataset.slotCode || "";
+          if (movementHint) {
+            movementHint.textContent = selectedSlotCode
+              ? `Selected slot for ENTRY: ${selectedSlotCode}`
+              : "";
+          }
+        });
+      });
+
+      form.addEventListener("submit", (event) => {
+        const submitter = event.submitter;
+        if (submitter && submitter.value === "ENTRY" && slotButtons.length > 0 && !slotIdField.value) {
+          event.preventDefault();
+          if (movementHint) movementHint.textContent = "Please select an available parking slot before recording ENTRY.";
+          return;
         }
-      } catch(e) {}
-    }
 
-    // Play sound on first interaction (required by mobile browsers)
-    window.addEventListener('touchstart', function initAudio() {
-      <% if (!result.movement_saved && !result.duplicate_movement) { %>
-        playBeep('<%= result.ok ? 'success' : 'error' %>');
-      <% } %>
-      window.removeEventListener('touchstart', initAudio);
-    }, { once: true });
-    
-    // Or if movement was just saved successfully, play success beep immediately on next interaction bounds
-    <% if (result.movement_saved) { %>
-      window.addEventListener('touchstart', function() { playBeep('success'); }, { once: true });
-    <% } %>
+        if (entryBtn) entryBtn.disabled = true;
+        if (exitBtn) exitBtn.disabled = true;
+      });
+    })();
   </script>
-
-  <footer class="verify-footer">
-    National Aviation Academy of the Philippines &mdash; Parking Management System
-  </footer>
-
 </body>
 </html>

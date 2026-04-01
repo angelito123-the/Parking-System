@@ -364,6 +364,55 @@ async function getAvailableParkingSlots(db = pool) {
   return rows;
 }
 
+async function getParkingSlotOverview(db = pool) {
+  const [rows] = await db.query(
+    `SELECT
+       ps.id,
+       ps.slot_code,
+       ps.zone,
+       ps.status,
+       ps.current_sticker_id,
+       st.full_name AS occupied_by_name,
+       v.plate_number AS occupied_by_plate
+     FROM parking_slots ps
+     LEFT JOIN stickers s ON s.id = ps.current_sticker_id
+     LEFT JOIN vehicles v ON v.id = s.vehicle_id
+     LEFT JOIN students st ON st.id = v.student_id
+     ORDER BY ps.zone ASC, ps.slot_code ASC`
+  );
+
+  const slots = rows.map((row) => {
+    const occupancy = row.status !== "available"
+      ? "disabled"
+      : row.current_sticker_id
+      ? "occupied"
+      : "available";
+    return {
+      id: row.id,
+      slot_code: row.slot_code,
+      zone: row.zone,
+      status: row.status,
+      occupancy,
+      is_selectable: occupancy === "available",
+      occupied_by_name: row.occupied_by_name || null,
+      occupied_by_plate: row.occupied_by_plate || null
+    };
+  });
+
+  const summary = slots.reduce(
+    (acc, slot) => {
+      acc.total += 1;
+      if (slot.occupancy === "available") acc.available += 1;
+      else if (slot.occupancy === "occupied") acc.occupied += 1;
+      else acc.disabled += 1;
+      return acc;
+    },
+    { total: 0, available: 0, occupied: 0, disabled: 0 }
+  );
+
+  return { slots, summary };
+}
+
 async function getCurrentParkingSlotBySticker(stickerId, db = pool) {
   const [rows] = await db.query(
     `SELECT id, slot_code, zone
@@ -881,15 +930,15 @@ app.get("/verify/:token", async (req, res) => {
     const verification = await getVerificationState(req.params.token);
     let lastAction = null;
     let currentSlot = null;
-    let availableSlots = [];
+    let parkingSlotOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
     if (verification.ok && verification.sticker) {
        const lastMovement = await getLastValidMovement(verification.sticker.id);
        if (lastMovement) lastAction = lastMovement.action;
        currentSlot = await getCurrentParkingSlotBySticker(verification.sticker.id);
-       availableSlots = await getAvailableParkingSlots();
+       parkingSlotOverview = await getParkingSlotOverview();
     }
     const result = { ...verification, last_action: lastAction, current_slot: currentSlot };
-    res.render("verify", { result, availableSlots });
+    res.render("verify", { result, parkingSlotOverview });
   } catch (error) {
     console.error("Verify GET error:", error);
     res.status(500).send("An error occurred during verification.");
@@ -908,7 +957,10 @@ app.post("/verify/:token/movement", async (req, res) => {
   try {
     const verification = await getVerificationState(req.params.token);
     if (!verification.ok) {
-      return res.render("verify", { result: verification, availableSlots: [] });
+      return res.render("verify", {
+        result: verification,
+        parkingSlotOverview: { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } }
+      });
     }
 
     const sticker = verification.sticker;
@@ -971,17 +1023,17 @@ app.post("/verify/:token/movement", async (req, res) => {
       scan_log_id: scanLog?.id || null,
       scanned_at: scanLog?.scanned_at || null
     };
-    const availableSlots = movement_saved && selectedAction === "ENTRY"
-      ? []
-      : await getAvailableParkingSlots();
-    res.render("verify", { result, availableSlots });
+    const parkingSlotOverview = await getParkingSlotOverview();
+    res.render("verify", { result, parkingSlotOverview });
   } catch (error) {
     console.error("Movement error:", error);
     const verification = await getVerificationState(req.params.token).catch(() => null);
     const currentSlot = verification?.ok && verification?.sticker
       ? await getCurrentParkingSlotBySticker(verification.sticker.id).catch(() => null)
       : null;
-    const availableSlots = await getAvailableParkingSlots().catch(() => []);
+    const parkingSlotOverview = await getParkingSlotOverview().catch(
+      () => ({ slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } })
+    );
     res.status(400).render("verify", {
       result: {
         ...(verification || { ok: false, result: "INVALID", message: "An error occurred recording movement." }),
@@ -990,7 +1042,7 @@ app.post("/verify/:token/movement", async (req, res) => {
         duplicate_movement: false,
         message: error.message || "An error occurred recording movement."
       },
-      availableSlots
+      parkingSlotOverview
     });
   }
 });
@@ -1063,6 +1115,21 @@ app.get("/api/parking-slots", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Parking slots API error:", error);
     res.status(500).json({ ok: false, message: "Failed to load parking slots.", slots: [] });
+  }
+});
+
+app.get("/api/parking-slot-overview", requireAuth, async (req, res) => {
+  try {
+    const overview = await getParkingSlotOverview();
+    res.json({ ok: true, ...overview });
+  } catch (error) {
+    console.error("Parking slot overview API error:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Failed to load parking slot overview.",
+      slots: [],
+      summary: { total: 0, available: 0, occupied: 0, disabled: 0 }
+    });
   }
 });
 

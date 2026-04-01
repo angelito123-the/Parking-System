@@ -54,6 +54,13 @@
     <p id="gateLogInfo">Recording for selected vehicle.</p>
   </div>
   <div id="gateLogDetails" style="margin-bottom: 0.75rem;"></div>
+  <div id="slotPickerPanel" style="display:none; margin-bottom: 1rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+      <strong style="font-size:0.95rem;">Choose Parking Slot</strong>
+      <span id="slotPickerStatus" class="helper-text">Loading parking map...</span>
+    </div>
+    <div id="slotMap" style="background:#f8fafc; border:1px solid var(--line); border-radius:14px; padding:1rem;"></div>
+  </div>
   <div id="gateLogFeedback" style="margin-bottom: 1rem;"></div>
   <div id="movementBtnContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
     <button type="button" id="gateEntryBtn" style="
@@ -110,6 +117,9 @@
     const logPanel = document.getElementById("gateLogPanel");
     const logInfo = document.getElementById("gateLogInfo");
     const logDetails = document.getElementById("gateLogDetails");
+    const slotPickerPanel = document.getElementById("slotPickerPanel");
+    const slotPickerStatus = document.getElementById("slotPickerStatus");
+    const slotMap = document.getElementById("slotMap");
     const logFeedback = document.getElementById("gateLogFeedback");
     const entryBtn = document.getElementById("gateEntryBtn");
     const exitBtn = document.getElementById("gateExitBtn");
@@ -118,7 +128,9 @@
 
     let selectedToken = null;
     let selectedLabel = "";
+    let selectedSlotId = null;
     let html5QrCode = null;
+    let parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
 
     // --- Audio Feedback ---
     function playBeep(type) {
@@ -143,6 +155,125 @@
           osc.start(); osc.stop(ctx.currentTime + 0.3);
         }
       } catch(e) {}
+    }
+
+    function renderSlotButton(slot) {
+      const selected = String(selectedSlotId) === String(slot.id);
+      const occupancy = slot.occupancy || "available";
+      const isSelectable = occupancy === "available";
+      const tone = occupancy === "available"
+        ? { bg: "#16a34a", border: "#166534", text: "#ffffff" }
+        : occupancy === "occupied"
+        ? { bg: "#ef4444", border: "#b91c1c", text: "#ffffff" }
+        : { bg: "#94a3b8", border: "#64748b", text: "#ffffff" };
+      return `
+        <button
+          type="button"
+          class="slot-option-btn"
+          data-slot-id="${slot.id}"
+          data-slot-code="${slot.slot_code}"
+          data-selectable="${isSelectable ? "1" : "0"}"
+          ${isSelectable ? "" : "disabled"}
+          style="
+            min-width:72px;
+            min-height:86px;
+            border-radius:12px;
+            border:2px solid ${selected ? "#1d4ed8" : tone.border};
+            background:${selected ? "#dbeafe" : tone.bg};
+            color:${selected ? "#0f172a" : tone.text};
+            font-weight:800;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            gap:0.25rem;
+            cursor:${isSelectable ? "pointer" : "not-allowed"};
+            box-shadow:${selected ? '0 0 0 3px rgba(59,130,246,0.18)' : 'none'};
+            opacity:${isSelectable ? "1" : "0.86"};
+          ">
+            <span style="font-size:0.9rem;">${slot.slot_code}</span>
+          <span style="font-size:0.68rem; color:${selected ? "#334155" : "rgba(255,255,255,0.92)"};">${slot.zone}</span>
+        </button>
+      `;
+    }
+
+    function attachSlotHandlers() {
+      document.querySelectorAll(".slot-option-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.selectable !== "1") return;
+          selectedSlotId = btn.dataset.slotId;
+          renderParkingMap(parkingOverview);
+          logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">Slot <strong>${btn.dataset.slotCode || "-"}</strong> selected for entry.</div>`;
+        });
+      });
+    }
+
+    function renderParkingMap(overview) {
+      if (!slotMap) return;
+      const slots = Array.isArray(overview?.slots) ? overview.slots : [];
+      if (!Array.isArray(slots) || slots.length === 0) {
+        slotMap.innerHTML = `<div class="empty-state" style="padding:1rem;"><p>No parking slots configured right now.</p></div>`;
+        return;
+      }
+
+      const grouped = slots.reduce((acc, slot) => {
+        const zone = slot.zone || "General";
+        if (!acc[zone]) acc[zone] = [];
+        acc[zone].push(slot);
+        return acc;
+      }, {});
+      const zoneNames = Object.keys(grouped);
+      const summary = overview?.summary || { total: slots.length, available: 0, occupied: 0, disabled: 0 };
+
+      slotMap.innerHTML = `
+        <div style="border:2px solid #1d4ed8; border-radius:16px; padding:0.85rem; background:linear-gradient(180deg,#ffffff,#eff6ff);">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.7rem;">
+            <div style="font-size:0.78rem; color:#334155; font-weight:700;">
+              Campus Overview: ${summary.available || 0} Available / ${summary.total || slots.length} Total
+            </div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; font-size:0.7rem; color:#475569;">
+              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#16a34a;border:1px solid #166534;"></span>Available</span>
+              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444;border:1px solid #b91c1c;"></span>Occupied</span>
+              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#94a3b8;border:1px solid #64748b;"></span>Disabled</span>
+            </div>
+          </div>
+          ${zoneNames.map(zone => `
+            <div style="border:1px solid #dbe3ef; border-radius:12px; padding:0.55rem; margin-bottom:0.55rem; background:#f8fafc;">
+              <div style="font-size:0.74rem; font-weight:700; letter-spacing:0.03em; text-transform:uppercase; color:#334155; margin-bottom:0.45rem;">
+                ${zone}
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:0.45rem;">
+                ${grouped[zone].map(renderSlotButton).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+      attachSlotHandlers();
+    }
+
+    async function loadParkingSlots() {
+      if (!slotPickerStatus) return;
+      slotPickerStatus.textContent = "Loading parking map...";
+      selectedSlotId = null;
+
+      try {
+        const resp = await fetch("/api/parking-slot-overview");
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.message || "Failed to load parking overview.");
+        parkingOverview = {
+          slots: Array.isArray(data.slots) ? data.slots : [],
+          summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
+        };
+        const availableCount = parkingOverview.summary?.available || 0;
+        const totalCount = parkingOverview.summary?.total || parkingOverview.slots.length || 0;
+        slotPickerStatus.textContent = `${availableCount} available out of ${totalCount} slots`;
+        renderParkingMap(parkingOverview);
+      } catch (error) {
+        parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
+        slotPickerStatus.textContent = "Unable to load parking map";
+        slotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">${error.message || "Unable to load parking overview."}</div>`;
+      }
     }
 
     // --- Camera Logic ---
@@ -252,11 +383,13 @@
             🪪 Sticker: <strong>${item.sticker_code || "None"}</strong>
             ${item.expires_at ? `· Expires: ${new Date(item.expires_at).toLocaleDateString()}` : ""}
           </div>
+          ${item.current_slot ? `<div class="helper-text">Current Slot: <strong>${item.current_slot}</strong></div>` : ""}
           ${isActive && item.qr_token
             ? `<button type="button" class="select-vehicle-btn btn-sm"
                 data-token="${item.qr_token}"
                 data-label="${item.full_name} · ${item.plate_number}"
-                data-lastaction="${item.last_action || ''}">
+                data-lastaction="${item.last_action || ''}"
+                data-currentslot="${item.current_slot || ''}">
                 Select this Vehicle
               </button>`
             : `<span class="helper-text">⚠️ No active sticker — cannot record movement.</span>`
@@ -268,11 +401,16 @@
       statusEl.textContent = `Found ${resultsData.length} result(s).`;
       resultsEl.innerHTML = resultsData.map(renderVehicleCard).join("");
       document.querySelectorAll(".select-vehicle-btn").forEach(btn => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", async () => {
           selectedToken = btn.dataset.token;
           selectedLabel = btn.dataset.label;
+          selectedSlotId = null;
           logInfo.textContent = selectedLabel;
-          logDetails.innerHTML = `<p class="helper-text">Gate: <strong>${gateSelect.value}</strong></p>`;
+          const currentSlot = btn.dataset.currentslot || "";
+          logDetails.innerHTML = `
+            <p class="helper-text">Gate: <strong>${gateSelect.value}</strong></p>
+            ${currentSlot ? `<p class="helper-text">Current Slot: <strong>${currentSlot}</strong></p>` : ""}
+          `;
           logFeedback.innerHTML = "";
           logPanel.style.display = "block";
           logPanel.scrollIntoView({ behavior: "smooth" });
@@ -281,10 +419,16 @@
           const lastAction = btn.dataset.lastaction;
           entryBtn.style.display = "block";
           exitBtn.style.display = "block";
+          slotPickerPanel.style.display = "none";
           if (lastAction === "ENTRY") {
              entryBtn.style.display = "none";
           } else if (lastAction === "EXIT") {
              exitBtn.style.display = "none";
+          }
+
+          if (entryBtn.style.display !== "none") {
+            slotPickerPanel.style.display = "block";
+            await loadParkingSlots();
           }
         });
       });
@@ -341,11 +485,20 @@
     async function recordMovement(action) {
       if (!selectedToken) return;
       const gate = gateSelect.value || "Main Gate";
+      if (action === "ENTRY" && !selectedSlotId) {
+        logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Choose a parking slot on the map before recording entry.</div>`;
+        return;
+      }
       logFeedback.innerHTML = `<span class="helper-text">Recording ${action}...</span>`;
       
       let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
 
       if (isOffline) {
+        if (action === "ENTRY") {
+          playBeep('error');
+          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Slot assignment needs an online connection before entry can be recorded.</div>`;
+          return;
+        }
         // Queue movement in outbox
         await window.OfflineManager.queueMovement(selectedToken, action, gate);
         playBeep('success');
@@ -358,11 +511,17 @@
           const resp = await fetch("/api/manual-movement", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: selectedToken, action, gate })
+            body: JSON.stringify({ token: selectedToken, action, gate, slot_id: action === "ENTRY" ? selectedSlotId : null })
           });
           const data = await resp.json();
           if (data.movement_saved) {
             playBeep('success');
+            if (action === "ENTRY") {
+              await loadParkingSlots();
+            } else {
+              selectedSlotId = null;
+              slotPickerPanel.style.display = "none";
+            }
             logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">✅ ${action} recorded to main database.</div>`;
           } else {
              playBeep('error');
