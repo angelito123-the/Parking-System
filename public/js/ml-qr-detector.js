@@ -213,6 +213,41 @@
     return { gray: output, width: outWidth, height: outHeight };
   }
 
+  function normalizeRect(rect, width, height) {
+    if (!rect) {
+      return {
+        x: 0,
+        y: 0,
+        width,
+        height
+      };
+    }
+    const x = clamp(Number(rect.x || 0), 0, Math.max(0, width - 1));
+    const y = clamp(Number(rect.y || 0), 0, Math.max(0, height - 1));
+    const maxWidth = Math.max(1, width - x);
+    const maxHeight = Math.max(1, height - y);
+    const normalizedWidth = clamp(Number(rect.width || width), 1, maxWidth);
+    const normalizedHeight = clamp(Number(rect.height || height), 1, maxHeight);
+    return {
+      x,
+      y,
+      width: normalizedWidth,
+      height: normalizedHeight
+    };
+  }
+
+  function decodeQrFromGray(gray, width, height) {
+    if (!gray || !width || !height) return null;
+    const candidateBinary = adaptiveThreshold(gray, width, height, 17, 6);
+    const binaryRgba = grayscaleToRgba(candidateBinary, width, height);
+    let decodeResult = jsQR(binaryRgba, width, height, { inversionAttempts: "dontInvert" });
+    if (decodeResult && decodeResult.data) return decodeResult;
+
+    const normalizedRgba = grayscaleToRgba(gray, width, height);
+    decodeResult = jsQR(normalizedRgba, width, height, { inversionAttempts: "attemptBoth" });
+    return decodeResult && decodeResult.data ? decodeResult : null;
+  }
+
   function estimateEdgeDensity(binary, width, height, rect) {
     const x0 = Math.max(0, Math.floor(rect.x));
     const y0 = Math.max(0, Math.floor(rect.y));
@@ -442,15 +477,17 @@
         bestDetection = {
           detection: null,
           rect: {
-            x: width * 0.12,
-            y: height * 0.12,
-            width: width * 0.76,
-            height: height * 0.76
+            x: 0,
+            y: 0,
+            width,
+            height
           },
           corners: null,
           detectorScore: 0.28
         };
       }
+
+      bestDetection.rect = normalizeRect(bestDetection.rect, width, height);
 
       const areaRatio = clamp((bestDetection.rect.width * bestDetection.rect.height) / (width * height), 0, 1);
       const shapeRatio = bestDetection.rect.width / bestDetection.rect.height;
@@ -486,9 +523,7 @@
       const allowLowConfidenceAttempt = (this.frameCounter % 10 === 0) && confidence >= lowConfidenceThreshold;
       if (confidence < this.options.confidenceThreshold && !allowLowConfidenceAttempt) return;
 
-      let candidateGray = null;
-      let candidateWidth = 0;
-      let candidateHeight = 0;
+      let decodeResult = null;
 
       if (bestDetection.corners) {
         const warped = rectifyQuadBilinear(
@@ -498,25 +533,17 @@
           bestDetection.corners,
           this.options.perspectiveSize
         );
-        candidateGray = warped;
-        candidateWidth = this.options.perspectiveSize;
-        candidateHeight = this.options.perspectiveSize;
-      } else {
-        const crop = cropRect(normalized, width, height, bestDetection.rect);
-        candidateGray = crop.gray;
-        candidateWidth = crop.width;
-        candidateHeight = crop.height;
+        decodeResult = decodeQrFromGray(warped, this.options.perspectiveSize, this.options.perspectiveSize);
       }
 
-      const candidateBinary = adaptiveThreshold(candidateGray, candidateWidth, candidateHeight, 17, 6);
-
-      let decodeResult = null;
-      const binaryRgba = grayscaleToRgba(candidateBinary, candidateWidth, candidateHeight);
-      decodeResult = jsQR(binaryRgba, candidateWidth, candidateHeight, { inversionAttempts: "dontInvert" });
-
       if (!decodeResult) {
-        const normalizedRgba = grayscaleToRgba(candidateGray, candidateWidth, candidateHeight);
-        decodeResult = jsQR(normalizedRgba, candidateWidth, candidateHeight, { inversionAttempts: "attemptBoth" });
+        const crop = cropRect(normalized, width, height, bestDetection.rect);
+        decodeResult = decodeQrFromGray(crop.gray, crop.width, crop.height);
+      }
+
+      // Fallback to full-frame decoding so off-center codes can still be detected.
+      if (!decodeResult && (bestDetection.rect.width < width || bestDetection.rect.height < height)) {
+        decodeResult = decodeQrFromGray(normalized, width, height);
       }
 
       if (!decodeResult || !decodeResult.data) return;
