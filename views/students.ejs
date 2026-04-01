@@ -19,23 +19,23 @@
   </div>
   <% if (pageFlash) { %>
     <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
-      <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+      <strong><%= pageFlash.type === 'success' ? 'Success:' : 'Notice:' %></strong> <%= pageFlash.message %>
     </div>
   <% } %>
 </section>
 
-<div class="overlap-wrapper" style="display: grid; gap: 2.5rem;">
+<div class="overlap-wrapper">
 
-  <!-- ── Registration Form ─────────────────────────── -->
+  <!-- section -->
   <section class="reg-panel">
     <div class="section-head">
-      <h2 style="font-size: 1.25rem;">New Registration</h2>
-      <p>Register a student. You may also add their vehicle in the same step — vehicle fields are optional.</p>
+      <h2>New Registration</h2>
+      <p>Register a student. You may also add their vehicle in the same step - vehicle fields are optional.</p>
     </div>
 
     <form method="post" action="/students" class="form-grid" id="regForm">
       <!-- Student Fields -->
-      <div class="form-group-label">🎓 Student Information</div>
+      <div class="form-group-label">Student Information</div>
       <div class="form-row-2">
         <div>
           <label for="s_student_number">Student Number <span class="req">*</span></label>
@@ -59,14 +59,12 @@
 
       <!-- Vehicle Toggle -->
       <div class="vehicle-toggle-row">
-        <button type="button" class="btn-ghost" id="vehicleToggle" onclick="toggleVehicleSection()">
-          🚗 + Also register a vehicle
-        </button>
+        <button type="button" class="btn-ghost" id="vehicleToggle" onclick="toggleVehicleSection()">Add Vehicle Details</button>
       </div>
 
       <!-- Vehicle Fields (hidden by default) -->
       <div id="vehicleSection" class="vehicle-section" style="display:none;">
-        <div class="form-group-label" style="margin-top:0;">🚗 Vehicle Information <span class="optional-label">(optional)</span></div>
+        <div class="form-group-label" style="margin-top:0;">Vehicle Information <span class="optional-label">(optional)</span></div>
         <div class="form-row-2">
           <div>
             <label for="v_plate">Plate Number</label>
@@ -91,10 +89,10 @@
     </form>
   </section>
 
-  <!-- ── Student Directory ─────────────────────────── -->
-  <section style="padding:0; background:transparent;">
-    <div class="section-head" style="margin-bottom:1rem;">
-      <h2 style="font-size: 1.25rem;">Student Directory</h2>
+  <!-- section -->
+  <section class="directory-panel">
+    <div class="section-head">
+      <h2>Student Directory</h2>
       <p>Click <strong>Edit</strong> on any student or vehicle to update their information.</p>
     </div>
 
@@ -110,7 +108,7 @@
 
     <% if (students.length === 0) { %>
       <div class="empty-state">
-        <div class="empty-state-icon">🎓</div>
+        <div class="empty-state-icon">No Records</div>
         <p>No students registered yet. Use the form above to add one.</p>
       </div>
     <% } %>
@@ -119,7 +117,7 @@
     <% students.forEach(student => { %>
       <div class="student-card" data-searchable="<%= student.student_number %> <%= student.full_name %> <%= student.program %> <%= student.email %> <%= (student.vehicles || []).map(v => v.plate_number + ' ' + v.model).join(' ') %>">
 
-        <!-- ── Student Header ── -->
+        <!-- section -->
         <div class="sc-header">
           <div class="sc-meta">
             <div class="sc-name"><%= student.full_name %></div>
@@ -128,12 +126,10 @@
             </span>
           </div>
           <div class="sc-header-actions">
-            <button type="button" class="btn-edit-sm" onclick="toggleStudentEdit(<%= student.id %>)" id="editStudentBtn_<%= student.id %>">
-              ✏️ Edit
-            </button>
+            <button type="button" class="btn-edit-sm" onclick="toggleStudentEdit(<%= student.id %>)" id="editStudentBtn_<%= student.id %>">Edit</button>
             <form style="margin:0;" method="post" action="/students/<%= student.id %>/delete"
                   onsubmit="return confirm('Delete <%= student.full_name %>? This will also remove all their vehicles and cannot be undone.')">
-              <button type="submit" class="btn-delete-sm">🗑 Delete</button>
+              <button type="submit" class="btn-delete-sm">Delete</button>
             </form>
           </div>
         </div>
@@ -141,17 +137,17 @@
         <!-- Student Info Row -->
         <div class="sc-info-row">
           <% if (student.program) { %>
-            <span class="sc-info-chip">🎓 <%= student.program %></span>
+            <span class="sc-info-chip">Program: <%= student.program %></span>
           <% } %>
           <% if (student.email) { %>
-            <span class="sc-info-chip">✉️ <%= student.email %></span>
+            <span class="sc-info-chip">Email: <%= student.email %></span>
           <% } %>
           <% if (!student.program && !student.email) { %>
             <span class="sc-info-chip muted">No program or email on file</span>
           <% } %>
         </div>
 
-        <!-- ── Inline Student Edit Form ── -->
+        <!-- section -->
         <div class="inline-edit-form" id="studentEditForm_<%= student.id %>" style="display:none;">
           <form method="post" action="/students/<%= student.id %>/edit" class="edit-form-grid">
             <div class="form-row-2">
@@ -175,19 +171,17 @@
               </div>
             </div>
             <div class="edit-form-actions">
-              <button type="submit" class="btn-save-sm">💾 Save Changes</button>
+              <button type="submit" class="btn-save-sm">Save Changes</button>
               <button type="button" class="btn-cancel-sm" onclick="toggleStudentEdit(<%= student.id %>)">Cancel</button>
             </div>
           </form>
         </div>
 
-        <!-- ── Vehicles Sub-list ── -->
+        <!-- section -->
         <div class="sc-vehicles">
           <div class="sv-header">
-            <span class="sv-title">🚗 Vehicles (<%= (student.vehicles || []).length %>)</span>
-            <button type="button" class="btn-add-vehicle" onclick="toggleAddVehicle(<%= student.id %>)" id="addVehicleBtn_<%= student.id %>">
-              + Add Vehicle
-            </button>
+            <span class="sv-title">Vehicles (<%= (student.vehicles || []).length %>)</span>
+            <button type="button" class="btn-add-vehicle" onclick="toggleAddVehicle(<%= student.id %>)" id="addVehicleBtn_<%= student.id %>">Add Vehicle</button>
           </div>
 
           <!-- Add Vehicle Inline Form -->
@@ -209,7 +203,7 @@
                 </div>
               </div>
               <div class="edit-form-actions">
-                <button type="submit" class="btn-save-sm">🚗 Register Vehicle</button>
+                <button type="submit" class="btn-save-sm">Register Vehicle</button>
                 <button type="button" class="btn-cancel-sm" onclick="toggleAddVehicle(<%= student.id %>)">Cancel</button>
               </div>
             </form>
@@ -229,14 +223,14 @@
                   </span>
                   <span class="sv-model"><%= vehicle.model || 'Unknown model' %></span>
                   <% if (vehicle.color) { %>
-                    <span class="sv-color">· <%= vehicle.color %></span>
+                    <span class="sv-color"> - <%= vehicle.color %></span>
                   <% } %>
                 </div>
                 <div class="sv-item-actions">
-                  <button type="button" class="btn-edit-xs" onclick="toggleVehicleEdit(<%= vehicle.id %>)">✏️ Edit</button>
+                  <button type="button" class="btn-edit-xs" onclick="toggleVehicleEdit(<%= vehicle.id %>)">Edit</button>
                   <form style="margin:0;" method="post" action="/vehicles/<%= vehicle.id %>/delete"
                         onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>? This cannot be undone.')">
-                    <button type="submit" class="btn-delete-xs">🗑</button>
+                    <button type="submit" class="btn-delete-xs">Delete</button>
                   </form>
                 </div>
               </div>
@@ -259,7 +253,7 @@
                     </div>
                   </div>
                   <div class="edit-form-actions">
-                    <button type="submit" class="btn-save-sm">💾 Save</button>
+                    <button type="submit" class="btn-save-sm">Save</button>
                     <button type="button" class="btn-cancel-sm" onclick="toggleVehicleEdit(<%= vehicle.id %>)">Cancel</button>
                   </div>
                 </form>
@@ -274,46 +268,70 @@
   </section>
 </div>
 
-<!-- ── Page-specific Styles ───────────────────────── -->
+<!-- section -->
 <style>
-  /* Registration Panel */
-  .reg-panel {
-    border: none;
-    box-shadow: none;
-    padding: 0;
-    background: transparent;
+  .overlap-wrapper {
+    display: grid;
+    gap: 1.75rem;
+  }
+
+  .reg-panel,
+  .directory-panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+    padding: 1.5rem;
+  }
+
+  .section-head {
+    margin-bottom: 1.1rem;
+  }
+
+  .section-head h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 760;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .section-head p {
+    margin: 0.45rem 0 0;
+    color: var(--muted);
+    max-width: 70ch;
   }
 
   .form-group-label {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.09em;
     color: var(--muted);
-    padding: 0.5rem 0 0.25rem;
-    margin-top: 0.5rem;
+    margin-top: 0.6rem;
+  }
+
+  .form-row-2,
+  .form-row-3 {
+    display: grid;
+    gap: 0.8rem;
   }
 
   .form-row-2 {
-    display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
   }
 
   .form-row-3 {
-    display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 0.75rem;
   }
 
   .form-actions {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    margin-top: 0.5rem;
+    margin-top: 0.7rem;
   }
 
-  .req { color: var(--red-text); }
+  .req {
+    color: var(--red-text);
+  }
 
   .optional-label {
     font-size: 0.72rem;
@@ -324,80 +342,98 @@
   }
 
   .vehicle-toggle-row {
-    margin: 0.5rem 0;
+    margin: 0.6rem 0 0.25rem;
   }
 
   .vehicle-section {
-    background: var(--surface-soft);
+    background: color-mix(in oklab, var(--surface-soft) 92%, #ffffff 8%);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
-    padding: 1.25rem;
+    padding: 1.05rem;
     display: grid;
-    gap: 0.75rem;
+    gap: 0.7rem;
     animation: revealUp 0.2s ease;
   }
 
   .btn-ghost {
-    background: transparent;
-    border: 1.5px dashed var(--line-strong);
-    color: var(--blue-mid);
-    font-weight: 600;
-    font-size: 0.85rem;
-    box-shadow: none;
-    padding: 0.55rem 1rem;
+    background: var(--surface-soft);
+    border: 1px solid var(--line-strong);
+    color: var(--text-secondary);
+    font-size: 0.83rem;
+    font-weight: 650;
+    padding: 0.56rem 0.95rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
     width: auto;
+    box-shadow: none;
   }
 
   .btn-ghost:hover {
-    background: var(--blue-soft);
+    background: var(--surface);
     border-color: var(--blue-mid);
-    transform: none;
-    box-shadow: none;
+    color: var(--blue-mid);
   }
 
-  /* Student Directory Cards */
+  .table-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .table-tools input[type="search"] {
+    flex: 1 1 370px;
+    max-width: 540px;
+  }
+
+  .table-tools .helper-text {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--muted);
+  }
+
   .student-directory {
     display: grid;
-    gap: 1rem;
+    gap: 0.9rem;
   }
 
   .student-card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-lg);
-    padding: 1.35rem 1.5rem;
+    padding: 1.2rem 1.3rem;
     box-shadow: var(--shadow-sm);
-    transition: box-shadow 0.15s ease;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
     display: grid;
-    gap: 0.85rem;
+    gap: 0.78rem;
   }
 
   .student-card:hover {
+    border-color: rgba(37, 99, 235, 0.32);
     box-shadow: var(--shadow-md);
   }
 
-  /* Student card header */
   .sc-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 1rem;
+    gap: 0.85rem;
     flex-wrap: wrap;
   }
 
   .sc-meta {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.55rem;
     flex-wrap: wrap;
   }
 
   .sc-name {
-    font-size: 1rem;
-    font-weight: 800;
+    font-size: 1.03rem;
+    font-weight: 760;
     font-family: "Plus Jakarta Sans", sans-serif;
     color: var(--text);
   }
@@ -406,12 +442,11 @@
     display: flex;
     gap: 0.4rem;
     align-items: center;
-    flex-shrink: 0;
   }
 
   .sc-info-row {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.45rem;
     flex-wrap: wrap;
   }
 
@@ -421,66 +456,68 @@
     background: var(--surface-soft);
     border: 1px solid var(--line);
     border-radius: 999px;
-    padding: 0.2rem 0.65rem;
+    padding: 0.24rem 0.66rem;
   }
 
-  .sc-info-chip.muted { font-style: italic; }
+  .sc-info-chip.muted {
+    font-style: italic;
+  }
 
-  /* Edit / Delete buttons */
-  .btn-edit-sm {
-    background: var(--blue-soft);
+  .btn-edit-sm,
+  .btn-edit-xs {
+    background: var(--surface-soft);
     color: var(--blue-mid);
-    border: 1px solid rgba(37,99,235,0.2);
-    font-size: 0.78rem;
-    font-weight: 600;
-    padding: 0.3rem 0.7rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-    white-space: nowrap;
+    border: 1px solid rgba(37, 99, 235, 0.24);
+    font-weight: 650;
   }
 
-  .btn-edit-sm:hover {
-    background: var(--blue-mid);
-    color: #fff;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .btn-delete-sm {
-    background: var(--red-soft);
+  .btn-delete-sm,
+  .btn-delete-xs {
+    background: #fff7f8;
     color: var(--red-text);
     border: 1px solid var(--red-border);
+    font-weight: 650;
+  }
+
+  .btn-edit-sm,
+  .btn-delete-sm {
     font-size: 0.78rem;
-    font-weight: 600;
-    padding: 0.3rem 0.7rem;
+    padding: 0.34rem 0.74rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-    white-space: nowrap;
+    transition: all 0.16s ease;
   }
 
-  .btn-delete-sm:hover {
-    background: var(--red-text);
-    color: #fff;
-    transform: none;
-    box-shadow: none;
+  .btn-edit-xs,
+  .btn-delete-xs {
+    font-size: 0.73rem;
+    padding: 0.2rem 0.56rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.16s ease;
   }
 
-  /* Inline Edit Forms */
+  .btn-edit-sm:hover,
+  .btn-edit-xs:hover {
+    background: var(--blue-soft);
+  }
+
+  .btn-delete-sm:hover,
+  .btn-delete-xs:hover {
+    background: var(--red-soft);
+  }
+
   .inline-edit-form {
     background: var(--surface-soft);
-    border: 1px solid var(--blue-mid);
+    border: 1px solid var(--line-strong);
     border-radius: var(--radius-lg);
-    padding: 1.1rem 1.25rem;
+    padding: 1rem 1.1rem;
     animation: revealUp 0.18s ease;
   }
 
   .edit-form-grid {
     display: grid !important;
-    gap: 0.65rem;
+    gap: 0.66rem;
     width: 100%;
   }
 
@@ -496,44 +533,34 @@
     background: linear-gradient(135deg, var(--blue-1), var(--blue-mid));
     color: #fff;
     border: none;
-    font-size: 0.82rem;
-    font-weight: 600;
-    padding: 0.45rem 0.9rem;
+    font-size: 0.81rem;
+    font-weight: 650;
+    padding: 0.46rem 0.9rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-    white-space: nowrap;
+    transition: filter 0.16s ease;
   }
 
   .btn-save-sm:hover {
-    background: linear-gradient(135deg, var(--navy), var(--blue-1));
-    transform: none;
-    box-shadow: none;
+    filter: brightness(0.96);
   }
 
   .btn-cancel-sm {
     background: var(--surface);
     color: var(--muted);
     border: 1px solid var(--line);
-    font-size: 0.82rem;
-    font-weight: 600;
-    padding: 0.45rem 0.9rem;
+    font-size: 0.81rem;
+    font-weight: 650;
+    padding: 0.46rem 0.9rem;
     border-radius: var(--radius-sm);
     cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-    white-space: nowrap;
   }
 
   .btn-cancel-sm:hover {
     background: var(--surface-soft);
     color: var(--text);
-    transform: none;
-    box-shadow: none;
   }
 
-  /* Vehicles sub-section */
   .sc-vehicles {
     border-top: 1px solid var(--line);
     padding-top: 0.85rem;
@@ -545,42 +572,38 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.2rem;
   }
 
   .sv-title {
-    font-size: 0.75rem;
-    font-weight: 700;
+    font-size: 0.74rem;
+    font-weight: 720;
     color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
   }
 
   .btn-add-vehicle {
-    background: transparent;
+    background: var(--surface);
     border: 1px solid var(--line-strong);
     color: var(--blue-mid);
-    font-size: 0.78rem;
-    font-weight: 600;
-    padding: 0.2rem 0.6rem;
+    font-size: 0.76rem;
+    font-weight: 650;
+    padding: 0.22rem 0.64rem;
     border-radius: 999px;
     cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
   }
 
   .btn-add-vehicle:hover {
     background: var(--blue-soft);
     border-color: var(--blue-mid);
-    transform: none;
-    box-shadow: none;
   }
 
   .sv-empty {
     font-size: 0.8rem;
     color: var(--muted);
     font-style: italic;
-    padding: 0.25rem 0;
+    padding: 0.2rem 0;
   }
 
   .sv-item {
@@ -594,20 +617,20 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.6rem 0.85rem;
+    gap: 0.72rem;
+    padding: 0.62rem 0.82rem;
     flex-wrap: wrap;
   }
 
   .sv-plate {
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.55rem;
     flex-wrap: wrap;
   }
 
   .sv-model {
-    font-size: 0.85rem;
+    font-size: 0.86rem;
     font-weight: 600;
     color: var(--text-secondary);
   }
@@ -621,58 +644,41 @@
     display: flex;
     gap: 0.3rem;
     align-items: center;
-    flex-shrink: 0;
   }
 
-  .btn-edit-xs {
-    background: transparent;
-    border: 1px solid var(--line-strong);
-    color: var(--blue-mid);
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.2rem 0.5rem;
-    border-radius: 999px;
-    cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-  }
-
-  .btn-edit-xs:hover {
-    background: var(--blue-soft);
-    transform: none;
-    box-shadow: none;
-  }
-
-  .btn-delete-xs {
-    background: transparent;
-    border: 1px solid var(--red-border);
-    color: var(--red-text);
-    font-size: 0.72rem;
-    font-weight: 600;
-    padding: 0.2rem 0.5rem;
-    border-radius: 999px;
-    cursor: pointer;
-    box-shadow: none;
-    transition: all 0.15s;
-  }
-
-  .btn-delete-xs:hover {
-    background: var(--red-soft);
-    transform: none;
-    box-shadow: none;
-  }
-
-  /* Add vehicle inline form */
   .add-vehicle-form {
-    margin: 0.25rem 0 0.5rem;
+    margin: 0.26rem 0 0.5rem;
     border-color: var(--green-border);
   }
 
-  /* Mobile responsiveness */
-  @media (max-width: 768px) {
+  .empty-state-icon {
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  @media (max-width: 900px) {
     .form-row-2,
     .form-row-3 {
       grid-template-columns: 1fr;
+    }
+
+    .table-tools {
+      align-items: stretch;
+    }
+
+    .table-tools input[type="search"] {
+      max-width: none;
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .reg-panel,
+    .directory-panel {
+      padding: 1.1rem;
     }
 
     .sc-header {
@@ -708,11 +714,11 @@
     const btn = document.getElementById('vehicleToggle');
     const isVisible = section.style.display !== 'none';
     section.style.display = isVisible ? 'none' : 'grid';
-    btn.textContent = isVisible ? '🚗 + Also register a vehicle' : '✖ Remove vehicle';
+    btn.textContent = isVisible ? 'Add Vehicle Details' : 'Hide Vehicle Details';
 
     // Update submit button text
     const submitBtn = document.getElementById('regSubmitBtn');
-    submitBtn.textContent = isVisible ? 'Save Student' : 'Save Student & Vehicle';
+    submitBtn.textContent = isVisible ? 'Save Student' : 'Save Student and Vehicle';
   }
 
   // Toggle student inline edit form
@@ -721,7 +727,7 @@
     const btn = document.getElementById('editStudentBtn_' + id);
     const isVisible = form.style.display !== 'none';
     form.style.display = isVisible ? 'none' : 'block';
-    btn.textContent = isVisible ? '✏️ Edit' : '✖ Close';
+    btn.textContent = isVisible ? 'Edit' : 'Close';
   }
 
   // Toggle vehicle inline edit form
@@ -737,7 +743,7 @@
     const btn = document.getElementById('addVehicleBtn_' + studentId);
     const isVisible = form.style.display !== 'none';
     form.style.display = isVisible ? 'none' : 'block';
-    btn.textContent = isVisible ? '+ Add Vehicle' : '✖ Cancel';
+    btn.textContent = isVisible ? 'Add Vehicle' : 'Cancel';
   }
 
   // Search filter
@@ -768,3 +774,4 @@
 </script>
 
 <%- include("partials/footer") %>
+
