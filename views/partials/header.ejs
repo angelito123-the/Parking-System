@@ -56,7 +56,7 @@
             <h1>NAAP Parking</h1>
           </div>
           <div class="top-nav-actions">
-            <button class="theme-toggle" id="themeToggle" title="Toggle Mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">🌓</button>
+            <button class="theme-toggle" id="themeToggle" title="Toggle theme mode" aria-label="Toggle theme mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">&#9790;</button>
             <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
             <a href="/logout" style="color:rgba(255,255,255,0.7); text-decoration:none; font-size:1.2rem; margin:0 0.5rem;" title="Sign Out">⎋</a>
             <div class="avatar-dot" style="width:32px; height:32px; font-size:0.8rem; box-shadow:none;">N</div>
@@ -81,20 +81,34 @@
             window.addEventListener('DOMContentLoaded', () => {
               const toggleBtn = document.getElementById('themeToggle');
               const mobileToggleBtn = document.getElementById('mobileThemeToggle');
+              const setThemeIcon = (theme) => {
+                const isDark = theme === 'dark';
+                const icon = isDark ? '\u2600' : '\u263E';
+                const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+                [toggleBtn, mobileToggleBtn].forEach(btn => {
+                  if (!btn) return;
+                  btn.textContent = icon;
+                  btn.title = label;
+                  btn.setAttribute('aria-label', label);
+                });
+              };
 
               const handleToggle = () => {
                 const currentTheme = document.documentElement.getAttribute('data-theme');
                 const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', newTheme);
                 localStorage.setItem('theme', newTheme);
+                setThemeIcon(newTheme);
 
                 // Update button icons if needed
                 [toggleBtn, mobileToggleBtn].forEach(btn => {
                   if (btn) btn.blur();
                 });
               };
+              setThemeIcon(document.documentElement.getAttribute('data-theme') || 'light');
 
               if (toggleBtn) toggleBtn.addEventListener('click', handleToggle);
               if (mobileToggleBtn) mobileToggleBtn.addEventListener('click', handleToggle);
             });
           </script>
+

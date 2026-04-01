@@ -346,6 +346,8 @@ body {
 
 .chip-live::before {
   content: "";
+  display: block;
+  flex: 0 0 auto;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -355,8 +357,13 @@ body {
 }
 
 .chip-live {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  white-space: nowrap;
   min-width: 96px;
   justify-content: center;
+  gap: 0.38rem;
   transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
