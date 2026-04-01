@@ -6,7 +6,7 @@
     <h1>Automatic Gate Camera Scan</h1>
   </div>
   <p style="color: rgba(255,255,255,0.82); margin-top: 0.5rem;">
-    Phone camera mode for automatic QR detection with guard-controlled parking assignment.
+    Fixed phone camera mode with automatic QR detection and guard-confirmed parking assignment.
   </p>
 </section>
 
@@ -15,34 +15,62 @@
     <div class="auto-gate-toolbar">
       <div>
         <h3>Live Camera Feed</h3>
-        <p>Keep this page open on a fixed phone camera at the gate.</p>
+        <p>Place the phone at the gate and keep the QR sticker within the frame.</p>
       </div>
       <div class="auto-gate-controls">
-        <label for="autoGateSelect">Gate</label>
-        <select id="autoGateSelect">
-          <option value="Main Gate">Main Gate</option>
-          <option value="Side Gate">Side Gate</option>
-          <option value="North Gate">North Gate</option>
-          <option value="South Gate">South Gate</option>
-        </select>
+        <div>
+          <label for="autoGateSelect">Gate</label>
+          <select id="autoGateSelect">
+            <option value="Main Gate">Main Gate</option>
+            <option value="Side Gate">Side Gate</option>
+            <option value="North Gate">North Gate</option>
+            <option value="South Gate">South Gate</option>
+          </select>
+        </div>
         <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Stop Camera</button>
       </div>
     </div>
 
+    <div class="auto-indicator-row">
+      <span id="chipAutoState" class="auto-chip state-live">Auto-Scan Active</span>
+      <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
+      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/2</span>
+      <span id="chipCooldownState" class="auto-chip state-idle">Cooldown: Ready</span>
+    </div>
+
     <div id="autoCameraWrapper" class="auto-camera-wrapper">
       <div id="autoQrReader"></div>
+
+      <div id="cameraHud" class="auto-camera-hud" aria-hidden="true">
+        <div class="hud-corners">
+          <span class="corner tl"></span>
+          <span class="corner tr"></span>
+          <span class="corner bl"></span>
+          <span class="corner br"></span>
+        </div>
+        <div class="scan-line"></div>
+        <p class="hud-label">Align QR sticker inside frame</p>
+      </div>
+
+      <div id="processingOverlay" class="auto-processing-overlay" hidden>
+        <div class="processing-box">
+          <span class="processing-spinner" aria-hidden="true"></span>
+          <p>Processing scan...</p>
+        </div>
+      </div>
+
       <p id="autoCameraStatus" class="auto-camera-status">Initializing rear camera...</p>
     </div>
 
-    <p class="helper-text">
-      Scanner runs continuously. On ENTRY detection, guard confirmation is required before recording.
+    <p class="helper-text" style="margin-top:0.55rem;">
+      ENTRY requires guard confirmation and slot selection. EXIT is logged automatically.
     </p>
   </section>
 
   <section class="panel auto-gate-result-panel">
     <div class="section-head">
       <h2>Detection Result</h2>
-      <p>Review status and confirm parking assignment when required.</p>
+      <p>Review each detection, then confirm entry assignment when prompted.</p>
     </div>
 
     <div id="autoResultCard" class="auto-result-card state-idle">
@@ -54,7 +82,7 @@
     <div id="entryConfirmPanel" class="entry-confirm-panel" style="display:none;">
       <div class="entry-confirm-head">
         <h3>Confirm Entry Assignment</h3>
-        <p>Select a parking slot before saving this ENTRY transaction.</p>
+        <p>Guard confirmation is required before saving ENTRY.</p>
       </div>
 
       <div id="entryStickerDetails" class="entry-sticker-grid"></div>
@@ -67,9 +95,18 @@
       <p id="entryConfirmHint" class="helper-text"></p>
 
       <div class="entry-confirm-actions">
-        <button type="button" id="confirmEntryBtn" class="entry-confirm-btn" disabled>Confirm Entry</button>
+        <button type="button" id="confirmEntryBtn" class="entry-confirm-btn" disabled>Confirm ENTRY</button>
         <button type="button" id="cancelEntryBtn" class="entry-cancel-btn">Cancel</button>
       </div>
+    </div>
+
+    <div class="auto-session-panel">
+      <div class="auto-session-head">
+        <h3>Session Events</h3>
+        <p>Latest activity in this browser session.</p>
+      </div>
+      <div id="sessionEventEmpty" class="auto-session-empty">No events yet.</div>
+      <div id="sessionEventList" class="auto-session-list"></div>
     </div>
 
     <div class="auto-fallback-actions">
@@ -85,11 +122,20 @@
     const shell = document.querySelector(".auto-gate-shell");
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
 
+    const STABLE_READ_MIN_HITS = 2;
+    const STABLE_READ_WINDOW_MS = 1400;
+    const LOCAL_DEDUP_FLOOR_MS = 2500;
+
     const gateSelect = document.getElementById("autoGateSelect");
     const toggleCameraBtn = document.getElementById("toggleAutoCameraBtn");
     const resumeScannerBtn = document.getElementById("resumeScannerBtn");
-    const cameraWrapper = document.getElementById("autoCameraWrapper");
     const cameraStatus = document.getElementById("autoCameraStatus");
+    const processingOverlay = document.getElementById("processingOverlay");
+
+    const chipAutoState = document.getElementById("chipAutoState");
+    const chipCameraState = document.getElementById("chipCameraState");
+    const chipStabilityState = document.getElementById("chipStabilityState");
+    const chipCooldownState = document.getElementById("chipCooldownState");
 
     const resultCard = document.getElementById("autoResultCard");
     const resultTitle = document.getElementById("autoResultTitle");
@@ -104,14 +150,58 @@
     const confirmEntryBtn = document.getElementById("confirmEntryBtn");
     const cancelEntryBtn = document.getElementById("cancelEntryBtn");
 
+    const sessionEventEmpty = document.getElementById("sessionEventEmpty");
+    const sessionEventList = document.getElementById("sessionEventList");
+
     let html5QrCode = null;
     let cameraStarted = false;
     let processingScan = false;
+
     let selectedSlotId = null;
     let pendingToken = null;
     let pendingSticker = null;
     let pendingSlotOverview = null;
-    const localCooldown = new Map();
+
+    let stableCandidateToken = "";
+    let stableCandidateHits = 0;
+    let stableCandidateFirstSeenMs = 0;
+
+    const localCooldownUntilMs = new Map();
+    const sessionEvents = [];
+
+    function setChip(element, text, state) {
+      if (!element) return;
+      element.textContent = text;
+      element.className = `auto-chip state-${state}`;
+    }
+
+    function updateStabilityChip() {
+      const hits = Math.max(0, Math.min(STABLE_READ_MIN_HITS, stableCandidateHits));
+      setChip(chipStabilityState, `Stable Read: ${hits}/${STABLE_READ_MIN_HITS}`, hits >= STABLE_READ_MIN_HITS ? "live" : "idle");
+    }
+
+    function updateCooldownChip() {
+      const now = Date.now();
+      let nearestRemainingMs = 0;
+      for (const until of localCooldownUntilMs.values()) {
+        if (until > now) {
+          const remaining = until - now;
+          if (!nearestRemainingMs || remaining < nearestRemainingMs) {
+            nearestRemainingMs = remaining;
+          }
+        }
+      }
+
+      if (!nearestRemainingMs) {
+        setChip(chipCooldownState, "Cooldown: Ready", "idle");
+        return;
+      }
+
+      const seconds = Math.max(1, Math.ceil(nearestRemainingMs / 1000));
+      setChip(chipCooldownState, `Cooldown: ${seconds}s`, "warning");
+    }
+
+    setInterval(updateCooldownChip, 350);
 
     function setCameraStatus(message, kind = "neutral") {
       if (!cameraStatus) return;
@@ -121,11 +211,92 @@
       if (kind === "error") cameraStatus.classList.add("status-error");
     }
 
+    function setProcessingOverlay(visible) {
+      if (!processingOverlay) return;
+      processingOverlay.hidden = !visible;
+    }
+
     function setResultState(state, title, message, detailsHtml = "") {
       resultCard.className = `auto-result-card state-${state}`;
       resultTitle.textContent = title;
       resultMessage.textContent = message;
       resultMeta.innerHTML = detailsHtml || "";
+    }
+
+    function formatTime(date) {
+      return new Intl.DateTimeFormat("en-PH", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }).format(date);
+    }
+
+    function pushSessionEvent(kind, status, title, detail) {
+      sessionEvents.unshift({
+        kind,
+        status,
+        title,
+        detail,
+        at: new Date()
+      });
+      if (sessionEvents.length > 10) sessionEvents.pop();
+      renderSessionEvents();
+    }
+
+    function renderSessionEvents() {
+      if (!sessionEvents.length) {
+        sessionEventEmpty.style.display = "";
+        sessionEventList.innerHTML = "";
+        return;
+      }
+
+      sessionEventEmpty.style.display = "none";
+      sessionEventList.innerHTML = sessionEvents.map((event) => {
+        const statusClass = event.status || "idle";
+        return `
+          <article class="session-event ${statusClass}">
+            <div class="session-event-main">
+              <h4>${event.title}</h4>
+              <p>${event.detail || ""}</p>
+            </div>
+            <div class="session-event-meta">
+              <span class="tag">${event.kind}</span>
+              <time>${formatTime(event.at)}</time>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function playTone(type = "ok") {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        if (type === "ok") {
+          osc.frequency.setValueAtTime(760, ctx.currentTime);
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.22);
+          return;
+        }
+
+        osc.frequency.setValueAtTime(260, ctx.currentTime);
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.1, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.32);
+      } catch (_error) {
+        // Silent fallback
+      }
     }
 
     function extractToken(decodedText) {
@@ -152,7 +323,7 @@
       const ctx = canvas.getContext("2d", { willReadFrequently: false });
       if (!ctx) return "";
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.86);
+      return canvas.toDataURL("image/jpeg", 0.85);
     }
 
     async function postJson(url, payload) {
@@ -161,15 +332,18 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
       let data = null;
       try {
         data = await response.json();
       } catch (_error) {
         data = { ok: false, message: "Invalid server response." };
       }
+
       if (!response.ok) {
         throw new Error(data.message || `Request failed (${response.status})`);
       }
+
       return data;
     }
 
@@ -263,16 +437,25 @@
       entryConfirmPanel.style.display = "none";
     }
 
-    async function fetchLatestSlotOverview() {
-      const resp = await fetch("/api/parking-slot-overview");
-      const data = await resp.json();
-      if (!data.ok) {
-        throw new Error(data.message || "Failed to load parking slots.");
-      }
-      return {
-        slots: Array.isArray(data.slots) ? data.slots : [],
-        summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
-      };
+    function setLocalCooldown(token, milliseconds) {
+      if (!token) return;
+      const until = Date.now() + Math.max(0, milliseconds);
+      localCooldownUntilMs.set(token, until);
+      updateCooldownChip();
+    }
+
+    function getLocalCooldownRemainingMs(token) {
+      if (!token) return 0;
+      const until = localCooldownUntilMs.get(token) || 0;
+      const remaining = until - Date.now();
+      return remaining > 0 ? remaining : 0;
+    }
+
+    function resetStability() {
+      stableCandidateToken = "";
+      stableCandidateHits = 0;
+      stableCandidateFirstSeenMs = 0;
+      updateStabilityChip();
     }
 
     async function pauseScanner() {
@@ -286,26 +469,35 @@
 
     async function resumeScanner(delayMs = 0) {
       if (!html5QrCode || !cameraStarted) return;
-      setTimeout(async () => {
+      window.setTimeout(async () => {
         try {
           await html5QrCode.resume();
           setCameraStatus("Scanner active", "ok");
+          setChip(chipAutoState, "Auto-Scan Active", "live");
+          resetStability();
         } catch (_error) {
           setCameraStatus("Unable to resume scanner", "error");
+          setChip(chipAutoState, "Scanner Paused", "warning");
         }
       }, Math.max(0, delayMs));
     }
 
-    async function handleDecodedText(decodedText) {
-      const token = extractToken(decodedText);
-      if (!token || processingScan) return;
+    async function fetchLatestSlotOverview() {
+      const resp = await fetch("/api/parking-slot-overview");
+      const data = await resp.json();
+      if (!data.ok) {
+        throw new Error(data.message || "Failed to load parking slots.");
+      }
+      return {
+        slots: Array.isArray(data.slots) ? data.slots : [],
+        summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
+      };
+    }
 
-      const now = Date.now();
-      const previous = localCooldown.get(token) || 0;
-      if (now - previous < 2000) return;
-      localCooldown.set(token, now);
-
+    async function processStableToken(token) {
       processingScan = true;
+      setProcessingOverlay(true);
+      setChip(chipAutoState, "Processing", "warning");
       await pauseScanner();
       setResultState("processing", "Processing QR scan", "Verifying sticker and determining movement...");
 
@@ -315,36 +507,43 @@
           gate: gateSelect.value,
           snapshot_data_url: captureSnapshotDataUrl()
         };
+
         const data = await postJson("/api/auto-scan/detect", payload);
 
         if (data.duplicate_scan) {
           hideEntryPanel();
           const waitSeconds = Math.max(1, cooldownSeconds - Number(data.seconds_since_last_scan || 0));
+          setLocalCooldown(token, waitSeconds * 1000);
           setResultState(
             "warning",
             "Duplicate scan ignored",
             data.message || `Please wait ${waitSeconds} seconds before scanning this sticker again.`
           );
-          await resumeScanner(1200);
+          pushSessionEvent("DUPLICATE", "warning", "Duplicate blocked", `Cooldown active (${waitSeconds}s)`);
+          playTone("warn");
+          await resumeScanner(900);
           return;
         }
 
         if (!data.ok) {
           hideEntryPanel();
+          setLocalCooldown(token, LOCAL_DEDUP_FLOOR_MS);
+          const statusLabel = (data.result || "INVALID").toUpperCase();
           setResultState(
             "invalid",
-            `Unauthorized (${(data.result || "INVALID").toUpperCase()})`,
+            `Unauthorized (${statusLabel})`,
             data.message || "QR sticker is not valid.",
-            data.sticker
-              ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>`
-              : ""
+            data.sticker ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>` : ""
           );
-          await resumeScanner(1500);
+          pushSessionEvent("VERIFY", "error", `Scan rejected (${statusLabel})`, data.message || "Unauthorized sticker");
+          playTone("warn");
+          await resumeScanner(1100);
           return;
         }
 
         if (data.action === "EXIT" && data.movement_saved) {
           hideEntryPanel();
+          setLocalCooldown(token, cooldownSeconds * 1000);
           setResultState(
             "success",
             "EXIT recorded",
@@ -355,7 +554,9 @@
               <p><strong>Released Slot:</strong> ${data.released_slot || "N/A"}</p>
             `
           );
-          await resumeScanner(1600);
+          pushSessionEvent("EXIT", "ok", "Exit saved", `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`);
+          playTone("ok");
+          await resumeScanner(1200);
           return;
         }
 
@@ -365,6 +566,7 @@
           pendingSlotOverview = data.parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
           selectedSlotId = null;
           confirmEntryBtn.disabled = true;
+
           renderEntryDetails(pendingSticker);
           renderSlotMap();
           entryConfirmPanel.style.display = "block";
@@ -379,19 +581,63 @@
               <p><strong>Vehicle Type:</strong> ${pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-"}</p>
             `
           );
+          setChip(chipAutoState, "Awaiting Guard", "warning");
+          pushSessionEvent("ENTRY", "warning", "Entry pending confirmation", `${pendingSticker?.plate_number || "Unknown plate"} waiting for slot assignment`);
+          playTone("ok");
           return;
         }
 
         hideEntryPanel();
         setResultState("warning", "Scan completed", data.message || "No action was recorded.");
-        await resumeScanner(1200);
+        pushSessionEvent("VERIFY", "warning", "No movement saved", data.message || "Review scanner result");
+        await resumeScanner(900);
       } catch (error) {
         hideEntryPanel();
         setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.");
-        await resumeScanner(1500);
+        setCameraStatus(error.message || "Scan failed", "error");
+        pushSessionEvent("ERROR", "error", "Scan processing error", error.message || "Unknown scanner error");
+        playTone("warn");
+        await resumeScanner(1200);
       } finally {
         processingScan = false;
+        setProcessingOverlay(false);
       }
+    }
+
+    async function handleDecodedText(decodedText) {
+      if (!cameraStarted || processingScan) return;
+      if (entryConfirmPanel.style.display !== "none") return;
+
+      const token = extractToken(decodedText);
+      if (!token) return;
+
+      const remainingCooldown = getLocalCooldownRemainingMs(token);
+      if (remainingCooldown > 0) {
+        const seconds = Math.max(1, Math.ceil(remainingCooldown / 1000));
+        setChip(chipCooldownState, `Cooldown: ${seconds}s`, "warning");
+        return;
+      }
+
+      const now = Date.now();
+      if (token !== stableCandidateToken || now - stableCandidateFirstSeenMs > STABLE_READ_WINDOW_MS) {
+        stableCandidateToken = token;
+        stableCandidateHits = 1;
+        stableCandidateFirstSeenMs = now;
+        updateStabilityChip();
+        setCameraStatus("Detecting stable QR read...", "ok");
+        return;
+      }
+
+      stableCandidateHits += 1;
+      updateStabilityChip();
+
+      if (stableCandidateHits < STABLE_READ_MIN_HITS) {
+        return;
+      }
+
+      resetStability();
+      setLocalCooldown(token, LOCAL_DEDUP_FLOOR_MS);
+      await processStableToken(token);
     }
 
     async function startCamera() {
@@ -402,12 +648,16 @@
       const config = {
         fps: 14,
         qrbox: { width: 260, height: 260 },
-        aspectRatio: 1.333333
+        aspectRatio: 1.333333,
+        disableFlip: false
       };
 
       const onFailure = () => {
         // Keep scanning silently for unreadable frames.
       };
+
+      setCameraStatus("Requesting camera permission...");
+      setChip(chipCameraState, "Opening Camera", "warning");
 
       try {
         await html5QrCode.start(
@@ -419,10 +669,12 @@
         cameraStarted = true;
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Rear camera active", "ok");
+        setChip(chipAutoState, "Auto-Scan Active", "live");
+        setChip(chipCameraState, "Camera Ready", "live");
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
         return;
       } catch (_rearError) {
-        // fallback below
+        // Fallback below.
       }
 
       try {
@@ -435,6 +687,8 @@
         cameraStarted = true;
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Camera active", "ok");
+        setChip(chipAutoState, "Auto-Scan Active", "live");
+        setChip(chipCameraState, "Camera Ready", "live");
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
       } catch (error) {
         cameraStarted = false;
@@ -444,22 +698,31 @@
           ? "Camera permission denied. Allow camera access and retry."
           : message;
         setCameraStatus(prettyMessage, "error");
+        setChip(chipCameraState, "Camera Error", "error");
+        setChip(chipAutoState, "Scanner Stopped", "idle");
         setResultState("error", "Camera unavailable", prettyMessage);
+        pushSessionEvent("ERROR", "error", "Camera unavailable", prettyMessage);
       }
     }
 
     async function stopCamera() {
       if (!html5QrCode || !cameraStarted) return;
+
       try {
         await html5QrCode.stop();
         await html5QrCode.clear();
       } catch (_error) {
         // ignore stop race conditions
       }
+
       html5QrCode = null;
       cameraStarted = false;
       toggleCameraBtn.textContent = "Start Camera";
       setCameraStatus("Camera stopped");
+      setChip(chipCameraState, "Camera Stopped", "idle");
+      setChip(chipAutoState, "Scanner Stopped", "idle");
+      resetStability();
+      setProcessingOverlay(false);
     }
 
     toggleCameraBtn.addEventListener("click", async () => {
@@ -473,6 +736,7 @@
     resumeScannerBtn.addEventListener("click", async () => {
       hideEntryPanel();
       setResultState("idle", "Scanner resumed", "Waiting for the next QR scan.");
+      pushSessionEvent("SYSTEM", "ok", "Scanner resumed", `Gate: ${gateSelect.value}`);
       if (!cameraStarted) {
         await startCamera();
       } else {
@@ -481,8 +745,11 @@
     });
 
     cancelEntryBtn.addEventListener("click", async () => {
+      const plate = pendingSticker?.plate_number || "Unknown plate";
       hideEntryPanel();
       setResultState("idle", "Entry confirmation cancelled", "Waiting for the next QR scan.");
+      setChip(chipAutoState, "Auto-Scan Active", "live");
+      pushSessionEvent("ENTRY", "warning", "Entry cancelled", `${plate} was not recorded`);
       await resumeScanner(500);
     });
 
@@ -497,7 +764,9 @@
       }
 
       confirmEntryBtn.disabled = true;
+      cancelEntryBtn.disabled = true;
       entryConfirmHint.textContent = "Saving entry record...";
+      setProcessingOverlay(true);
 
       try {
         const payload = {
@@ -506,10 +775,13 @@
           slot_id: selectedSlotId,
           snapshot_data_url: captureSnapshotDataUrl()
         };
+
         const data = await postJson("/api/auto-scan/confirm-entry", payload);
         if (!data.ok) {
           throw new Error(data.message || "Failed to save entry.");
         }
+
+        setLocalCooldown(pendingToken, cooldownSeconds * 1000);
 
         hideEntryPanel();
         setResultState(
@@ -523,20 +795,32 @@
             <p><strong>Assigned Area:</strong> ${data.assigned_area || "-"}</p>
           `
         );
-        await resumeScanner(1400);
+
+        setChip(chipAutoState, "Auto-Scan Active", "live");
+        pushSessionEvent("ENTRY", "ok", "Entry saved", `${data.sticker?.plate_number || "Unknown plate"} assigned to ${data.parking_slot || "N/A"}`);
+        playTone("ok");
+        await resumeScanner(1100);
       } catch (error) {
         entryConfirmHint.textContent = error.message || "Failed to save entry.";
         confirmEntryBtn.disabled = false;
+        cancelEntryBtn.disabled = false;
+        pushSessionEvent("ENTRY", "error", "Entry save failed", error.message || "Unknown error");
+        playTone("warn");
 
         try {
           pendingSlotOverview = await fetchLatestSlotOverview();
           renderSlotMap();
         } catch (_loadError) {
-          // If refresh fails, keep current map and error hint.
+          // keep current map if refresh fails
         }
+      } finally {
+        setProcessingOverlay(false);
       }
     });
 
+    renderSessionEvents();
+    updateStabilityChip();
+    updateCooldownChip();
     startCamera();
   })();
 </script>
