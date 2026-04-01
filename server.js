@@ -257,6 +257,8 @@ async function getDashboardData() {
      ORDER BY latest.scanned_at ASC
      LIMIT 20`
   );
+  const parkingSlotOverview = await getParkingSlotOverview();
+  const availableSlots = parkingSlotOverview.slots.filter((slot) => slot.is_selectable);
   return {
     metrics: {
       students: studentsCount.total,
@@ -267,7 +269,9 @@ async function getDashboardData() {
       currentlyInside: currentlyInside.total
     },
     movementLogs,
-    insideVehicles
+    insideVehicles,
+    availableSlots,
+    parkingSlotSummary: parkingSlotOverview.summary
   };
 }
 

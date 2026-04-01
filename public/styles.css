@@ -887,6 +887,48 @@ button.btn-sm {
   font-size: 0.8rem;
 }
 
+.available-slots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.55rem;
+}
+
+.available-slot-chip {
+  border: 1px solid #86efac;
+  background: #ecfdf3;
+  border-radius: 10px;
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.available-slot-code {
+  color: #166534;
+  font-weight: 800;
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.available-slot-zone {
+  color: #15803d;
+  font-size: 0.68rem;
+  line-height: 1.15;
+}
+
+[data-theme="dark"] .available-slot-chip {
+  border-color: rgba(134, 239, 172, 0.4);
+  background: rgba(21, 128, 61, 0.2);
+}
+
+[data-theme="dark"] .available-slot-code {
+  color: #bbf7d0;
+}
+
+[data-theme="dark"] .available-slot-zone {
+  color: #86efac;
+}
+
 .mini-list {
   margin-bottom: 1rem;
 }
