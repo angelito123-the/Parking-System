@@ -3,16 +3,14 @@
 <section class="dashboard-hero">
   <div class="hero-greeting">
     <h2>Access Control</h2>
-    <h1><%= autoMode === "phone" ? "Phone Camera Scanner" : "Automatic Gate Camera Scan" %></h1>
+    <h1>Phone Camera Scanner</h1>
   </div>
   <p style="color: rgba(255,255,255,0.82); margin-top: 0.5rem;">
-    <%= autoMode === "phone"
-      ? "Scan using phone camera, then forward ENTRY requests to the laptop monitor for slot assignment."
-      : "Automatic QR detection with on-device guard confirmation and parking assignment." %>
+    Scan using phone camera, then forward ENTRY requests to the laptop monitor for slot assignment.
   </p>
 </section>
 
-<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>" data-auto-mode="<%= autoMode %>">
+<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>">
   <section class="panel auto-gate-camera-panel">
     <div class="auto-gate-toolbar">
       <div>
@@ -64,23 +62,15 @@
       <p id="autoCameraStatus" class="auto-camera-status">Initializing rear camera...</p>
     </div>
 
-    <% if (autoMode === "phone") { %>
-      <p class="helper-text" style="margin-top:0.55rem;">
-        ENTRY scans are queued for laptop guard confirmation. EXIT scans are saved automatically.
-      </p>
-    <% } else { %>
-      <p class="helper-text" style="margin-top:0.55rem;">
-        ENTRY requires guard confirmation and slot selection on this page. EXIT is logged automatically.
-      </p>
-    <% } %>
+    <p class="helper-text" style="margin-top:0.55rem;">
+      ENTRY scans are queued for laptop guard confirmation. EXIT scans are saved automatically.
+    </p>
   </section>
 
   <section class="panel auto-gate-result-panel">
     <div class="section-head">
       <h2>Detection Result</h2>
-      <p><%= autoMode === "phone"
-        ? "Review scan status. ENTRY is sent to laptop monitor for slot assignment."
-        : "Review each detection, then confirm entry assignment when prompted." %></p>
+      <p>Review scan status. ENTRY is sent to laptop monitor for slot assignment.</p>
     </div>
 
     <div id="autoResultCard" class="auto-result-card state-idle">
@@ -120,12 +110,7 @@
     </div>
 
     <div class="auto-fallback-actions">
-      <a href="/scanner" class="link-btn">Open Manual Gate Console</a>
-      <% if (autoMode === "phone") { %>
-        <a href="/scanner" class="link-btn">Open Laptop Guard Monitor</a>
-      <% } else { %>
-        <a href="/scanner/auto?mode=phone" class="link-btn">Switch to Phone Queue Mode</a>
-      <% } %>
+      <a href="/scanner" class="link-btn">Open Laptop Guard Monitor</a>
       <button type="button" id="resumeScannerBtn" class="auto-resume-btn">Resume Scanner</button>
     </div>
   </section>
@@ -136,8 +121,7 @@
   (() => {
     const shell = document.querySelector(".auto-gate-shell");
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
-    const autoMode = String(shell?.dataset.autoMode || "guard").toLowerCase() === "phone" ? "phone" : "guard";
-    const deferEntryConfirmation = autoMode === "phone";
+    const deferEntryConfirmation = true;
 
     const STABLE_READ_MIN_HITS = 2;
     const STABLE_READ_WINDOW_MS = 1400;

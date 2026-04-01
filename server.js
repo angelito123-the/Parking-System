@@ -1611,11 +1611,8 @@ app.get("/scanner", requireAuth, (req, res) => {
 });
 
 app.get("/scanner/auto", requireAuth, (req, res) => {
-  const requestedMode = String(req.query.mode || "phone").trim().toLowerCase();
-  const autoMode = requestedMode === "guard" ? "guard" : "phone";
   res.render("scanner_auto", {
-    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS,
-    autoMode
+    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
   });
 });
 
