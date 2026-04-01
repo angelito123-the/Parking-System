@@ -25,16 +25,9 @@
           const mobileBadge = document.getElementById('mobileNetworkIndicator');
           [badge, mobileBadge].forEach(el => {
             if (el) {
-              el.textContent = isOnline ? '🟢 Online' : '🔴 Offline';
-              if (!isOnline) {
-                el.style.background = '#fef2f2';
-                el.style.color = '#991b1b';
-                el.style.borderColor = '#fecaca';
-              } else {
-                el.style.background = '';
-                el.style.color = '';
-                el.style.borderColor = '';
-              }
+              el.textContent = isOnline ? 'Online' : 'Offline';
+              el.classList.toggle('is-online', isOnline);
+              el.classList.toggle('is-offline', !isOnline);
             }
           });
         });
@@ -64,7 +57,7 @@
           </div>
           <div class="top-nav-actions">
             <button class="theme-toggle" id="themeToggle" title="Toggle Mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">🌓</button>
-            <span class="chip chip-live desktop-only" id="networkIndicator" style="border-radius:999px;">🟢 Online</span>
+            <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
             <a href="/logout" style="color:rgba(255,255,255,0.7); text-decoration:none; font-size:1.2rem; margin:0 0.5rem;" title="Sign Out">⎋</a>
             <div class="avatar-dot" style="width:32px; height:32px; font-size:0.8rem; box-shadow:none;">N</div>
           </div>
