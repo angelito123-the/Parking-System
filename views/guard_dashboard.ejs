@@ -218,8 +218,12 @@
       <img id="guardEntrySnapshotImg" alt="Phone camera snapshot proof" />
     </div>
 
-    <label for="guardEntrySlotSelect" style="display:block; margin-top:0.35rem; margin-bottom:0.3rem;">Assign Parking Slot</label>
-    <select id="guardEntrySlotSelect"></select>
+    <div class="auto-slot-header" style="margin-top:0.35rem;">
+      <strong>Assign Parking Slot</strong>
+      <span id="guardSlotStatus" class="helper-text">Loading slot map...</span>
+    </div>
+    <div id="guardSlotQuickStrip" class="guard-slot-quick-strip"></div>
+    <div id="guardSlotMap" class="guard-slot-map"></div>
     <p id="guardEntryHint" class="helper-text" style="margin-top:0.4rem;"></p>
 
     <div class="remote-entry-actions">
@@ -242,7 +246,9 @@
     const guardEntryMeta = document.getElementById("guardEntryMeta");
     const guardEntrySnapshotWrap = document.getElementById("guardEntrySnapshotWrap");
     const guardEntrySnapshotImg = document.getElementById("guardEntrySnapshotImg");
-    const guardEntrySlotSelect = document.getElementById("guardEntrySlotSelect");
+    const guardSlotStatus = document.getElementById("guardSlotStatus");
+    const guardSlotQuickStrip = document.getElementById("guardSlotQuickStrip");
+    const guardSlotMap = document.getElementById("guardSlotMap");
     const guardEntryHint = document.getElementById("guardEntryHint");
     const guardEntryConfirmBtn = document.getElementById("guardEntryConfirmBtn");
     const guardEntryCancelBtn = document.getElementById("guardEntryCancelBtn");
@@ -253,6 +259,8 @@
     let didInitialLoad = false;
     let lastAutoOpenedEntryId = 0;
     let liveAlertTimer = null;
+    let selectedSlotId = null;
+    let slotOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -285,27 +293,142 @@
       }, Math.max(1200, Number(autoHideMs) || 6200));
     }
 
+    function groupSlotsByZone(slots) {
+      return (slots || []).reduce((acc, slot) => {
+        const zone = slot.zone || "General";
+        if (!acc[zone]) acc[zone] = [];
+        acc[zone].push(slot);
+        return acc;
+      }, {});
+    }
+
+    function renderQuickSlotStrip(overview) {
+      if (!guardSlotQuickStrip) return;
+      const slots = Array.isArray(overview?.slots) ? overview.slots : [];
+      const available = slots
+        .filter((slot) => slot.occupancy === "available")
+        .slice(0, 16);
+
+      if (!available.length) {
+        guardSlotQuickStrip.innerHTML = "";
+        return;
+      }
+
+      guardSlotQuickStrip.innerHTML = `
+        <span class="guard-slot-strip-label">Available now (${available.length}):</span>
+        ${available.map((slot) => `<span class="guard-slot-chip">${escapeHtml(slot.slot_code)}</span>`).join("")}
+      `;
+    }
+
+    function slotStatusLabel(slot) {
+      if (slot.occupancy === "occupied") {
+        return slot.occupied_by_plate || "Occupied";
+      }
+      if (slot.occupancy === "disabled") {
+        return "Disabled";
+      }
+      return "Available";
+    }
+
+    function renderSlotMap(overview) {
+      if (!guardSlotMap || !guardSlotStatus) return;
+      const slots = Array.isArray(overview?.slots) ? overview.slots : [];
+      const summary = overview?.summary || { total: 0, available: 0, occupied: 0, disabled: 0 };
+
+      renderQuickSlotStrip(overview);
+
+      if (!slots.length) {
+        guardSlotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">No parking slots are configured right now.</div>`;
+        guardSlotStatus.textContent = "No slots configured";
+        guardEntryConfirmBtn.disabled = true;
+        return;
+      }
+
+      const grouped = groupSlotsByZone(slots);
+      const zoneNames = Object.keys(grouped);
+      guardSlotStatus.textContent = `${summary.available || 0} available of ${summary.total || slots.length}`;
+
+      guardSlotMap.innerHTML = `
+        ${zoneNames.map((zone) => {
+          const zoneSlots = grouped[zone];
+          const zoneAvailable = zoneSlots.filter((slot) => slot.occupancy === "available").length;
+          return `
+            <section class="guard-zone-block">
+              <header class="guard-zone-head">
+                <h4>Zone ${escapeHtml(zone)}</h4>
+                <span>${zoneAvailable}/${zoneSlots.length} available</span>
+              </header>
+              <div class="guard-zone-grid">
+                ${zoneSlots.map((slot) => {
+                  const occupancy = slot.occupancy || "available";
+                  const selectable = occupancy === "available";
+                  const selected = String(selectedSlotId) === String(slot.id);
+                  const cls = [
+                    "guard-slot-btn",
+                    `state-${occupancy}`,
+                    selected ? "is-selected" : ""
+                  ].join(" ").trim();
+                  return `
+                    <button
+                      type="button"
+                      class="${cls}"
+                      data-slot-id="${slot.id}"
+                      data-slot-code="${escapeHtml(slot.slot_code || "-")}"
+                      data-selectable="${selectable ? "1" : "0"}"
+                      ${selectable ? "" : "disabled"}
+                    >
+                      <span>${escapeHtml(slot.slot_code || "-")}</span>
+                      <small>${escapeHtml(slotStatusLabel(slot))}</small>
+                    </button>
+                  `;
+                }).join("")}
+              </div>
+            </section>
+          `;
+        }).join("")}
+      `;
+
+      guardSlotMap.querySelectorAll(".guard-slot-btn[data-selectable='1']").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          selectedSlotId = Number(btn.dataset.slotId);
+          renderSlotMap(slotOverview);
+          guardEntryHint.textContent = `Selected slot ${btn.dataset.slotCode || "-"}.`;
+          guardEntryConfirmBtn.disabled = false;
+        });
+      });
+
+      if (!selectedSlotId) {
+        guardEntryConfirmBtn.disabled = true;
+      }
+    }
+
     function closeGuardEntryModal() {
       if (!guardEntryModal) return;
       guardEntryModal.classList.remove("open");
       guardEntryModal.setAttribute("aria-hidden", "true");
       document.body.classList.remove("modal-open");
       activeEntryId = null;
+      selectedSlotId = null;
       guardEntryHint.textContent = "";
-      guardEntrySlotSelect.innerHTML = "";
+      if (guardSlotStatus) guardSlotStatus.textContent = "Loading slot map...";
+      if (guardSlotQuickStrip) guardSlotQuickStrip.innerHTML = "";
+      if (guardSlotMap) guardSlotMap.innerHTML = "";
       guardEntryConfirmBtn.disabled = false;
       guardEntryCancelBtn.disabled = false;
       guardEntrySnapshotWrap.style.display = "none";
       guardEntrySnapshotImg.removeAttribute("src");
     }
 
-    async function loadAvailableSlots() {
-      const resp = await fetch("/api/parking-slots", { credentials: "same-origin", cache: "no-store" });
+    async function loadSlotOverview() {
+      const resp = await fetch("/api/parking-slot-overview", { credentials: "same-origin", cache: "no-store" });
       const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
       if (!resp.ok || !data.ok) {
         throw new Error(data.message || `Unable to load slots (${resp.status})`);
       }
-      return Array.isArray(data.slots) ? data.slots : [];
+      return {
+        slots: Array.isArray(data.slots) ? data.slots : [],
+        summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
+      };
     }
 
     async function openGuardEntryModal(entryId) {
@@ -313,9 +436,14 @@
       if (!entry) return;
 
       activeEntryId = entry.id;
+      selectedSlotId = null;
       guardEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) - ${entry.plate_number || "-"} - ${entry.gate_id || "Main Gate"} - ${formatQueuedAt(entry.created_at)}`;
       guardEntryHint.textContent = "Loading available parking slots...";
-      guardEntrySlotSelect.innerHTML = '<option value="">Loading slots...</option>';
+      guardEntryConfirmBtn.disabled = true;
+      guardEntryCancelBtn.disabled = false;
+      if (guardSlotStatus) guardSlotStatus.textContent = "Loading slot map...";
+      if (guardSlotQuickStrip) guardSlotQuickStrip.innerHTML = "";
+      if (guardSlotMap) guardSlotMap.innerHTML = '<div class="helper-text">Loading slot map...</div>';
 
       if (entry.snapshot_path) {
         guardEntrySnapshotWrap.style.display = "";
@@ -330,21 +458,26 @@
       document.body.classList.add("modal-open");
 
       try {
-        const slots = await loadAvailableSlots();
+        slotOverview = await loadSlotOverview();
+        const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
+        const hasAvailable = slots.some((slot) => slot.occupancy === "available");
         if (!slots.length) {
-          guardEntrySlotSelect.innerHTML = '<option value="">No available slots</option>';
+          guardSlotMap.innerHTML = '<div class="flash flash-error" style="margin:0;">No slots configured.</div>';
+          if (guardSlotStatus) guardSlotStatus.textContent = "No slots configured";
           guardEntryHint.textContent = "No available slots right now.";
           guardEntryConfirmBtn.disabled = true;
           return;
         }
-        guardEntryConfirmBtn.disabled = false;
-        guardEntrySlotSelect.innerHTML = [
-          '<option value="">Select parking slot...</option>',
-          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
-        ].join("");
-        guardEntryHint.textContent = `${slots.length} slot(s) available.`;
+        renderSlotMap(slotOverview);
+        guardEntryHint.textContent = hasAvailable
+          ? "Select an available slot to continue."
+          : "No available slots right now.";
+        guardEntryConfirmBtn.disabled = !hasAvailable;
       } catch (error) {
-        guardEntrySlotSelect.innerHTML = '<option value="">Unable to load slots</option>';
+        if (guardSlotMap) {
+          guardSlotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">${escapeHtml(error.message || "Unable to load slots.")}</div>`;
+        }
+        if (guardSlotStatus) guardSlotStatus.textContent = "Unable to load slots";
         guardEntryHint.textContent = error.message || "Unable to load slots.";
         guardEntryConfirmBtn.disabled = true;
       }
@@ -412,7 +545,7 @@
 
     async function confirmEntry() {
       if (!activeEntryId) return;
-      const slotId = Number(guardEntrySlotSelect.value);
+      const slotId = Number(selectedSlotId);
       if (!Number.isInteger(slotId) || slotId <= 0) {
         guardEntryHint.textContent = "Please select a parking slot.";
         return;
