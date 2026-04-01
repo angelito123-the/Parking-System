@@ -128,8 +128,8 @@
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
     const deferEntryConfirmation = true;
 
-    const STABLE_READ_MIN_HITS = 2;
-    const STABLE_READ_WINDOW_MS = 1400;
+    const STABLE_READ_MIN_HITS = 1;
+    const STABLE_READ_WINDOW_MS = 2800;
     const LOCAL_DEDUP_FLOOR_MS = 2500;
 
     const gateSelect = document.getElementById("autoGateSelect");
@@ -296,9 +296,9 @@
 
       const confidence = Number(meta.confidence || meta.ml_confidence || 0);
       const confidencePercent = Math.round(confidence * 100);
-      if (confidence >= 0.58) {
+      if (confidence >= 0.45) {
         setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "live");
-      } else if (confidence >= 0.4) {
+      } else if (confidence >= 0.28) {
         setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "warning");
       } else {
         setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "idle");
@@ -930,10 +930,11 @@
       if (!html5QrCode) {
         if (window.MLQrCodeScanner) {
           html5QrCode = new window.MLQrCodeScanner("autoQrReader", {
-            targetFps: 30,
-            confidenceThreshold: 0.58,
-            maxProcessWidth: 640,
+            targetFps: 24,
+            confidenceThreshold: 0.35,
+            maxProcessWidth: 560,
             perspectiveSize: 280,
+            lowConfidenceDecodeRatio: 0.58,
             onMlMetrics: (metrics) => {
               updateMlChip({
                 confidence: metrics?.confidence,
@@ -950,7 +951,7 @@
       }
 
       const config = {
-        fps: 30,
+        fps: 20,
         qrbox: { width: 260, height: 260 },
         aspectRatio: 1.333333,
         disableFlip: false
@@ -965,7 +966,7 @@
 
       try {
         await html5QrCode.start(
-          { facingMode: { exact: "environment" } },
+          { facingMode: "environment" },
           config,
           handleDecodedText,
           onFailure

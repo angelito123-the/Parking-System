@@ -284,7 +284,8 @@
 
       this.options = {
         targetFps: Math.max(8, Math.min(30, Number(options.targetFps) || 30)),
-        confidenceThreshold: clamp(Number(options.confidenceThreshold) || 0.58, 0.1, 0.99),
+        confidenceThreshold: clamp(Number(options.confidenceThreshold) || 0.45, 0.1, 0.99),
+        lowConfidenceDecodeRatio: clamp(Number(options.lowConfidenceDecodeRatio) || 0.6, 0.2, 1),
         maxProcessWidth: Math.max(320, Math.min(960, Number(options.maxProcessWidth) || 640)),
         perspectiveSize: Math.max(160, Math.min(420, Number(options.perspectiveSize) || 280)),
         onMlMetrics: typeof options.onMlMetrics === "function" ? options.onMlMetrics : null
@@ -304,6 +305,7 @@
       this.onFailure = null;
       this.detector = null;
       this.lastProcessDurationMs = 0;
+      this.frameCounter = 0;
 
       if (typeof BarcodeDetector !== "undefined") {
         this.detector = new BarcodeDetector({ formats: ["qr_code"] });
@@ -363,6 +365,7 @@
       this.lastFrameAt = 0;
       this.lastDecodedAt = 0;
       this.lastDecodedText = "";
+      this.frameCounter = 0;
       this.startLoop();
       return null;
     }
@@ -468,6 +471,7 @@
       );
 
       this.lastProcessDurationMs = performance.now() - started;
+      this.frameCounter += 1;
       if (this.options.onMlMetrics) {
         this.options.onMlMetrics({
           confidence,
@@ -478,7 +482,9 @@
         });
       }
 
-      if (confidence < this.options.confidenceThreshold) return;
+      const lowConfidenceThreshold = this.options.confidenceThreshold * this.options.lowConfidenceDecodeRatio;
+      const allowLowConfidenceAttempt = (this.frameCounter % 10 === 0) && confidence >= lowConfidenceThreshold;
+      if (confidence < this.options.confidenceThreshold && !allowLowConfidenceAttempt) return;
 
       let candidateGray = null;
       let candidateWidth = 0;
