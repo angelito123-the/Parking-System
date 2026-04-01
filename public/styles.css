@@ -2112,6 +2112,104 @@ body.is-ready .container>*:nth-child(4) {
   white-space: nowrap;
 }
 
+.remote-queue-panel {
+  border-radius: 16px;
+}
+
+.remote-queue-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.remote-queue-toolbar .btn-sm {
+  white-space: nowrap;
+}
+
+.remote-queue-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.remote-queue-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 0.75rem 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.remote-queue-main h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.remote-queue-main p {
+  margin: 0.18rem 0 0;
+  font-size: 0.79rem;
+  color: var(--muted);
+}
+
+.remote-queue-actions {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: end;
+}
+
+.remote-entry-dialog {
+  width: min(560px, calc(100vw - 1.5rem));
+}
+
+.remote-entry-snapshot {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #020617;
+  margin-bottom: 0.65rem;
+}
+
+.remote-entry-snapshot img {
+  width: 100%;
+  max-height: 230px;
+  object-fit: cover;
+  display: block;
+}
+
+#remoteEntrySlotSelect {
+  width: 100%;
+  min-height: 46px;
+}
+
+.remote-entry-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.btn-sm.danger {
+  border-color: var(--red-border);
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+[data-theme="dark"] .remote-queue-card {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="dark"] .btn-sm.danger {
+  border-color: rgba(252, 165, 165, 0.45);
+  color: #fecdd3;
+  background: rgba(190, 18, 60, 0.25);
+}
+
 .auto-gate-shell {
   display: grid;
   gap: 1rem;
@@ -2813,6 +2911,21 @@ body.is-ready .container>*:nth-child(4) {
 
   .gate-search-btn {
     grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .remote-queue-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .remote-queue-actions {
+    width: 100%;
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+
+  .remote-queue-actions .btn-sm {
     width: 100%;
   }
 }

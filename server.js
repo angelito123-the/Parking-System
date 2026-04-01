@@ -12,6 +12,12 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
 const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 10);
+const AUTO_PENDING_EXPIRY_MINUTES = Math.max(
+  5,
+  Number.isFinite(Number(process.env.AUTO_PENDING_EXPIRY_MINUTES))
+    ? Number(process.env.AUTO_PENDING_EXPIRY_MINUTES)
+    : 20
+);
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "8mb";
 const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
 const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
@@ -173,6 +179,199 @@ function getAutoStickerPayload(sticker) {
     vehicle_model: sticker.model || null,
     vehicle_color: sticker.color || null
   };
+}
+
+function mapPendingAutoEntry(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sticker_id: row.sticker_id || null,
+    student_id: row.student_id || null,
+    vehicle_id: row.vehicle_id || null,
+    qr_value: row.qr_value || null,
+    gate_id: row.gate_id || null,
+    snapshot_path: row.snapshot_path || null,
+    status: row.status || "PENDING",
+    requested_by_guard: row.requested_by_guard || null,
+    confirmed_by_guard: row.confirmed_by_guard || null,
+    assigned_slot_id: row.assigned_slot_id || null,
+    linked_scan_log_id: row.linked_scan_log_id || null,
+    confirm_note: row.confirm_note || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+    confirmed_at: row.confirmed_at || null,
+    sticker_code: row.sticker_code || null,
+    student_number: row.student_number || null,
+    full_name: row.full_name || null,
+    plate_number: row.plate_number || null,
+    vehicle_type: row.vehicle_model || null,
+    vehicle_color: row.vehicle_color || null
+  };
+}
+
+async function expireStalePendingAutoEntries(db = pool) {
+  const cutoff = new Date(Date.now() - (AUTO_PENDING_EXPIRY_MINUTES * 60 * 1000));
+  await db.query(
+    `UPDATE auto_scan_queue
+     SET
+       status = 'EXPIRED',
+       confirmed_at = COALESCE(confirmed_at, NOW()),
+       confirm_note = COALESCE(confirm_note, 'Pending request expired before confirmation')
+     WHERE status = 'PENDING'
+       AND created_at < ?`,
+    [cutoff]
+  );
+}
+
+async function getPendingAutoEntryBySticker(stickerId, db = pool, lock = false) {
+  if (!stickerId) return null;
+  const sql = `
+    SELECT id, sticker_id, qr_value, gate_id, snapshot_path, status, created_at
+    FROM auto_scan_queue
+    WHERE sticker_id = ?
+      AND status = 'PENDING'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+    ${lock ? "FOR UPDATE" : ""}
+  `;
+  const [rows] = await db.query(sql, [stickerId]);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function createPendingAutoEntryWithDb(db, payload) {
+  const [insertResult] = await db.query(
+    `INSERT INTO auto_scan_queue (
+       sticker_id,
+       student_id,
+       vehicle_id,
+       qr_value,
+       gate_id,
+       snapshot_path,
+       scan_source,
+       status,
+       requested_by_guard
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)`,
+    [
+      payload.stickerId || null,
+      payload.studentId || null,
+      payload.vehicleId || null,
+      payload.qrValue || null,
+      payload.gateId || null,
+      payload.snapshotPath || null,
+      payload.scanSource || "camera_phone",
+      payload.requestedByGuard || null
+    ]
+  );
+
+  const [rows] = await db.query(
+    `SELECT
+       q.id,
+       q.sticker_id,
+       q.student_id,
+       q.vehicle_id,
+       q.qr_value,
+       q.gate_id,
+       q.snapshot_path,
+       q.status,
+       q.requested_by_guard,
+       q.confirmed_by_guard,
+       q.assigned_slot_id,
+       q.linked_scan_log_id,
+       q.confirm_note,
+       q.created_at,
+       q.updated_at,
+       q.confirmed_at,
+       s.sticker_code,
+       st.student_number,
+       st.full_name,
+       v.plate_number,
+       v.model AS vehicle_model,
+       v.color AS vehicle_color
+     FROM auto_scan_queue q
+     LEFT JOIN stickers s ON s.id = q.sticker_id
+     LEFT JOIN vehicles v ON v.id = COALESCE(q.vehicle_id, s.vehicle_id)
+     LEFT JOIN students st ON st.id = COALESCE(q.student_id, v.student_id)
+     WHERE q.id = ?
+     LIMIT 1`,
+    [insertResult.insertId]
+  );
+
+  return rows.length > 0 ? mapPendingAutoEntry(rows[0]) : null;
+}
+
+async function listPendingAutoEntries(limit = 25, db = pool) {
+  const safeLimit = Math.max(1, Math.min(100, Number(limit) || 25));
+  const [rows] = await db.query(
+    `SELECT
+       q.id,
+       q.sticker_id,
+       q.student_id,
+       q.vehicle_id,
+       q.qr_value,
+       q.gate_id,
+       q.snapshot_path,
+       q.status,
+       q.requested_by_guard,
+       q.confirmed_by_guard,
+       q.assigned_slot_id,
+       q.linked_scan_log_id,
+       q.confirm_note,
+       q.created_at,
+       q.updated_at,
+       q.confirmed_at,
+       s.sticker_code,
+       st.student_number,
+       st.full_name,
+       v.plate_number,
+       v.model AS vehicle_model,
+       v.color AS vehicle_color
+     FROM auto_scan_queue q
+     LEFT JOIN stickers s ON s.id = q.sticker_id
+     LEFT JOIN vehicles v ON v.id = COALESCE(q.vehicle_id, s.vehicle_id)
+     LEFT JOIN students st ON st.id = COALESCE(q.student_id, v.student_id)
+     WHERE q.status = 'PENDING'
+     ORDER BY q.created_at DESC, q.id DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows.map(mapPendingAutoEntry);
+}
+
+async function getPendingAutoEntryByIdForUpdate(entryId, db) {
+  const [rows] = await db.query(
+    `SELECT
+       q.id,
+       q.sticker_id,
+       q.student_id,
+       q.vehicle_id,
+       q.qr_value,
+       q.gate_id,
+       q.snapshot_path,
+       q.status,
+       q.requested_by_guard,
+       q.confirmed_by_guard,
+       q.assigned_slot_id,
+       q.linked_scan_log_id,
+       q.confirm_note,
+       q.created_at,
+       q.updated_at,
+       q.confirmed_at,
+       s.sticker_code,
+       st.student_number,
+       st.full_name,
+       v.plate_number,
+       v.model AS vehicle_model,
+       v.color AS vehicle_color
+     FROM auto_scan_queue q
+     LEFT JOIN stickers s ON s.id = q.sticker_id
+     LEFT JOIN vehicles v ON v.id = COALESCE(q.vehicle_id, s.vehicle_id)
+     LEFT JOIN students st ON st.id = COALESCE(q.student_id, v.student_id)
+     WHERE q.id = ?
+     LIMIT 1
+     FOR UPDATE`,
+    [entryId]
+  );
+  return rows.length > 0 ? mapPendingAutoEntry(rows[0]) : null;
 }
 
 async function saveSnapshotDataUrl(snapshotDataUrl, prefix = "scan") {
@@ -1412,8 +1611,11 @@ app.get("/scanner", requireAuth, (req, res) => {
 });
 
 app.get("/scanner/auto", requireAuth, (req, res) => {
+  const requestedMode = String(req.query.mode || "phone").trim().toLowerCase();
+  const autoMode = requestedMode === "guard" ? "guard" : "phone";
   res.render("scanner_auto", {
-    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
+    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS,
+    autoMode
   });
 });
 
@@ -1421,6 +1623,9 @@ app.get("/scanner/auto", requireAuth, (req, res) => {
 app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
+  const deferEntryConfirmation = req.body.defer_entry_confirmation === true
+    || String(req.body.defer_entry_confirmation || "").toLowerCase() === "true"
+    || String(req.body.defer_entry_confirmation || "") === "1";
   const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
     ? req.body.snapshot_data_url
     : "";
@@ -1477,6 +1682,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+      await expireStalePendingAutoEntries(connection);
       await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
 
       const lastMovement = await getLastValidMovement(sticker.id, connection);
@@ -1499,6 +1705,60 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
       const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
 
       if (action === "ENTRY") {
+        if (deferEntryConfirmation) {
+          const existingPending = await getPendingAutoEntryBySticker(sticker.id, connection, true);
+          if (existingPending) {
+            await connection.rollback();
+            return res.json({
+              ok: true,
+              result: "VALID",
+              action: "ENTRY",
+              movement_saved: false,
+              requires_confirmation: false,
+              queued_for_guard: true,
+              pending_entry_id: existingPending.id,
+              message: "Entry is already queued for guard confirmation.",
+              sticker: getAutoStickerPayload(sticker),
+              snapshot_path: existingPending.snapshot_path || null,
+              queued_at: existingPending.created_at || null
+            });
+          }
+
+          if (!snapshotDataUrl) {
+            throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+          }
+          const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-entry-pending");
+          if (!snapshotPath) {
+            throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+          }
+
+          const queuedEntry = await createPendingAutoEntryWithDb(connection, {
+            stickerId: sticker.id,
+            studentId: sticker.student_id_ref || null,
+            vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+            qrValue: token,
+            gateId: gate,
+            snapshotPath,
+            requestedByGuard: guardName,
+            scanSource: "camera_phone"
+          });
+
+          await connection.commit();
+          return res.json({
+            ok: true,
+            result: "VALID",
+            action: "ENTRY",
+            movement_saved: false,
+            requires_confirmation: false,
+            queued_for_guard: true,
+            pending_entry_id: queuedEntry?.id || null,
+            message: "ENTRY detected. Waiting for guard confirmation on monitor console.",
+            sticker: getAutoStickerPayload(sticker),
+            snapshot_path: queuedEntry?.snapshot_path || snapshotPath || null,
+            queued_at: queuedEntry?.created_at || null
+          });
+        }
+
         await connection.rollback();
         const parkingSlotOverview = await getParkingSlotOverview();
         return res.json({
@@ -1681,6 +1941,217 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Auto confirm entry error:", error);
     res.status(400).json({ ok: false, message: error.message || "Failed to record entry." });
+  }
+});
+
+// API: pending phone-scanned ENTRY requests for laptop guard monitoring
+app.get("/api/auto-scan/pending-entries", requireAuth, async (req, res) => {
+  const limit = Number(req.query.limit) || 25;
+  try {
+    await expireStalePendingAutoEntries();
+    const rows = await listPendingAutoEntries(limit);
+    res.json({
+      ok: true,
+      rows,
+      pending_count: rows.length,
+      expiry_minutes: AUTO_PENDING_EXPIRY_MINUTES
+    });
+  } catch (error) {
+    console.error("Pending auto entry list error:", error);
+    res.status(500).json({ ok: false, message: "Failed to load pending auto entries.", rows: [] });
+  }
+});
+
+// API: guard confirms a pending phone-scanned ENTRY and assigns slot
+app.post("/api/auto-scan/pending-entries/:id/confirm", requireAuth, async (req, res) => {
+  const entryId = Number(req.params.id);
+  const slotId = Number(req.body.slot_id);
+  const guardName = req.session?.adminUser || "guard";
+  const requestedGate = String(req.body.gate || "").trim();
+
+  if (!Number.isInteger(entryId) || entryId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid pending entry id." });
+  }
+  if (!Number.isInteger(slotId) || slotId <= 0) {
+    return res.status(400).json({ ok: false, message: "Please choose a parking slot before confirming entry." });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await expireStalePendingAutoEntries(connection);
+
+    const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
+    if (!pendingEntry) {
+      await connection.rollback();
+      return res.status(404).json({ ok: false, message: "Pending entry was not found." });
+    }
+    if (pendingEntry.status !== "PENDING") {
+      await connection.rollback();
+      return res.status(400).json({
+        ok: false,
+        message: `This request is already ${String(pendingEntry.status).toLowerCase()}.`
+      });
+    }
+    if (!pendingEntry.sticker_id || !pendingEntry.qr_value) {
+      await connection.query(
+        `UPDATE auto_scan_queue
+         SET
+           status = 'REJECTED',
+           confirmed_by_guard = ?,
+           confirmed_at = NOW(),
+           confirm_note = 'Missing sticker/token data for confirmation'
+         WHERE id = ?`,
+        [guardName, entryId]
+      );
+      await connection.commit();
+      return res.status(400).json({ ok: false, message: "Pending entry data is incomplete." });
+    }
+
+    const verification = await getVerificationState(pendingEntry.qr_value);
+    if (!verification.ok) {
+      await connection.query(
+        `UPDATE auto_scan_queue
+         SET
+           status = 'REJECTED',
+           confirmed_by_guard = ?,
+           confirmed_at = NOW(),
+           confirm_note = ?
+         WHERE id = ?`,
+        [guardName, verification.message || "Sticker is not valid anymore.", entryId]
+      );
+      await connection.commit();
+      return res.status(400).json({ ok: false, message: verification.message || "Sticker is no longer valid." });
+    }
+
+    const sticker = verification.sticker;
+    await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
+    const lastMovement = await getLastValidMovement(sticker.id, connection);
+    if (lastMovement && lastMovement.action === "ENTRY") {
+      await connection.query(
+        `UPDATE auto_scan_queue
+         SET
+           status = 'REJECTED',
+           confirmed_by_guard = ?,
+           confirmed_at = NOW(),
+           confirm_note = 'Vehicle already has an active ENTRY record'
+         WHERE id = ?`,
+        [guardName, entryId]
+      );
+      await connection.commit();
+      return res.status(409).json({
+        ok: false,
+        message: "Vehicle is already marked as inside. Record EXIT first."
+      });
+    }
+
+    const assignedSlot = await assignParkingSlot(connection, sticker.id, slotId);
+    const finalGate = requestedGate || pendingEntry.gate_id || "Main Gate";
+    const scanLog = await insertScanLogWithDb(
+      connection,
+      sticker.id,
+      "VALID",
+      "ENTRY",
+      finalGate,
+      "Auto phone scan entry confirmed on monitor",
+      {
+        gateId: finalGate,
+        slotId: assignedSlot.id,
+        qrValue: pendingEntry.qr_value,
+        studentId: sticker.student_id_ref || pendingEntry.student_id || null,
+        vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || pendingEntry.vehicle_id || null,
+        assignedArea: assignedSlot.zone || null,
+        assignedByGuard: guardName,
+        scanSource: "camera_phone",
+        snapshotPath: pendingEntry.snapshot_path || null,
+        status: "AUTHORIZED"
+      }
+    );
+
+    await connection.query(
+      `UPDATE auto_scan_queue
+       SET
+         status = 'CONFIRMED',
+         gate_id = ?,
+         confirmed_by_guard = ?,
+         confirmed_at = NOW(),
+         assigned_slot_id = ?,
+         linked_scan_log_id = ?,
+         confirm_note = 'Confirmed by guard monitor'
+       WHERE id = ?`,
+      [finalGate, guardName, assignedSlot.id, scanLog?.id || null, entryId]
+    );
+
+    await connection.commit();
+    return res.json({
+      ok: true,
+      movement_saved: true,
+      action: "ENTRY",
+      pending_entry_id: entryId,
+      message: `ENTRY recorded. Assigned slot ${assignedSlot.slot_code}.`,
+      sticker: getAutoStickerPayload(sticker),
+      parking_slot: assignedSlot.slot_code,
+      assigned_area: assignedSlot.zone,
+      assigned_by_guard: guardName,
+      gate_id: finalGate,
+      snapshot_path: scanLog?.snapshot_path || pendingEntry.snapshot_path || null,
+      scan_log_id: scanLog?.id || null,
+      scanned_at: scanLog?.scanned_at || null
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Confirm pending auto entry error:", error);
+    return res.status(400).json({ ok: false, message: error.message || "Failed to confirm pending entry." });
+  } finally {
+    connection.release();
+  }
+});
+
+// API: guard cancels a pending phone-scanned ENTRY request
+app.post("/api/auto-scan/pending-entries/:id/cancel", requireAuth, async (req, res) => {
+  const entryId = Number(req.params.id);
+  const guardName = req.session?.adminUser || "guard";
+  const reason = String(req.body.reason || "Cancelled by guard monitor.").trim();
+
+  if (!Number.isInteger(entryId) || entryId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid pending entry id." });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await expireStalePendingAutoEntries(connection);
+    const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
+    if (!pendingEntry) {
+      await connection.rollback();
+      return res.status(404).json({ ok: false, message: "Pending entry was not found." });
+    }
+    if (pendingEntry.status !== "PENDING") {
+      await connection.rollback();
+      return res.status(400).json({
+        ok: false,
+        message: `This request is already ${String(pendingEntry.status).toLowerCase()}.`
+      });
+    }
+
+    await connection.query(
+      `UPDATE auto_scan_queue
+       SET
+         status = 'CANCELLED',
+         confirmed_by_guard = ?,
+         confirmed_at = NOW(),
+         confirm_note = ?
+       WHERE id = ?`,
+      [guardName, reason || "Cancelled by guard monitor.", entryId]
+    );
+    await connection.commit();
+    return res.json({ ok: true, cancelled: true, pending_entry_id: entryId });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Cancel pending auto entry error:", error);
+    return res.status(400).json({ ok: false, message: error.message || "Failed to cancel pending entry." });
+  } finally {
+    connection.release();
   }
 });
 

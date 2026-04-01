@@ -87,3 +87,30 @@ CREATE TABLE IF NOT EXISTS scan_logs (
   CONSTRAINT fk_scan_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
   CONSTRAINT fk_scan_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS auto_scan_queue (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  sticker_id INT NULL,
+  student_id INT NULL,
+  vehicle_id INT NULL,
+  qr_value VARCHAR(120) NOT NULL,
+  gate_id VARCHAR(80) NULL,
+  snapshot_path VARCHAR(255) NULL,
+  scan_source VARCHAR(40) NOT NULL DEFAULT 'camera_phone',
+  status ENUM('PENDING', 'CONFIRMED', 'CANCELLED', 'REJECTED', 'EXPIRED') NOT NULL DEFAULT 'PENDING',
+  requested_by_guard VARCHAR(120) NULL,
+  confirmed_by_guard VARCHAR(120) NULL,
+  assigned_slot_id INT NULL,
+  linked_scan_log_id INT NULL,
+  confirm_note VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  confirmed_at TIMESTAMP NULL DEFAULT NULL,
+  INDEX idx_auto_queue_status_created (status, created_at),
+  INDEX idx_auto_queue_sticker_status (sticker_id, status),
+  CONSTRAINT fk_auto_queue_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_auto_queue_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
+  CONSTRAINT fk_auto_queue_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+  CONSTRAINT fk_auto_queue_slot FOREIGN KEY (assigned_slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL,
+  CONSTRAINT fk_auto_queue_log FOREIGN KEY (linked_scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL
+);

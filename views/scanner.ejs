@@ -15,7 +15,8 @@
         <h3>Operator Controls</h3>
         <p>Open camera scanning or manually search by student, plate, or sticker details.</p>
         <p style="margin-top:0.4rem;">
-          <a href="/scanner/auto" class="link-btn">Open Automatic Phone Camera Mode</a>
+          <a href="/scanner/auto?mode=phone" class="link-btn">Open Phone Camera Mode</a>
+          <a href="/scanner/auto?mode=guard" class="link-btn">Open Same-Device Auto Mode</a>
         </p>
       </div>
       <button id="toggleCameraBtn" type="button" class="gate-camera-btn">
@@ -44,6 +45,21 @@
       </div>
       <button type="button" id="gateSearchBtn" class="gate-search-btn">Search Record</button>
     </div>
+  </section>
+
+  <section class="panel remote-queue-panel">
+    <div class="section-head">
+      <h2>Phone Camera Pending Entries</h2>
+      <p>ENTRY scans from phone camera appear here. Guard assigns slot and confirms on this laptop.</p>
+    </div>
+    <div class="remote-queue-toolbar">
+      <p id="remoteQueueStatus" class="helper-text">Waiting for phone scans...</p>
+      <button type="button" id="remoteQueueRefreshBtn" class="btn-sm">Refresh List</button>
+    </div>
+    <div id="remoteQueueEmpty" class="empty-state" style="padding:1rem;">
+      <p>No pending entry requests from phone camera.</p>
+    </div>
+    <div id="remoteQueueList" class="remote-queue-list"></div>
   </section>
 
   <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
@@ -113,6 +129,30 @@
   </div>
 </section>
 
+  <div id="remoteEntryModal" class="slot-history-modal" aria-hidden="true">
+    <div class="slot-history-backdrop" data-remote-close></div>
+    <article class="slot-history-dialog remote-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="remoteEntryModalTitle">
+      <div class="slot-history-head">
+        <h3 id="remoteEntryModalTitle">Confirm Phone Camera Entry</h3>
+        <button type="button" id="remoteEntryCloseBtn" class="slot-history-close" aria-label="Close">×</button>
+      </div>
+      <p id="remoteEntryMeta" class="helper-text" style="margin-bottom:0.65rem;"></p>
+
+      <div id="remoteEntrySnapshotWrap" class="remote-entry-snapshot" style="display:none;">
+        <img id="remoteEntrySnapshotImg" alt="Phone camera snapshot proof" />
+      </div>
+
+      <label for="remoteEntrySlotSelect" style="display:block; margin-top:0.35rem; margin-bottom:0.3rem;">Assign Parking Slot</label>
+      <select id="remoteEntrySlotSelect"></select>
+      <p id="remoteEntryHint" class="helper-text" style="margin-top:0.4rem;"></p>
+
+      <div class="remote-entry-actions">
+        <button type="button" id="remoteEntryConfirmBtn" class="btn-sm">Confirm ENTRY</button>
+        <button type="button" id="remoteEntryCancelBtn" class="btn-sm danger">Cancel Request</button>
+      </div>
+    </article>
+  </div>
+
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -134,11 +174,29 @@
     const cameraWrapper = document.getElementById("cameraWrapper");
     const cameraStatus = document.getElementById("cameraStatus");
 
+    const remoteQueueStatus = document.getElementById("remoteQueueStatus");
+    const remoteQueueList = document.getElementById("remoteQueueList");
+    const remoteQueueEmpty = document.getElementById("remoteQueueEmpty");
+    const remoteQueueRefreshBtn = document.getElementById("remoteQueueRefreshBtn");
+    const remoteEntryModal = document.getElementById("remoteEntryModal");
+    const remoteEntryCloseBtn = document.getElementById("remoteEntryCloseBtn");
+    const remoteEntryMeta = document.getElementById("remoteEntryMeta");
+    const remoteEntrySnapshotWrap = document.getElementById("remoteEntrySnapshotWrap");
+    const remoteEntrySnapshotImg = document.getElementById("remoteEntrySnapshotImg");
+    const remoteEntrySlotSelect = document.getElementById("remoteEntrySlotSelect");
+    const remoteEntryHint = document.getElementById("remoteEntryHint");
+    const remoteEntryConfirmBtn = document.getElementById("remoteEntryConfirmBtn");
+    const remoteEntryCancelBtn = document.getElementById("remoteEntryCancelBtn");
+
     let selectedToken = null;
     let selectedLabel = "";
     let selectedSlotId = null;
     let html5QrCode = null;
     let parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
+    let remotePendingEntries = [];
+    let activeRemoteEntryId = null;
+    let remoteSlots = [];
+    let latestRemoteEntryId = 0;
 
     // --- Audio Feedback ---
     function playBeep(type) {
@@ -163,6 +221,212 @@
           osc.start(); osc.stop(ctx.currentTime + 0.3);
         }
       } catch(e) {}
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatQueuedAt(value) {
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return "-";
+      return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(dt);
+    }
+
+    function closeRemoteEntryModal() {
+      if (!remoteEntryModal) return;
+      remoteEntryModal.classList.remove("open");
+      remoteEntryModal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      activeRemoteEntryId = null;
+      remoteEntryHint.textContent = "";
+      remoteEntrySlotSelect.innerHTML = "";
+      remoteEntryConfirmBtn.disabled = false;
+      remoteEntryCancelBtn.disabled = false;
+      remoteEntrySnapshotWrap.style.display = "none";
+      remoteEntrySnapshotImg.removeAttribute("src");
+    }
+
+    async function loadRemoteSlots() {
+      const resp = await fetch("/api/parking-slots", { credentials: "same-origin", cache: "no-store" });
+      const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.message || `Unable to load slots (${resp.status})`);
+      }
+      remoteSlots = Array.isArray(data.slots) ? data.slots : [];
+      return remoteSlots;
+    }
+
+    async function openRemoteEntryModal(entryId) {
+      const entry = remotePendingEntries.find((row) => String(row.id) === String(entryId));
+      if (!entry) return;
+
+      activeRemoteEntryId = entry.id;
+      remoteEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) • ${entry.plate_number || "-"} • ${entry.gate_id || "Main Gate"} • ${formatQueuedAt(entry.created_at)}`;
+      remoteEntryHint.textContent = "Loading available parking slots...";
+      remoteEntrySlotSelect.innerHTML = '<option value="">Loading slots...</option>';
+
+      if (entry.snapshot_path) {
+        remoteEntrySnapshotWrap.style.display = "";
+        remoteEntrySnapshotImg.src = entry.snapshot_path;
+      } else {
+        remoteEntrySnapshotWrap.style.display = "none";
+        remoteEntrySnapshotImg.removeAttribute("src");
+      }
+
+      remoteEntryModal.classList.add("open");
+      remoteEntryModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+
+      try {
+        const slots = await loadRemoteSlots();
+        if (!slots.length) {
+          remoteEntrySlotSelect.innerHTML = '<option value="">No available slots</option>';
+          remoteEntryHint.textContent = "No available slots right now.";
+          remoteEntryConfirmBtn.disabled = true;
+          return;
+        }
+        remoteEntryConfirmBtn.disabled = false;
+        remoteEntrySlotSelect.innerHTML = [
+          '<option value="">Select parking slot...</option>',
+          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} • ${escapeHtml(slot.zone || "General")}</option>`)
+        ].join("");
+        remoteEntryHint.textContent = `${slots.length} slot(s) available.`;
+      } catch (error) {
+        remoteEntrySlotSelect.innerHTML = '<option value="">Unable to load slots</option>';
+        remoteEntryHint.textContent = error.message || "Unable to load slots.";
+        remoteEntryConfirmBtn.disabled = true;
+      }
+    }
+
+    async function fetchRemotePendingEntries({ silent = false } = {}) {
+      if (!remoteQueueStatus || !remoteQueueList) return;
+      if (!silent) {
+        remoteQueueStatus.textContent = "Loading pending phone entries...";
+      }
+
+      try {
+        const resp = await fetch("/api/auto-scan/pending-entries?limit=30", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to load pending entries (${resp.status})`);
+        }
+
+        remotePendingEntries = Array.isArray(data.rows) ? data.rows : [];
+        const newestId = remotePendingEntries.length ? Number(remotePendingEntries[0].id) : 0;
+        if (latestRemoteEntryId > 0 && newestId > latestRemoteEntryId) {
+          playBeep("success");
+        }
+        latestRemoteEntryId = Math.max(latestRemoteEntryId, newestId);
+
+        if (!remotePendingEntries.length) {
+          remoteQueueEmpty.style.display = "";
+          remoteQueueList.innerHTML = "";
+          remoteQueueStatus.textContent = "No pending phone entry requests.";
+          return;
+        }
+
+        remoteQueueEmpty.style.display = "none";
+        remoteQueueStatus.textContent = `${remotePendingEntries.length} pending request(s).`;
+        remoteQueueList.innerHTML = remotePendingEntries.map((entry) => `
+          <article class="remote-queue-card">
+            <div class="remote-queue-main">
+              <h4>${escapeHtml(entry.full_name || "Unknown Student")}</h4>
+              <p>${escapeHtml(entry.student_number || "-")} • ${escapeHtml(entry.plate_number || "-")}</p>
+              <p>${escapeHtml(entry.gate_id || "Main Gate")} • ${formatQueuedAt(entry.created_at)}</p>
+            </div>
+            <div class="remote-queue-actions">
+              <span class="badge badge-warning">Pending</span>
+              <button type="button" class="btn-sm remote-open-entry-btn" data-entry-id="${entry.id}">Assign & Confirm</button>
+            </div>
+          </article>
+        `).join("");
+
+        remoteQueueList.querySelectorAll(".remote-open-entry-btn").forEach((btn) => {
+          btn.addEventListener("click", () => openRemoteEntryModal(btn.dataset.entryId));
+        });
+      } catch (error) {
+        remoteQueueStatus.textContent = error.message || "Unable to load pending entries.";
+      }
+    }
+
+    async function confirmRemoteEntry() {
+      if (!activeRemoteEntryId) return;
+      const slotId = Number(remoteEntrySlotSelect.value);
+      if (!Number.isInteger(slotId) || slotId <= 0) {
+        remoteEntryHint.textContent = "Please select a parking slot.";
+        return;
+      }
+
+      const entry = remotePendingEntries.find((row) => String(row.id) === String(activeRemoteEntryId));
+      const gateValue = gateSelect?.value || entry?.gate_id || "Main Gate";
+      remoteEntryHint.textContent = "Saving entry...";
+      remoteEntryConfirmBtn.disabled = true;
+      remoteEntryCancelBtn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/auto-scan/pending-entries/${activeRemoteEntryId}/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ slot_id: slotId, gate: gateValue })
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to confirm entry (${resp.status})`);
+        }
+
+        playBeep("success");
+        statusEl.textContent = `Confirmed ENTRY for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`;
+        closeRemoteEntryModal();
+        await fetchRemotePendingEntries({ silent: true });
+        await loadParkingSlots().catch(() => null);
+      } catch (error) {
+        playBeep("error");
+        remoteEntryHint.textContent = error.message || "Unable to confirm entry.";
+        remoteEntryConfirmBtn.disabled = false;
+        remoteEntryCancelBtn.disabled = false;
+      }
+    }
+
+    async function cancelRemoteEntry() {
+      if (!activeRemoteEntryId) return;
+      remoteEntryHint.textContent = "Cancelling request...";
+      remoteEntryConfirmBtn.disabled = true;
+      remoteEntryCancelBtn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/auto-scan/pending-entries/${activeRemoteEntryId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ reason: "Cancelled by guard from monitor console." })
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to cancel request (${resp.status})`);
+        }
+
+        closeRemoteEntryModal();
+        await fetchRemotePendingEntries({ silent: true });
+      } catch (error) {
+        remoteEntryHint.textContent = error.message || "Unable to cancel request.";
+        remoteEntryConfirmBtn.disabled = false;
+        remoteEntryCancelBtn.disabled = false;
+      }
     }
 
     function renderSlotButton(slot) {
@@ -501,6 +765,19 @@
     searchBtn.addEventListener("click", doSearch);
     searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
 
+    remoteQueueRefreshBtn?.addEventListener("click", () => fetchRemotePendingEntries({ silent: false }));
+    remoteEntryCloseBtn?.addEventListener("click", closeRemoteEntryModal);
+    remoteEntryConfirmBtn?.addEventListener("click", confirmRemoteEntry);
+    remoteEntryCancelBtn?.addEventListener("click", cancelRemoteEntry);
+    remoteEntryModal?.querySelectorAll("[data-remote-close]").forEach((node) => {
+      node.addEventListener("click", closeRemoteEntryModal);
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && remoteEntryModal?.classList.contains("open")) {
+        closeRemoteEntryModal();
+      }
+    });
+
     // --- Record Logic ---
     async function recordMovement(action) {
       if (!selectedToken) return;
@@ -603,6 +880,11 @@
     exitBtn.addEventListener("click", () => {
       if (selectedLabel) addToHistory(selectedLabel, "EXIT", !window.OfflineManager?.isOnline, true);
     });
+
+    fetchRemotePendingEntries({ silent: false });
+    setInterval(() => {
+      fetchRemotePendingEntries({ silent: true });
+    }, 3000);
 
     renderHistory();
   })();
