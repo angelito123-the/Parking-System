@@ -57,6 +57,25 @@
     </div>
   </section>
 
+  <section class="panel remote-queue-panel">
+    <div class="section-head">
+      <h2>Gate Console Assignment</h2>
+      <p>Choose parking slots for phone-scanned ENTRY requests from this guard dashboard.</p>
+    </div>
+    <div class="remote-queue-toolbar">
+      <p id="guardQueueStatus" class="helper-text">Loading pending phone entries...</p>
+      <button type="button" id="guardQueueRefreshBtn" class="btn-sm">Refresh List</button>
+    </div>
+    <div id="guardQueueLiveAlert" class="remote-queue-live-alert" hidden></div>
+    <div id="guardQueueEmpty" class="empty-state" style="padding:1rem;">
+      <p>No pending phone entry requests right now.</p>
+    </div>
+    <div id="guardQueueList" class="remote-queue-list"></div>
+    <p class="helper-text" style="margin-top:0.65rem;">
+      Need full controls? <a href="/scanner" class="link-btn">Open Gate Console</a>
+    </p>
+  </section>
+
   <section class="panel">
     <div class="section-head">
       <h2>Current Occupancy</h2>
@@ -185,5 +204,294 @@
     </div>
   </section>
 </div>
+
+<div id="guardEntryModal" class="slot-history-modal" aria-hidden="true">
+  <div class="slot-history-backdrop" data-guard-close></div>
+  <article class="slot-history-dialog remote-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="guardEntryModalTitle">
+    <div class="slot-history-head">
+      <h3 id="guardEntryModalTitle">Confirm Phone Camera Entry</h3>
+      <button type="button" id="guardEntryCloseBtn" class="slot-history-close" aria-label="Close">x</button>
+    </div>
+    <p id="guardEntryMeta" class="helper-text" style="margin-bottom:0.65rem;"></p>
+
+    <div id="guardEntrySnapshotWrap" class="remote-entry-snapshot" style="display:none;">
+      <img id="guardEntrySnapshotImg" alt="Phone camera snapshot proof" />
+    </div>
+
+    <label for="guardEntrySlotSelect" style="display:block; margin-top:0.35rem; margin-bottom:0.3rem;">Assign Parking Slot</label>
+    <select id="guardEntrySlotSelect"></select>
+    <p id="guardEntryHint" class="helper-text" style="margin-top:0.4rem;"></p>
+
+    <div class="remote-entry-actions">
+      <button type="button" id="guardEntryConfirmBtn" class="btn-sm">Confirm ENTRY</button>
+      <button type="button" id="guardEntryCancelBtn" class="btn-sm danger">Cancel Request</button>
+    </div>
+  </article>
+</div>
+
+<script>
+  (() => {
+    const queueStatus = document.getElementById("guardQueueStatus");
+    const queueRefreshBtn = document.getElementById("guardQueueRefreshBtn");
+    const queueLiveAlert = document.getElementById("guardQueueLiveAlert");
+    const queueEmpty = document.getElementById("guardQueueEmpty");
+    const queueList = document.getElementById("guardQueueList");
+
+    const guardEntryModal = document.getElementById("guardEntryModal");
+    const guardEntryCloseBtn = document.getElementById("guardEntryCloseBtn");
+    const guardEntryMeta = document.getElementById("guardEntryMeta");
+    const guardEntrySnapshotWrap = document.getElementById("guardEntrySnapshotWrap");
+    const guardEntrySnapshotImg = document.getElementById("guardEntrySnapshotImg");
+    const guardEntrySlotSelect = document.getElementById("guardEntrySlotSelect");
+    const guardEntryHint = document.getElementById("guardEntryHint");
+    const guardEntryConfirmBtn = document.getElementById("guardEntryConfirmBtn");
+    const guardEntryCancelBtn = document.getElementById("guardEntryCancelBtn");
+
+    let pendingEntries = [];
+    let activeEntryId = null;
+    let latestEntryId = 0;
+    let didInitialLoad = false;
+    let lastAutoOpenedEntryId = 0;
+    let liveAlertTimer = null;
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatQueuedAt(value) {
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return "-";
+      return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(dt);
+    }
+
+    function showLiveAlert(message, tone = "success", autoHideMs = 6200) {
+      if (!queueLiveAlert) return;
+      queueLiveAlert.textContent = message;
+      queueLiveAlert.className = `remote-queue-live-alert tone-${tone}`;
+      queueLiveAlert.hidden = false;
+      if (liveAlertTimer) clearTimeout(liveAlertTimer);
+      liveAlertTimer = window.setTimeout(() => {
+        queueLiveAlert.hidden = true;
+      }, Math.max(1200, Number(autoHideMs) || 6200));
+    }
+
+    function closeGuardEntryModal() {
+      if (!guardEntryModal) return;
+      guardEntryModal.classList.remove("open");
+      guardEntryModal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      activeEntryId = null;
+      guardEntryHint.textContent = "";
+      guardEntrySlotSelect.innerHTML = "";
+      guardEntryConfirmBtn.disabled = false;
+      guardEntryCancelBtn.disabled = false;
+      guardEntrySnapshotWrap.style.display = "none";
+      guardEntrySnapshotImg.removeAttribute("src");
+    }
+
+    async function loadAvailableSlots() {
+      const resp = await fetch("/api/parking-slots", { credentials: "same-origin", cache: "no-store" });
+      const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+      if (!resp.ok || !data.ok) {
+        throw new Error(data.message || `Unable to load slots (${resp.status})`);
+      }
+      return Array.isArray(data.slots) ? data.slots : [];
+    }
+
+    async function openGuardEntryModal(entryId) {
+      const entry = pendingEntries.find((row) => String(row.id) === String(entryId));
+      if (!entry) return;
+
+      activeEntryId = entry.id;
+      guardEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) - ${entry.plate_number || "-"} - ${entry.gate_id || "Main Gate"} - ${formatQueuedAt(entry.created_at)}`;
+      guardEntryHint.textContent = "Loading available parking slots...";
+      guardEntrySlotSelect.innerHTML = '<option value="">Loading slots...</option>';
+
+      if (entry.snapshot_path) {
+        guardEntrySnapshotWrap.style.display = "";
+        guardEntrySnapshotImg.src = entry.snapshot_path;
+      } else {
+        guardEntrySnapshotWrap.style.display = "none";
+        guardEntrySnapshotImg.removeAttribute("src");
+      }
+
+      guardEntryModal.classList.add("open");
+      guardEntryModal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+
+      try {
+        const slots = await loadAvailableSlots();
+        if (!slots.length) {
+          guardEntrySlotSelect.innerHTML = '<option value="">No available slots</option>';
+          guardEntryHint.textContent = "No available slots right now.";
+          guardEntryConfirmBtn.disabled = true;
+          return;
+        }
+        guardEntryConfirmBtn.disabled = false;
+        guardEntrySlotSelect.innerHTML = [
+          '<option value="">Select parking slot...</option>',
+          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
+        ].join("");
+        guardEntryHint.textContent = `${slots.length} slot(s) available.`;
+      } catch (error) {
+        guardEntrySlotSelect.innerHTML = '<option value="">Unable to load slots</option>';
+        guardEntryHint.textContent = error.message || "Unable to load slots.";
+        guardEntryConfirmBtn.disabled = true;
+      }
+    }
+
+    async function fetchPendingEntries({ silent = false } = {}) {
+      if (!queueStatus || !queueList) return;
+      if (!silent) queueStatus.textContent = "Loading pending phone entries...";
+
+      try {
+        const resp = await fetch("/api/auto-scan/pending-entries?limit=30", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to load pending entries (${resp.status})`);
+        }
+
+        pendingEntries = Array.isArray(data.rows) ? data.rows : [];
+        const newestEntry = pendingEntries.length ? pendingEntries[0] : null;
+        const newestId = newestEntry ? Number(newestEntry.id) : 0;
+        const hasNew = didInitialLoad && newestId > latestEntryId;
+
+        if (hasNew) {
+          showLiveAlert(`New phone scan: ${newestEntry.full_name || "Unknown student"} (${newestEntry.plate_number || "-"})`, "success", 6500);
+          if (!guardEntryModal?.classList.contains("open") && newestId !== lastAutoOpenedEntryId) {
+            lastAutoOpenedEntryId = newestId;
+            await openGuardEntryModal(newestId);
+          }
+        }
+        latestEntryId = Math.max(latestEntryId, newestId);
+        didInitialLoad = true;
+
+        if (!pendingEntries.length) {
+          queueEmpty.style.display = "";
+          queueList.innerHTML = "";
+          queueStatus.textContent = "No pending phone entry requests.";
+          return;
+        }
+
+        queueEmpty.style.display = "none";
+        queueStatus.textContent = `${pendingEntries.length} pending request(s).`;
+        queueList.innerHTML = pendingEntries.map((entry) => `
+          <article class="remote-queue-card">
+            <div class="remote-queue-main">
+              <h4>${escapeHtml(entry.full_name || "Unknown Student")}</h4>
+              <p>${escapeHtml(entry.student_number || "-")} - ${escapeHtml(entry.plate_number || "-")}</p>
+              <p>${escapeHtml(entry.gate_id || "Main Gate")} - ${formatQueuedAt(entry.created_at)}</p>
+            </div>
+            <div class="remote-queue-actions">
+              <span class="badge badge-warning">Pending</span>
+              <button type="button" class="btn-sm guard-open-entry-btn" data-entry-id="${entry.id}">Assign & Confirm</button>
+            </div>
+          </article>
+        `).join("");
+
+        queueList.querySelectorAll(".guard-open-entry-btn").forEach((btn) => {
+          btn.addEventListener("click", () => openGuardEntryModal(btn.dataset.entryId));
+        });
+      } catch (error) {
+        queueStatus.textContent = error.message || "Unable to load pending entries.";
+      }
+    }
+
+    async function confirmEntry() {
+      if (!activeEntryId) return;
+      const slotId = Number(guardEntrySlotSelect.value);
+      if (!Number.isInteger(slotId) || slotId <= 0) {
+        guardEntryHint.textContent = "Please select a parking slot.";
+        return;
+      }
+
+      const entry = pendingEntries.find((row) => String(row.id) === String(activeEntryId));
+      const gateValue = entry?.gate_id || "Main Gate";
+
+      guardEntryHint.textContent = "Saving entry...";
+      guardEntryConfirmBtn.disabled = true;
+      guardEntryCancelBtn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/auto-scan/pending-entries/${activeEntryId}/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ slot_id: slotId, gate: gateValue })
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to confirm entry (${resp.status})`);
+        }
+
+        showLiveAlert(`ENTRY confirmed for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`, "success", 5200);
+        closeGuardEntryModal();
+        await fetchPendingEntries({ silent: true });
+      } catch (error) {
+        guardEntryHint.textContent = error.message || "Unable to confirm entry.";
+        guardEntryConfirmBtn.disabled = false;
+        guardEntryCancelBtn.disabled = false;
+      }
+    }
+
+    async function cancelEntry() {
+      if (!activeEntryId) return;
+      guardEntryHint.textContent = "Cancelling request...";
+      guardEntryConfirmBtn.disabled = true;
+      guardEntryCancelBtn.disabled = true;
+
+      try {
+        const resp = await fetch(`/api/auto-scan/pending-entries/${activeEntryId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ reason: "Cancelled by guard dashboard." })
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to cancel request (${resp.status})`);
+        }
+        showLiveAlert("Pending request cancelled.", "warning", 4200);
+        closeGuardEntryModal();
+        await fetchPendingEntries({ silent: true });
+      } catch (error) {
+        guardEntryHint.textContent = error.message || "Unable to cancel request.";
+        guardEntryConfirmBtn.disabled = false;
+        guardEntryCancelBtn.disabled = false;
+      }
+    }
+
+    queueRefreshBtn?.addEventListener("click", () => fetchPendingEntries({ silent: false }));
+    guardEntryCloseBtn?.addEventListener("click", closeGuardEntryModal);
+    guardEntryConfirmBtn?.addEventListener("click", confirmEntry);
+    guardEntryCancelBtn?.addEventListener("click", cancelEntry);
+    guardEntryModal?.querySelectorAll("[data-guard-close]").forEach((node) => {
+      node.addEventListener("click", closeGuardEntryModal);
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && guardEntryModal?.classList.contains("open")) {
+        closeGuardEntryModal();
+      }
+    });
+
+    fetchPendingEntries({ silent: false });
+    setInterval(() => {
+      fetchPendingEntries({ silent: true });
+    }, 3000);
+  })();
+</script>
 
 <%- include("partials/footer") %>
