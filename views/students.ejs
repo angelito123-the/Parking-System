@@ -108,7 +108,14 @@
 
     <% if (students.length === 0) { %>
       <div class="empty-state">
-        <div class="empty-state-icon">No Records</div>
+        <div class="empty-state-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path>
+            <circle cx="9.5" cy="7" r="3"></circle>
+            <path d="M17 11a3 3 0 1 0 0-6"></path>
+            <path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path>
+          </svg>
+        </div>
         <p>No students registered yet. Use the form above to add one.</p>
       </div>
     <% } %>
@@ -649,14 +656,6 @@
   .add-vehicle-form {
     margin: 0.26rem 0 0.5rem;
     border-color: var(--green-border);
-  }
-
-  .empty-state-icon {
-    font-size: 0.74rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
   }
 
   @media (max-width: 900px) {

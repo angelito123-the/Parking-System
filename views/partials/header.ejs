@@ -87,6 +87,19 @@
     ]
   };
   const navLinks = navLinksByRole[roleNow] || [];
+  const navIconFallback = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle></svg>';
+  const navIconByHref = {
+    "/admin": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>',
+    "/guard": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.2 8.5-7 10-3.8-1.5-7-5-7-10V6l7-3Z"></path><path d="m9.5 12 1.8 1.8L15 10.3"></path></svg>',
+    "/admin/slots": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"></rect><rect x="13" y="3" width="8" height="8" rx="1.5"></rect><rect x="3" y="13" width="8" height="8" rx="1.5"></rect><rect x="13" y="13" width="8" height="8" rx="1.5"></rect></svg>',
+    "/admin/updates": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.5L4.8 15a1 1 0 0 0 .8 1.5h12.8a1 1 0 0 0 .8-1.5L18 12.5V9a6 6 0 0 0-6-6Z"></path><path d="M9.5 18a2.5 2.5 0 0 0 5 0"></path></svg>',
+    "/admin/records": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
+    "/admin/users": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path><circle cx="9.5" cy="7" r="3"></circle><path d="M17 11a3 3 0 1 0 0-6"></path><path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path></svg>',
+    "/students": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path><circle cx="12" cy="12" r="1.5"></circle></svg>',
+    "/stickers": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a2 2 0 0 1 2 2v5h-2a2 2 0 0 0 0 4h2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3h2a2 2 0 0 0 0-4H4V6a2 2 0 0 1 2-2Z"></path><path d="M9 9h6"></path><path d="M9 15h6"></path></svg>',
+    "/reports": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V9"></path><path d="M12 20V4"></path><path d="M19 20v-7"></path></svg>',
+    "/scanner": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"></path><path d="M20 8V6a2 2 0 0 0-2-2h-2"></path><path d="M4 16v2a2 2 0 0 0 2 2h2"></path><path d="M20 16v2a2 2 0 0 1-2 2h-2"></path><path d="M7 12h10"></path></svg>'
+  };
 %>
 
   <body class="page-<%= pageSlug %>">
@@ -119,7 +132,10 @@
         <div class="top-nav-links">
           <% navLinks.forEach((link) => { %>
             <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
-            <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>"><%= link.label %></a>
+            <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>">
+              <span class="nav-link-icon" aria-hidden="true"><%- navIconByHref[link.href] || navIconFallback %></span>
+              <span><%= link.label %></span>
+            </a>
           <% }) %>
         </div>
       </nav>

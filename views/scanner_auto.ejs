@@ -121,7 +121,12 @@
 <div id="scanInfoPopup" class="slot-history-modal scan-info-popup" aria-hidden="true">
   <div class="slot-history-backdrop" data-scan-popup-close></div>
   <article id="scanInfoPopupCard" class="slot-history-dialog scan-info-popup-card tone-info" role="dialog" aria-modal="true" aria-labelledby="scanInfoPopupTitle">
-    <button type="button" id="scanInfoPopupClose" class="slot-history-close scan-info-popup-close" aria-label="Close">x</button>
+    <button type="button" id="scanInfoPopupClose" class="slot-history-close scan-info-popup-close" aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 6l12 12"></path>
+        <path d="M18 6 6 18"></path>
+      </svg>
+    </button>
     <p id="scanInfoPopupKicker" class="scan-info-popup-kicker">Scan detected</p>
     <h3 id="scanInfoPopupTitle">Vehicle Scan Result</h3>
     <p id="scanInfoPopupMessage" class="scan-info-popup-message">Waiting for data...</p>

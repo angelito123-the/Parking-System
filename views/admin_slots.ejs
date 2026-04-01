@@ -127,7 +127,12 @@
   <div class="slot-history-dialog" role="dialog" aria-modal="true" aria-labelledby="slotHistoryTitle">
     <div class="slot-history-head">
       <h3 id="slotHistoryTitle">Slot History</h3>
-      <button type="button" class="slot-history-close" data-close-slot-history aria-label="Close slot history">x</button>
+      <button type="button" class="slot-history-close" data-close-slot-history aria-label="Close slot history">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12"></path>
+          <path d="M18 6 6 18"></path>
+        </svg>
+      </button>
     </div>
     <p id="slotHistoryMeta" class="helper-text" style="margin:0 0 0.75rem;">Loading slot history...</p>
     <div id="slotHistoryList" class="slot-history-list">
