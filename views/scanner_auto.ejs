@@ -332,27 +332,48 @@
     function captureSnapshotDataUrl() {
       const video = document.querySelector("#autoQrReader video");
       if (!video || !video.videoWidth || !video.videoHeight) return "";
+
+      // Downscale snapshots to keep API payload small and reliable on mobile data.
+      const maxEdge = 960;
+      const sourceWidth = video.videoWidth;
+      const sourceHeight = video.videoHeight;
+      const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+      canvas.height = Math.max(1, Math.round(sourceHeight * scale));
       const ctx = canvas.getContext("2d", { willReadFrequently: false });
       if (!ctx) return "";
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.85);
+      return canvas.toDataURL("image/jpeg", 0.72);
     }
 
     async function postJson(url, payload) {
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(payload)
       });
 
-      let data = null;
-      try {
-        data = await response.json();
-      } catch (_error) {
-        data = { ok: false, message: "Invalid server response." };
+      const contentType = response.headers.get("content-type") || "";
+      let data = { ok: false, message: "Invalid server response." };
+
+      if (contentType.includes("application/json")) {
+        try {
+          data = await response.json();
+        } catch (_jsonError) {
+          data = { ok: false, message: "Invalid server response." };
+        }
+      } else {
+        const responseText = await response.text();
+        if (response.status === 401) {
+          data = { ok: false, message: "Session expired. Please log in again on this device." };
+        } else if (!responseText.trim()) {
+          data = { ok: false, message: `Empty server response (${response.status}).` };
+        } else {
+          data = { ok: false, message: `Server returned an unexpected response (${response.status}).` };
+        }
       }
 
       if (!response.ok) {

@@ -12,6 +12,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
 const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 10);
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "8mb";
 const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
 const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
   ? Math.max(0.5, rawOverstayLimitHours)
@@ -27,8 +28,8 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.set("trust proxy", true);
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
@@ -48,6 +49,9 @@ app.use((req, res, next) => {
 // Auth middleware — protects all admin routes
 function requireAuth(req, res, next) {
   if (req.session && req.session.adminUser) return next();
+  if (req.path.startsWith("/api/")) {
+    return res.status(401).json({ ok: false, message: "Unauthorized. Please log in again." });
+  }
   res.redirect("/login");
 }
 
@@ -2039,6 +2043,38 @@ app.post("/api/sync-queue", requireAuth, async (req, res) => {
     console.error("Sync queue error:", error);
     res.status(500).json({ ok: false, message: "Failed to sync offline queue." });
   }
+});
+
+app.use((err, req, res, next) => {
+  if (!err) return next();
+
+  const isApi = req.path.startsWith("/api/");
+
+  if (err.type === "entity.too.large") {
+    if (isApi) {
+      return res.status(413).json({
+        ok: false,
+        message: "Scan snapshot is too large. Keep the camera closer to the QR and try again."
+      });
+    }
+    return res.status(413).send("Request payload is too large.");
+  }
+
+  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+    if (isApi) {
+      return res.status(400).json({ ok: false, message: "Invalid JSON payload." });
+    }
+    return res.status(400).send("Invalid request payload.");
+  }
+
+  console.error("Unhandled request error:", err);
+  if (isApi) {
+    return res.status(err.status || 500).json({
+      ok: false,
+      message: err.message || "Server error while handling request."
+    });
+  }
+  return res.status(err.status || 500).send("An unexpected server error occurred.");
 });
 
 async function startServer() {
