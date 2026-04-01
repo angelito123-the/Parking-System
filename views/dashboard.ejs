@@ -3,13 +3,13 @@
     !=="undefined" ? movementLogs : []; const safeMovementLogs=Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
     const rawInsideVehicles=typeof insideVehicles !=="undefined" ? insideVehicles : []; const
     safeInsideVehicles=Array.isArray(rawInsideVehicles) ? rawInsideVehicles : []; const
-    rawAvailableSlots=typeof availableSlots !=="undefined" ? availableSlots : []; const
-    safeAvailableSlots=Array.isArray(rawAvailableSlots) ? rawAvailableSlots : []; const
+    rawParkingSlots=typeof parkingSlots !=="undefined" ? parkingSlots : []; const
+    safeParkingSlots=Array.isArray(rawParkingSlots) ? rawParkingSlots : []; const
     safeParkingSlotSummary=typeof parkingSlotSummary==="object" && parkingSlotSummary ? parkingSlotSummary : {
-      total: safeAvailableSlots.length,
-      available: safeAvailableSlots.length,
-      occupied: 0,
-      disabled: 0
+      total: safeParkingSlots.length,
+      available: safeParkingSlots.filter(slot => slot.occupancy === "available").length,
+      occupied: safeParkingSlots.filter(slot => slot.occupancy === "occupied").length,
+      disabled: safeParkingSlots.filter(slot => slot.occupancy === "disabled").length
     }; %>
 
     <section class="dashboard-hero">
@@ -118,24 +118,35 @@
 
       <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2rem; background: transparent;">
         <div class="section-head">
-          <h2 style="font-size: 1.25rem;">Available Parking Slots</h2>
-          <p>Open slots ready for incoming student vehicles.</p>
+          <h2 style="font-size: 1.25rem;">Parking Slot Monitoring</h2>
+          <p>See exactly which vehicle is parked in each occupied slot.</p>
         </div>
         <div class="refresh-row" style="margin-bottom: 0.75rem;">
-          <span id="availableSlotsMeta" class="helper-text">
-            <%= safeParkingSlotSummary.available %> available out of <%= safeParkingSlotSummary.total %> total slots
+          <span id="parkingSlotsMeta" class="helper-text">
+            <%= safeParkingSlotSummary.available %> available | <%= safeParkingSlotSummary.occupied %> occupied | <%= safeParkingSlotSummary.disabled %> disabled | <%= safeParkingSlotSummary.total %> total
           </span>
         </div>
-        <div id="availableSlotsList" class="available-slots-grid">
-          <% if (safeAvailableSlots.length === 0) { %>
+        <div id="parkingSlotsList" class="parking-slots-grid">
+          <% if (safeParkingSlots.length === 0) { %>
             <div class="empty-state" style="padding:1.25rem 1rem;">
-              <p>No available slots right now.</p>
+              <p>No parking slots configured.</p>
             </div>
           <% } %>
-          <% safeAvailableSlots.forEach(slot => { %>
-            <div class="available-slot-chip">
-              <span class="available-slot-code"><%= slot.slot_code || "-" %></span>
-              <span class="available-slot-zone"><%= slot.zone || "General" %></span>
+          <% safeParkingSlots.forEach(slot => { %>
+            <div class="parking-slot-card <%= slot.occupancy || 'available' %>">
+              <div class="parking-slot-head">
+                <span class="parking-slot-code"><%= slot.slot_code || "-" %></span>
+                <span class="parking-slot-status"><%= (slot.occupancy || "available").toUpperCase() %></span>
+              </div>
+              <div class="parking-slot-zone"><%= slot.zone || "General" %></div>
+              <% if (slot.occupancy === "occupied") { %>
+                <div class="parking-slot-detail">Plate: <strong><%= slot.occupied_by_plate || "-" %></strong></div>
+                <div class="parking-slot-detail">Student: <strong><%= slot.occupied_by_name || "Unknown" %></strong></div>
+              <% } else if (slot.occupancy === "available") { %>
+                <div class="parking-slot-detail">Open for entry assignment</div>
+              <% } else { %>
+                <div class="parking-slot-detail">Slot currently unavailable</div>
+              <% } %>
             </div>
           <% }) %>
         </div>
@@ -304,8 +315,8 @@
         const insideCount = document.getElementById("currentlyInsideCount");
         const lastUpdatedEl = document.getElementById("insideLastUpdated");
         const refreshBtn = document.getElementById("refreshInsideBtn");
-        const availableSlotsMetaEl = document.getElementById("availableSlotsMeta");
-        const availableSlotsListEl = document.getElementById("availableSlotsList");
+        const parkingSlotsMetaEl = document.getElementById("parkingSlotsMeta");
+        const parkingSlotsListEl = document.getElementById("parkingSlotsList");
 
         window.forceExit = async function(stickerId, btn) {
           if (!confirm("Force exit this vehicle?")) return;
@@ -351,15 +362,30 @@
           return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles inside.</p></div>`;
         }
 
-        function renderAvailableSlotChip(slot) {
-          return `<div class="available-slot-chip">
-            <span class="available-slot-code">${slot.slot_code || "-"}</span>
-            <span class="available-slot-zone">${slot.zone || "General"}</span>
+        function renderParkingSlotCard(slot) {
+          const occupancy = slot.occupancy || "available";
+          const status = occupancy.toUpperCase();
+          const primaryDetail = occupancy === "occupied"
+            ? `Plate: <strong>${slot.occupied_by_plate || "-"}</strong>`
+            : occupancy === "available"
+            ? "Open for entry assignment"
+            : "Slot currently unavailable";
+          const secondaryDetail = occupancy === "occupied"
+            ? `Student: <strong>${slot.occupied_by_name || "Unknown"}</strong>`
+            : "";
+          return `<div class="parking-slot-card ${occupancy}">
+            <div class="parking-slot-head">
+              <span class="parking-slot-code">${slot.slot_code || "-"}</span>
+              <span class="parking-slot-status">${status}</span>
+            </div>
+            <div class="parking-slot-zone">${slot.zone || "General"}</div>
+            <div class="parking-slot-detail">${primaryDetail}</div>
+            ${secondaryDetail ? `<div class="parking-slot-detail">${secondaryDetail}</div>` : ""}
           </div>`;
         }
 
-        function renderEmptyAvailableSlots() {
-          return `<div class="empty-state" style="padding:1.25rem 1rem;"><p>No available slots right now.</p></div>`;
+        function renderEmptyParkingSlots() {
+          return `<div class="empty-state" style="padding:1.25rem 1rem;"><p>No parking slots configured.</p></div>`;
         }
 
         const movementTbody = table ? table.querySelector("tbody") : null;
@@ -435,21 +461,27 @@
                 : renderEmptyInside();
             }
 
-            const availableSlots = Array.isArray(data.availableSlots) ? data.availableSlots : [];
+            const parkingSlots = Array.isArray(data.parkingSlots) ? data.parkingSlots : [];
             const slotSummary = data.parkingSlotSummary || {};
-            if (availableSlotsListEl) {
-              availableSlotsListEl.innerHTML = availableSlots.length
-                ? availableSlots.map(renderAvailableSlotChip).join("")
-                : renderEmptyAvailableSlots();
+            if (parkingSlotsListEl) {
+              parkingSlotsListEl.innerHTML = parkingSlots.length
+                ? parkingSlots.map(renderParkingSlotCard).join("")
+                : renderEmptyParkingSlots();
             }
-            if (availableSlotsMetaEl) {
+            if (parkingSlotsMetaEl) {
               const availableCount = typeof slotSummary.available === "number"
                 ? slotSummary.available
-                : availableSlots.length;
+                : parkingSlots.filter(slot => slot.occupancy === "available").length;
+              const occupiedCount = typeof slotSummary.occupied === "number"
+                ? slotSummary.occupied
+                : parkingSlots.filter(slot => slot.occupancy === "occupied").length;
+              const disabledCount = typeof slotSummary.disabled === "number"
+                ? slotSummary.disabled
+                : parkingSlots.filter(slot => slot.occupancy === "disabled").length;
               const totalCount = typeof slotSummary.total === "number"
                 ? slotSummary.total
-                : availableSlots.length;
-              availableSlotsMetaEl.textContent = `${availableCount} available out of ${totalCount} total slots`;
+                : parkingSlots.length;
+              parkingSlotsMetaEl.textContent = `${availableCount} available | ${occupiedCount} occupied | ${disabledCount} disabled | ${totalCount} total`;
             }
 
             const logs = data.movementLogs || [];
