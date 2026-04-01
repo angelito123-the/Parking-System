@@ -1564,7 +1564,7 @@ body.modal-open {
 .slot-history-modal.open {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .slot-history-backdrop {
@@ -1586,7 +1586,7 @@ body.modal-open {
   background: var(--surface);
   box-shadow: var(--shadow-xl);
   padding: 1rem;
-  margin: 0.2rem 0 0.8rem;
+  margin: 0;
 }
 
 .slot-history-head {
