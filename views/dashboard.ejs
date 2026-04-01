@@ -11,6 +11,7 @@
       occupied: safeParkingSlots.filter(slot => slot.occupancy === "occupied").length,
       disabled: safeParkingSlots.filter(slot => slot.occupancy === "disabled").length
     }; %>
+    <% const nowPht = new Date(); const todayDate = `${nowPht.getFullYear()}-${String(nowPht.getMonth()+1).padStart(2, '0')}-${String(nowPht.getDate()).padStart(2, '0')}`; %>
 
     <section class="dashboard-hero">
       <div class="hero-greeting">
@@ -149,6 +150,62 @@
               <% } %>
             </div>
           <% }) %>
+        </div>
+      </section>
+
+      <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2rem; background: transparent;">
+        <div class="section-head">
+          <h2 style="font-size: 1.25rem;">Parking History by Day and Time</h2>
+          <p>Track which students parked within a specific date and time range.</p>
+        </div>
+        <form id="parkingHistoryFilterForm" class="filters-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0.75rem;">
+          <div>
+            <label for="parkingHistoryDate">Date</label>
+            <input id="parkingHistoryDate" type="date" value="<%= todayDate %>" />
+          </div>
+          <div>
+            <label for="parkingHistoryFromTime">From</label>
+            <input id="parkingHistoryFromTime" type="time" value="00:00" />
+          </div>
+          <div>
+            <label for="parkingHistoryToTime">To</label>
+            <input id="parkingHistoryToTime" type="time" value="23:59" />
+          </div>
+          <div class="filters-actions">
+            <button type="submit" class="btn-sm" style="background: var(--blue-mid); color: #fff;">Load History</button>
+          </div>
+        </form>
+        <div class="refresh-row" style="margin-bottom: 0.75rem;">
+          <span id="parkingHistoryMeta" class="helper-text">Loading parking history...</span>
+        </div>
+
+        <div class="table-wrap desktop-only-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Date/Time</th>
+                <th>Student</th>
+                <th>Plate</th>
+                <th>Slot</th>
+                <th>Gate</th>
+              </tr>
+            </thead>
+            <tbody id="parkingHistoryBody">
+              <tr style="box-shadow: none;">
+                <td colspan="5" style="background: transparent; border: none;">
+                  <div class="empty-state" style="padding:1rem;">
+                    <p>Loading parking history...</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mobile-data-list" id="parkingHistoryCards">
+          <div class="empty-state" style="padding:1rem;">
+            <p>Loading parking history...</p>
+          </div>
         </div>
       </section>
 
@@ -317,6 +374,13 @@
         const refreshBtn = document.getElementById("refreshInsideBtn");
         const parkingSlotsMetaEl = document.getElementById("parkingSlotsMeta");
         const parkingSlotsListEl = document.getElementById("parkingSlotsList");
+        const parkingHistoryForm = document.getElementById("parkingHistoryFilterForm");
+        const parkingHistoryDate = document.getElementById("parkingHistoryDate");
+        const parkingHistoryFromTime = document.getElementById("parkingHistoryFromTime");
+        const parkingHistoryToTime = document.getElementById("parkingHistoryToTime");
+        const parkingHistoryMeta = document.getElementById("parkingHistoryMeta");
+        const parkingHistoryBody = document.getElementById("parkingHistoryBody");
+        const parkingHistoryCards = document.getElementById("parkingHistoryCards");
 
         window.forceExit = async function(stickerId, btn) {
           if (!confirm("Force exit this vehicle?")) return;
@@ -419,6 +483,88 @@
           </div>`;
         }
 
+        function renderParkingHistoryRow(item) {
+          return `<tr>
+            <td style="color:var(--muted); font-size:0.8rem;">${toPHT(item.scanned_at)}</td>
+            <td><strong>${item.student_number || "-"}</strong><br><small>${item.full_name || ""}</small></td>
+            <td>${item.plate_number || "-"}</td>
+            <td>${item.parking_slot || "-"}</td>
+            <td>${item.gate || "-"}</td>
+          </tr>`;
+        }
+
+        function renderParkingHistoryCard(item) {
+          return `<div class="mobile-data-card">
+            <div class="card-header">
+              <div class="card-title text-truncate" style="max-width:65%;">${item.full_name || "Unknown Student"}</div>
+              <span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.parking_slot || "-"}</span>
+            </div>
+            <div class="card-body">
+              <div class="card-item">ðŸ†” <strong>Student No:</strong> ${item.student_number || "-"}</div>
+              <div class="card-item">ðŸš— <strong>Plate:</strong> ${item.plate_number || "-"}</div>
+              <div class="card-item">ðŸšª <strong>Gate:</strong> ${item.gate || "-"}</div>
+              <div class="card-item">ðŸ“… <strong>Parked At:</strong> ${toPHT(item.scanned_at)}</div>
+            </div>
+          </div>`;
+        }
+
+        function renderEmptyParkingHistory(message) {
+          return `<div class="empty-state" style="padding:1rem;"><p>${message}</p></div>`;
+        }
+
+        async function loadParkingHistory() {
+          if (!parkingHistoryDate || !parkingHistoryFromTime || !parkingHistoryToTime) return;
+          const date = parkingHistoryDate.value;
+          const fromTime = parkingHistoryFromTime.value || "00:00";
+          const toTime = parkingHistoryToTime.value || "23:59";
+
+          if (!date) {
+            if (parkingHistoryMeta) parkingHistoryMeta.textContent = "Please choose a date.";
+            return;
+          }
+
+          if (fromTime > toTime) {
+            if (parkingHistoryMeta) parkingHistoryMeta.textContent = "Invalid time range: 'From' time must be earlier than 'To' time.";
+            return;
+          }
+
+          if (parkingHistoryMeta) parkingHistoryMeta.textContent = "Loading parking history...";
+
+          try {
+            const query = new URLSearchParams({
+              date,
+              from_time: fromTime,
+              to_time: toTime
+            }).toString();
+            const resp = await fetch(`/api/parking-history?${query}`);
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.message || "Failed to load parking history.");
+
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            if (parkingHistoryBody) {
+              parkingHistoryBody.innerHTML = rows.length
+                ? rows.map(renderParkingHistoryRow).join("")
+                : `<tr style="box-shadow:none;"><td colspan="5" style="background:transparent; border:none;">${renderEmptyParkingHistory("No parking records found for this day/time.")}</td></tr>`;
+            }
+            if (parkingHistoryCards) {
+              parkingHistoryCards.innerHTML = rows.length
+                ? rows.map(renderParkingHistoryCard).join("")
+                : renderEmptyParkingHistory("No parking records found for this day/time.");
+            }
+            if (parkingHistoryMeta) {
+              parkingHistoryMeta.textContent = `${rows.length} parking entr${rows.length === 1 ? "y" : "ies"} on ${date} from ${fromTime} to ${toTime}`;
+            }
+          } catch (error) {
+            if (parkingHistoryBody) {
+              parkingHistoryBody.innerHTML = `<tr style="box-shadow:none;"><td colspan="5" style="background:transparent; border:none;">${renderEmptyParkingHistory(error.message || "Unable to load parking history.")}</td></tr>`;
+            }
+            if (parkingHistoryCards) {
+              parkingHistoryCards.innerHTML = renderEmptyParkingHistory(error.message || "Unable to load parking history.");
+            }
+            if (parkingHistoryMeta) parkingHistoryMeta.textContent = error.message || "Unable to load parking history.";
+          }
+        }
+
         function renderUpdateItem(scan) {
           const result = (scan.result || "invalid").toLowerCase();
           const action = (scan.action || "verify").toLowerCase();
@@ -453,7 +599,7 @@
             if (insideBody) {
               insideBody.innerHTML = vehicles.length
                 ? vehicles.map(renderInsideRow).join("")
-                : `<tr id="insideEmptyRow"><td colspan="6">${renderEmptyInside()}</td></tr>`;
+                : `<tr id="insideEmptyRow"><td colspan="7">${renderEmptyInside()}</td></tr>`;
             }
             if (insideCardsList) {
                insideCardsList.innerHTML = vehicles.length
@@ -510,6 +656,13 @@
         refreshDashboard();
         setInterval(refreshDashboard, 20000);
         if (refreshBtn) refreshBtn.addEventListener("click", refreshDashboard);
+        if (parkingHistoryForm) {
+          parkingHistoryForm.addEventListener("submit", (event) => {
+            event.preventDefault();
+            loadParkingHistory();
+          });
+        }
+        loadParkingHistory();
       })();
     </script>
     <%- include("partials/footer") %>

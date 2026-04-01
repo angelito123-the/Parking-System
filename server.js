@@ -717,6 +717,62 @@ app.get("/api/dashboard-stats", requireAuth, async (req, res) => {
   }
 });
 
+// API: parking history filtered by day and time window
+app.get("/api/parking-history", requireAuth, async (req, res) => {
+  try {
+    const date = toDateOnly(req.query.date) || toDateOnly(new Date());
+    const rawFrom = String(req.query.from_time || "").trim();
+    const rawTo = String(req.query.to_time || "").trim();
+    const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    const fromTime = timePattern.test(rawFrom) ? rawFrom : "00:00";
+    const toTime = timePattern.test(rawTo) ? rawTo : "23:59";
+
+    if (fromTime > toTime) {
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid time range. 'From' time must be earlier than 'To' time.",
+        rows: []
+      });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         sl.scanned_at,
+         sl.gate,
+         ps.slot_code AS parking_slot,
+         st.student_number,
+         st.full_name,
+         v.plate_number,
+         s.sticker_code
+       FROM scan_logs sl
+       LEFT JOIN stickers s ON s.id = sl.sticker_id
+       LEFT JOIN vehicles v ON v.id = s.vehicle_id
+       LEFT JOIN students st ON st.id = v.student_id
+       LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+       WHERE sl.result = 'VALID'
+         AND sl.action = 'ENTRY'
+         AND DATE(sl.scanned_at) = ?
+         AND TIME(sl.scanned_at) BETWEEN ? AND ?
+       ORDER BY sl.scanned_at DESC
+       LIMIT 300`,
+      [date, `${fromTime}:00`, `${toTime}:59`]
+    );
+
+    res.json({
+      ok: true,
+      filters: {
+        date,
+        from_time: fromTime,
+        to_time: toTime
+      },
+      rows
+    });
+  } catch (error) {
+    console.error("Parking history API error:", error);
+    res.status(500).json({ ok: false, message: "Failed to fetch parking history.", rows: [] });
+  }
+});
+
 app.get("/students", requireAuth, async (req, res) => {
   try {
     const [studentRows] = await pool.query(
