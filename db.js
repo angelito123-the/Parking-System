@@ -36,6 +36,7 @@ async function ensureDatabaseSchema() {
   await ensureParkingSlotMigrations();
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
+  await ensureAutoScanHeartbeatMigrations();
   await ensureUserMigrations();
   await ensureAnnouncementMigrations();
 }
@@ -388,6 +389,22 @@ async function ensureAutoScanQueueMigrations() {
   } finally {
     await pool.query("SET FOREIGN_KEY_CHECKS = 1");
   }
+}
+
+async function ensureAutoScanHeartbeatMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auto_scan_heartbeats (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      device_id VARCHAR(120) NOT NULL UNIQUE,
+      gate_id VARCHAR(80) NULL,
+      last_heartbeat_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_scan_received_at TIMESTAMP NULL DEFAULT NULL,
+      last_seen_user VARCHAR(120) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at)
+    )
+  `);
 }
 
 module.exports = {

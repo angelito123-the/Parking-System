@@ -19,6 +19,18 @@ const AUTO_PENDING_EXPIRY_MINUTES = Math.max(
     ? Number(process.env.AUTO_PENDING_EXPIRY_MINUTES)
     : 20
 );
+const AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS = Math.max(
+  3,
+  Number.isFinite(Number(process.env.AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS))
+    ? Number(process.env.AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS)
+    : 6
+);
+const AUTO_SCAN_ONLINE_WINDOW_SECONDS = Math.max(
+  AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS + 2,
+  Number.isFinite(Number(process.env.AUTO_SCAN_ONLINE_WINDOW_SECONDS))
+    ? Number(process.env.AUTO_SCAN_ONLINE_WINDOW_SECONDS)
+    : 18
+);
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "8mb";
 const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
 const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
@@ -302,6 +314,122 @@ function normalizeQrTokenInput(rawInput) {
   }
 
   return raw;
+}
+
+function normalizeAutoScanDeviceId(rawDeviceId) {
+  const cleaned = String(rawDeviceId || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._:-]/g, "");
+  if (!cleaned) return "phone-camera-default";
+  return cleaned.slice(0, 120);
+}
+
+function normalizeGateId(rawGateId) {
+  const gateId = String(rawGateId || "").trim();
+  if (!gateId) return "Main Gate";
+  return gateId.slice(0, 80);
+}
+
+function toIsoStringOrNull(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function mapAutoScanHealthRow(row) {
+  if (!row) return null;
+  const heartbeatAgeSeconds = Number.isFinite(Number(row.heartbeat_age_seconds))
+    ? Math.max(0, Number(row.heartbeat_age_seconds))
+    : null;
+  const scanAgeSeconds = Number.isFinite(Number(row.scan_age_seconds))
+    ? Math.max(0, Number(row.scan_age_seconds))
+    : null;
+
+  return {
+    device_id: row.device_id || null,
+    gate_id: row.gate_id || null,
+    last_seen_user: row.last_seen_user || null,
+    last_heartbeat_at: toIsoStringOrNull(row.last_heartbeat_at),
+    last_scan_received_at: toIsoStringOrNull(row.last_scan_received_at),
+    updated_at: toIsoStringOrNull(row.updated_at),
+    heartbeat_age_seconds: heartbeatAgeSeconds,
+    scan_age_seconds: scanAgeSeconds,
+    is_online: heartbeatAgeSeconds != null && heartbeatAgeSeconds <= AUTO_SCAN_ONLINE_WINDOW_SECONDS
+  };
+}
+
+async function upsertAutoScanHeartbeat(
+  {
+    deviceId,
+    gateId,
+    actorName,
+    markScanReceived = false
+  } = {},
+  db = pool
+) {
+  const safeDeviceId = normalizeAutoScanDeviceId(deviceId);
+  const safeGateId = normalizeGateId(gateId);
+  const safeActorName = String(actorName || "").trim().slice(0, 120) || null;
+
+  await db.query(
+    `INSERT INTO auto_scan_heartbeats (
+       device_id,
+       gate_id,
+       last_heartbeat_at,
+       last_scan_received_at,
+       last_seen_user
+     ) VALUES (?, ?, UTC_TIMESTAMP(), ${markScanReceived ? "UTC_TIMESTAMP()" : "NULL"}, ?)
+     ON DUPLICATE KEY UPDATE
+       gate_id = VALUES(gate_id),
+       last_heartbeat_at = UTC_TIMESTAMP(),
+       last_scan_received_at = ${markScanReceived ? "UTC_TIMESTAMP()" : "last_scan_received_at"},
+       last_seen_user = VALUES(last_seen_user),
+       updated_at = UTC_TIMESTAMP()`,
+    [safeDeviceId, safeGateId, safeActorName]
+  );
+
+  const [rows] = await db.query(
+    `SELECT
+       device_id,
+       gate_id,
+       last_seen_user,
+       last_heartbeat_at,
+       last_scan_received_at,
+       updated_at,
+       TIMESTAMPDIFF(SECOND, last_heartbeat_at, UTC_TIMESTAMP()) AS heartbeat_age_seconds,
+       CASE
+         WHEN last_scan_received_at IS NULL THEN NULL
+         ELSE TIMESTAMPDIFF(SECOND, last_scan_received_at, UTC_TIMESTAMP())
+       END AS scan_age_seconds
+     FROM auto_scan_heartbeats
+     WHERE device_id = ?
+     LIMIT 1`,
+    [safeDeviceId]
+  );
+  return rows.length ? mapAutoScanHealthRow(rows[0]) : null;
+}
+
+async function listAutoScanHealthRows(limit = 12, db = pool) {
+  const safeLimit = Math.max(1, Math.min(20, Number(limit) || 12));
+  const [rows] = await db.query(
+    `SELECT
+       device_id,
+       gate_id,
+       last_seen_user,
+       last_heartbeat_at,
+       last_scan_received_at,
+       updated_at,
+       TIMESTAMPDIFF(SECOND, last_heartbeat_at, UTC_TIMESTAMP()) AS heartbeat_age_seconds,
+       CASE
+         WHEN last_scan_received_at IS NULL THEN NULL
+         ELSE TIMESTAMPDIFF(SECOND, last_scan_received_at, UTC_TIMESTAMP())
+       END AS scan_age_seconds
+     FROM auto_scan_heartbeats
+     ORDER BY last_heartbeat_at DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows.map((row) => mapAutoScanHealthRow(row));
 }
 
 function getDuplicateScanInfo(lastMovement) {
@@ -2004,10 +2132,69 @@ app.get("/scanner/auto", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, 
   });
 });
 
+// API: phone scanner heartbeat for guard queue health
+app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const gate = normalizeGateId(req.body.gate || req.body.gate_id || "Main Gate");
+  const deviceId = normalizeAutoScanDeviceId(
+    req.body.device_id || req.body.deviceId || req.headers["x-device-id"]
+  );
+  const markScanReceived = req.body.mark_scan_received === true
+    || String(req.body.mark_scan_received || "").toLowerCase() === "true"
+    || String(req.body.mark_scan_received || "") === "1";
+
+  try {
+    const heartbeat = await upsertAutoScanHeartbeat({
+      deviceId,
+      gateId: gate,
+      actorName: getAuthActorName(req),
+      markScanReceived
+    });
+    res.json({
+      ok: true,
+      device_id: deviceId,
+      gate_id: gate,
+      heartbeat,
+      online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
+      heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
+      server_time: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Auto scan heartbeat error:", error);
+    res.status(500).json({ ok: false, message: "Failed to update scanner heartbeat." });
+  }
+});
+
+// API: guard queue health snapshot (phone online/offline + last scan)
+app.get("/api/auto-scan/health", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const limit = Number(req.query.limit) || 12;
+  try {
+    const rows = await listAutoScanHealthRows(limit);
+    const primary = rows.length ? rows[0] : null;
+    const onlineDevices = rows.filter((row) => row.is_online).length;
+    res.json({
+      ok: true,
+      rows,
+      primary,
+      total_devices: rows.length,
+      online_devices: onlineDevices,
+      offline_devices: Math.max(0, rows.length - onlineDevices),
+      online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
+      heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
+      server_time: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Auto scan health fetch error:", error);
+    res.status(500).json({ ok: false, message: "Failed to load scanner health.", rows: [], primary: null });
+  }
+});
+
 // API: phone camera auto-detection (ENTRY requires guard confirmation, EXIT is auto-recorded)
 app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
-  const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
+  const gate = normalizeGateId(req.body.gate || "Main Gate");
+  const deviceId = normalizeAutoScanDeviceId(
+    req.body.device_id || req.body.deviceId || req.headers["x-device-id"]
+  );
   const deferEntryConfirmation = req.body.defer_entry_confirmation === true
     || String(req.body.defer_entry_confirmation || "").toLowerCase() === "true"
     || String(req.body.defer_entry_confirmation || "") === "1";
@@ -2027,6 +2214,17 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
   }
 
   try {
+    try {
+      await upsertAutoScanHeartbeat({
+        deviceId,
+        gateId: gate,
+        actorName: guardName,
+        markScanReceived: true
+      });
+    } catch (heartbeatError) {
+      console.warn("Auto scan detect heartbeat warning:", heartbeatError.message);
+    }
+
     const verification = await getVerificationState(token);
 
     if (!verification.ok) {

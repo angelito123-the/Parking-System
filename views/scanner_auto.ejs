@@ -138,6 +138,8 @@
     const shell = document.querySelector(".auto-gate-shell");
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
     const deferEntryConfirmation = true;
+    const HEARTBEAT_INTERVAL_MS = 6000;
+    const HEARTBEAT_STORAGE_KEY = "naap_auto_scanner_device_id";
 
     const STABLE_READ_MIN_HITS = 1;
     const STABLE_READ_WINDOW_MS = 2800;
@@ -214,6 +216,9 @@
     let stableCandidateHits = 0;
     let stableCandidateFirstSeenMs = 0;
     let scanInfoPopupTimer = null;
+    let heartbeatTimer = null;
+    let heartbeatInFlight = false;
+    const scannerDeviceId = getOrCreateDeviceId();
 
     const localCooldownUntilMs = new Map();
     const sessionEvents = [];
@@ -358,6 +363,54 @@
       cameraStatus.classList.remove("status-ok", "status-error");
       if (kind === "ok") cameraStatus.classList.add("status-ok");
       if (kind === "error") cameraStatus.classList.add("status-error");
+    }
+
+    function makeDeviceId() {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return `phone-${window.crypto.randomUUID()}`;
+      }
+      return `phone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+
+    function getOrCreateDeviceId() {
+      try {
+        const existing = String(window.localStorage.getItem(HEARTBEAT_STORAGE_KEY) || "").trim();
+        if (existing) return existing;
+        const next = makeDeviceId();
+        window.localStorage.setItem(HEARTBEAT_STORAGE_KEY, next);
+        return next;
+      } catch (_error) {
+        return makeDeviceId();
+      }
+    }
+
+    async function sendHeartbeat({ markScanReceived = false } = {}) {
+      if (heartbeatInFlight) return;
+      heartbeatInFlight = true;
+      try {
+        await fetch("/api/auto-scan/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({
+            device_id: scannerDeviceId,
+            gate: gateSelect?.value || "Main Gate",
+            mark_scan_received: markScanReceived ? 1 : 0
+          })
+        });
+      } catch (_error) {
+        // Keep scanner active even if heartbeat fails temporarily.
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }
+
+    function startHeartbeatLoop() {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      sendHeartbeat();
+      heartbeatTimer = window.setInterval(() => {
+        sendHeartbeat();
+      }, HEARTBEAT_INTERVAL_MS);
     }
 
     function setProcessingOverlay(visible) {
@@ -820,6 +873,7 @@
         const payload = {
           token,
           gate: gateSelect.value,
+          device_id: scannerDeviceId,
           defer_entry_confirmation: deferEntryConfirmation,
           snapshot_data_url: captureSnapshotDataUrl(),
           behavior_risk_level: lastRiskAssessment?.riskLevel || null,
@@ -1266,6 +1320,7 @@
         const payload = {
           token: pendingToken,
           gate: gateSelect.value,
+          device_id: scannerDeviceId,
           slot_id: selectedSlotId,
           snapshot_data_url: captureSnapshotDataUrl(),
           behavior_risk_level: lastRiskAssessment?.riskLevel || null,
@@ -1347,6 +1402,11 @@
     updateCooldownChip();
     setRiskChip(null);
     updateMlChip(null);
+    startHeartbeatLoop();
+    gateSelect?.addEventListener("change", () => sendHeartbeat());
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) sendHeartbeat();
+    });
     startCamera();
   })();
 </script>

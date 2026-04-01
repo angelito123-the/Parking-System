@@ -2610,6 +2610,79 @@ body.is-ready .container>*:nth-child(4) {
   border-radius: 16px;
 }
 
+.queue-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+}
+
+.queue-health-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 0.68rem 0.74rem;
+  min-height: 98px;
+  display: grid;
+  align-content: start;
+  gap: 0.32rem;
+}
+
+.queue-health-label {
+  margin: 0;
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.queue-health-value {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.queue-health-subvalue {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.79rem;
+}
+
+.queue-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.52rem;
+}
+
+.queue-health-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.queue-health-badge.state-online {
+  border-color: var(--green-border);
+  background: var(--green-soft);
+  color: var(--green-text);
+}
+
+.queue-health-badge.state-offline {
+  border-color: var(--red-border);
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
 .remote-queue-toolbar {
   display: flex;
   align-items: center;
@@ -2966,6 +3039,11 @@ body.is-ready .container>*:nth-child(4) {
 
 [data-theme="dark"] .remote-queue-card {
   background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="dark"] .queue-health-card {
+  border-color: rgba(100, 116, 139, 0.42);
+  background: rgba(15, 23, 42, 0.55);
 }
 
 [data-theme="dark"] .remote-queue-live-alert {

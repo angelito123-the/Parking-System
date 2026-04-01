@@ -57,6 +57,38 @@
     </div>
   </section>
 
+  <section class="panel queue-health-panel">
+    <div class="section-head">
+      <h2>Queue Health</h2>
+      <p>Live status of the phone camera feed used for gate QR detection.</p>
+    </div>
+    <div class="queue-health-grid">
+      <article class="queue-health-card">
+        <p class="queue-health-label">Phone Status</p>
+        <p>
+          <span id="guardHealthStatusBadge" class="queue-health-badge state-offline">Offline</span>
+        </p>
+        <p id="guardHealthSummary" class="queue-health-value">Waiting for heartbeat...</p>
+      </article>
+      <article class="queue-health-card">
+        <p class="queue-health-label">Last Heartbeat</p>
+        <p id="guardHealthLastHeartbeat" class="queue-health-value">-</p>
+      </article>
+      <article class="queue-health-card">
+        <p class="queue-health-label">Last Scan Received</p>
+        <p id="guardHealthLastScan" class="queue-health-value">-</p>
+      </article>
+      <article class="queue-health-card">
+        <p class="queue-health-label">Device / Gate</p>
+        <p id="guardHealthDevice" class="queue-health-value">-</p>
+        <p id="guardHealthGate" class="queue-health-subvalue">-</p>
+      </article>
+    </div>
+    <p id="guardHealthHint" class="helper-text" style="margin-top:0.55rem;">
+      Open <a href="/scanner/auto" class="link-btn">Phone Camera Scan</a> on the phone to start heartbeat updates.
+    </p>
+  </section>
+
   <section class="panel remote-queue-panel">
     <div class="section-head">
       <h2>Gate Console Assignment</h2>
@@ -240,6 +272,13 @@
     const queueLiveAlert = document.getElementById("guardQueueLiveAlert");
     const queueEmpty = document.getElementById("guardQueueEmpty");
     const queueList = document.getElementById("guardQueueList");
+    const healthStatusBadge = document.getElementById("guardHealthStatusBadge");
+    const healthSummary = document.getElementById("guardHealthSummary");
+    const healthLastHeartbeat = document.getElementById("guardHealthLastHeartbeat");
+    const healthLastScan = document.getElementById("guardHealthLastScan");
+    const healthDevice = document.getElementById("guardHealthDevice");
+    const healthGate = document.getElementById("guardHealthGate");
+    const healthHint = document.getElementById("guardHealthHint");
 
     const guardEntryModal = document.getElementById("guardEntryModal");
     const guardEntryCloseBtn = document.getElementById("guardEntryCloseBtn");
@@ -261,6 +300,7 @@
     let liveAlertTimer = null;
     let selectedSlotId = null;
     let slotOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
+    let healthOnlineWindowSeconds = 18;
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -280,6 +320,102 @@
         hour: "2-digit",
         minute: "2-digit"
       }).format(dt);
+    }
+
+    function formatDateTime(value) {
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return "-";
+      return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }).format(dt);
+    }
+
+    function formatRelativeSeconds(seconds) {
+      const safeSeconds = Number(seconds);
+      if (!Number.isFinite(safeSeconds)) return "just now";
+      const rounded = Math.max(0, Math.floor(safeSeconds));
+      if (rounded < 60) return `${rounded}s ago`;
+      const minutes = Math.floor(rounded / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      return `${days}d ago`;
+    }
+
+    function applyHealthState(payload) {
+      if (!healthStatusBadge || !healthSummary || !healthLastHeartbeat || !healthLastScan || !healthDevice || !healthGate) {
+        return;
+      }
+
+      const primary = payload?.primary || null;
+      const onlineDevices = Number(payload?.online_devices || 0);
+      const totalDevices = Number(payload?.total_devices || 0);
+      const isOnline = Boolean(primary?.is_online);
+
+      if (!primary) {
+        healthStatusBadge.className = "queue-health-badge state-offline";
+        healthStatusBadge.textContent = "Offline";
+        healthSummary.textContent = "No phone heartbeat received yet.";
+        healthLastHeartbeat.textContent = "-";
+        healthLastScan.textContent = "-";
+        healthDevice.textContent = "-";
+        healthGate.textContent = "-";
+        if (healthHint) {
+          healthHint.textContent = "Open Phone Camera Scan on the gate phone to start live heartbeat updates.";
+        }
+        return;
+      }
+
+      healthStatusBadge.className = `queue-health-badge ${isOnline ? "state-online" : "state-offline"}`;
+      healthStatusBadge.textContent = isOnline ? "Online" : "Offline";
+      healthSummary.textContent = isOnline
+        ? `Phone is active (${formatRelativeSeconds(primary.heartbeat_age_seconds)}).`
+        : `No heartbeat within ${healthOnlineWindowSeconds}s (${formatRelativeSeconds(primary.heartbeat_age_seconds)}).`;
+
+      healthLastHeartbeat.textContent = primary.last_heartbeat_at
+        ? `${formatDateTime(primary.last_heartbeat_at)} (${formatRelativeSeconds(primary.heartbeat_age_seconds)})`
+        : "-";
+      healthLastScan.textContent = primary.last_scan_received_at
+        ? `${formatDateTime(primary.last_scan_received_at)} (${formatRelativeSeconds(primary.scan_age_seconds)})`
+        : "No scan received yet";
+      healthDevice.textContent = primary.device_id || "-";
+      healthGate.textContent = primary.gate_id ? `Gate: ${primary.gate_id}` : "Gate: -";
+
+      if (healthHint) {
+        healthHint.textContent = totalDevices > 1
+          ? `${onlineDevices}/${totalDevices} phone scanner device(s) online.`
+          : (isOnline ? "Phone scanner heartbeat is healthy." : "Phone scanner is offline. Check camera page or connection.");
+      }
+    }
+
+    async function fetchQueueHealth({ silent = false } = {}) {
+      if (!silent && healthSummary) {
+        healthSummary.textContent = "Checking phone heartbeat...";
+      }
+
+      try {
+        const resp = await fetch("/api/auto-scan/health?limit=5", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await resp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!resp.ok || !data.ok) {
+          throw new Error(data.message || `Unable to load queue health (${resp.status})`);
+        }
+        healthOnlineWindowSeconds = Math.max(5, Number(data.online_window_seconds) || healthOnlineWindowSeconds);
+        applyHealthState(data);
+      } catch (error) {
+        if (!silent && healthSummary) {
+          healthSummary.textContent = error.message || "Unable to load queue health.";
+        }
+        applyHealthState({ primary: null, total_devices: 0, online_devices: 0 });
+      }
     }
 
     function showLiveAlert(message, tone = "success", autoHideMs = 6200) {
@@ -607,7 +743,10 @@
       }
     }
 
-    queueRefreshBtn?.addEventListener("click", () => fetchPendingEntries({ silent: false }));
+    queueRefreshBtn?.addEventListener("click", () => {
+      fetchPendingEntries({ silent: false });
+      fetchQueueHealth({ silent: false });
+    });
     guardEntryCloseBtn?.addEventListener("click", closeGuardEntryModal);
     guardEntryConfirmBtn?.addEventListener("click", confirmEntry);
     guardEntryCancelBtn?.addEventListener("click", cancelEntry);
@@ -621,9 +760,13 @@
     });
 
     fetchPendingEntries({ silent: false });
+    fetchQueueHealth({ silent: false });
     setInterval(() => {
       fetchPendingEntries({ silent: true });
     }, 3000);
+    setInterval(() => {
+      fetchQueueHealth({ silent: true });
+    }, 4000);
   })();
 </script>
 

@@ -136,3 +136,15 @@ CREATE TABLE IF NOT EXISTS auto_scan_queue (
   CONSTRAINT fk_auto_queue_slot FOREIGN KEY (assigned_slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL,
   CONSTRAINT fk_auto_queue_log FOREIGN KEY (linked_scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS auto_scan_heartbeats (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  device_id VARCHAR(120) NOT NULL UNIQUE,
+  gate_id VARCHAR(80) NULL,
+  last_heartbeat_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_scan_received_at TIMESTAMP NULL DEFAULT NULL,
+  last_seen_user VARCHAR(120) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at)
+);
