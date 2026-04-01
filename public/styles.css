@@ -913,12 +913,12 @@ button.btn-sm {
 .updates-list {
   display: grid;
   gap: 0.6rem;
-  max-height: min(520px, calc(100vh - 260px));
-  overflow-y: auto;
-  padding-right: 0.25rem;
-  padding-bottom: 0.6rem;
-  scroll-padding-bottom: 0.6rem;
-  overscroll-behavior: contain;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+  padding-bottom: 0;
+  scroll-padding-bottom: 0;
+  overscroll-behavior: auto;
 }
 
 .update-item {
