@@ -1,16 +1,29 @@
 <%- include("partials/header") %>
-  <% const safeMetrics=typeof metrics==="object" && metrics ? metrics : {}; const rawMovementLogs=typeof movementLogs
-    !=="undefined" ? movementLogs : []; const safeMovementLogs=Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
-    const rawInsideVehicles=typeof insideVehicles !=="undefined" ? insideVehicles : []; const
-    safeInsideVehicles=Array.isArray(rawInsideVehicles) ? rawInsideVehicles : []; const
-    rawParkingSlots=typeof parkingSlots !=="undefined" ? parkingSlots : []; const
-    safeParkingSlots=Array.isArray(rawParkingSlots) ? rawParkingSlots : []; const
-    safeParkingSlotSummary=typeof parkingSlotSummary==="object" && parkingSlotSummary ? parkingSlotSummary : {
+  <%
+    const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
+    const rawMovementLogs = typeof movementLogs !== "undefined" ? movementLogs : [];
+    const safeMovementLogs = Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
+    const rawInsideVehicles = typeof insideVehicles !== "undefined" ? insideVehicles : [];
+    const safeInsideVehicles = Array.isArray(rawInsideVehicles) ? rawInsideVehicles : [];
+    const rawParkingSlots = typeof parkingSlots !== "undefined" ? parkingSlots : [];
+    const safeParkingSlots = Array.isArray(rawParkingSlots) ? rawParkingSlots : [];
+    const rawOverstayAlerts = typeof overstayAlerts !== "undefined" ? overstayAlerts : [];
+    const safeOverstayAlerts = Array.isArray(rawOverstayAlerts) ? rawOverstayAlerts : [];
+    const safeOverstayLimitHours = Number(
+      typeof overstayLimitHours !== "undefined"
+        ? overstayLimitHours
+        : (safeMetrics.overstayLimitHours || 4)
+    ) || 4;
+    const safeOverstayLimitLabel = Number.isInteger(safeOverstayLimitHours)
+      ? `${safeOverstayLimitHours}`
+      : safeOverstayLimitHours.toFixed(1).replace(/\.0$/, "");
+    const safeParkingSlotSummary = typeof parkingSlotSummary === "object" && parkingSlotSummary ? parkingSlotSummary : {
       total: safeParkingSlots.length,
       available: safeParkingSlots.filter(slot => slot.occupancy === "available").length,
       occupied: safeParkingSlots.filter(slot => slot.occupancy === "occupied").length,
       disabled: safeParkingSlots.filter(slot => slot.occupancy === "disabled").length
-    }; %>
+    };
+  %>
     <% const nowPht = new Date(); const todayDate = `${nowPht.getFullYear()}-${String(nowPht.getMonth()+1).padStart(2, '0')}-${String(nowPht.getDate()).padStart(2, '0')}`; %>
 
     <section class="dashboard-hero">
@@ -35,6 +48,10 @@
           <h3>Currently Inside</h3>
           <p id="currentlyInsideCount"><%= safeMetrics.currentlyInside || 0 %></p>
         </div>
+        <div class="hero-card" style="background: rgba(190, 18, 60, 0.2); border: 1px solid rgba(251, 113, 133, 0.4);">
+          <h3>Overstay Alerts</h3>
+          <p id="overstayAlertCount"><%= safeMetrics.overstayAlerts || safeOverstayAlerts.length || 0 %></p>
+        </div>
       </div>
     </section>
 
@@ -48,6 +65,37 @@
           <span id="insideLastUpdated" class="helper-text">Loading...</span>
           <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn" style="background: var(--surface-soft); color: var(--text); border: 1px solid var(--line);">↻ Refresh</button>
         </div>
+        <div id="overstayNotice" class="flash flash-error overstay-notice" style="display:none; margin-bottom:0.85rem;"></div>
+        <div class="overstay-panel" style="margin-bottom: 1rem;">
+          <div class="overstay-panel-head">
+            <strong>Overstay Watch</strong>
+            <span id="overstayLimitMeta" class="helper-text">Limit: <%= safeOverstayLimitLabel %> hour(s)</span>
+          </div>
+          <div id="overstayAlertList" class="overstay-alert-list">
+            <% if (safeOverstayAlerts.length === 0) { %>
+              <div class="overstay-empty">No active overstay alerts.</div>
+            <% } %>
+            <% safeOverstayAlerts.forEach(item => { %>
+              <div class="overstay-alert-item" data-sticker-id="<%= item.sticker_id %>">
+                <div class="overstay-alert-main">
+                  <p class="overstay-alert-title">
+                    <strong><%= item.full_name || "Unknown Student" %></strong>
+                    <span><%= item.plate_number || "-" %></span>
+                    <span><%= item.parking_slot || "-" %></span>
+                  </p>
+                  <p class="helper-text">
+                    Entered <%= new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
+                    | Stayed <strong><%= item.duration_label || "-" %></strong>
+                    <% if (item.overstay_label) { %>
+                      (<%= item.overstay_label %>)
+                    <% } %>
+                  </p>
+                </div>
+                <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
+              </div>
+            <% }) %>
+          </div>
+        </div>
         <div class="table-wrap desktop-only-table">
           <table>
             <thead>
@@ -58,13 +106,15 @@
                 <th>Sticker</th>
                 <th>Slot</th>
                 <th>Gate</th>
+                <th>Duration</th>
+                <th>Status</th>
                 <th style="text-align: right; padding-right: 1.5rem;">Action</th>
               </tr>
             </thead>
             <tbody id="insideVehiclesBody">
               <% if (safeInsideVehicles.length === 0) { %>
                 <tr id="insideEmptyRow" style="box-shadow: none;">
-                  <td colspan="7" style="background: transparent; border: none;">
+                  <td colspan="9" style="background: transparent; border: none;">
                     <div class="empty-state">
                       <div class="empty-state-icon">🚗</div>
                       <p>No vehicles currently inside campus.</p>
@@ -73,13 +123,21 @@
                 </tr>
               <% } %>
               <% safeInsideVehicles.forEach(item => { %>
-                <tr>
+                <tr class="<%= item.is_overstay ? 'inside-row-overstay' : '' %>">
                   <td><strong><%= item.student_number || "-" %></strong></td>
                   <td><%= item.full_name || "-" %></td>
                   <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= item.plate_number || "-" %></span></td>
                   <td><span class="badge badge-active"><%= item.sticker_code || "-" %></span></td>
                   <td><%= item.parking_slot || "-" %></td>
                   <td><%= item.entry_gate || "-" %></td>
+                  <td><%= item.duration_label || "-" %></td>
+                  <td>
+                    <% if (item.is_overstay) { %>
+                      <span class="badge badge-overstay">Overstay</span>
+                    <% } else { %>
+                      <span class="badge badge-inside">Inside</span>
+                    <% } %>
+                  </td>
                   <td style="text-align: right;">
                     <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
                   </td>
@@ -98,16 +156,24 @@
             </div>
           <% } %>
           <% safeInsideVehicles.forEach(item => { %>
-            <div class="mobile-data-card" data-sticker-id="<%= item.sticker_id %>">
+            <div class="mobile-data-card <%= item.is_overstay ? 'overstay-card' : '' %>" data-sticker-id="<%= item.sticker_id %>">
               <div class="card-header">
                 <div class="card-title"><%= item.full_name || "Unknown" %></div>
-                <span class="badge badge-active"><%= item.sticker_code || "-" %></span>
+                <% if (item.is_overstay) { %>
+                  <span class="badge badge-overstay">Overstay</span>
+                <% } else { %>
+                  <span class="badge badge-inside">Inside</span>
+                <% } %>
               </div>
               <div class="card-body">
-                <div class="card-item">🚗 <strong>Plate:</strong> <%= item.plate_number || "-" %></div>
-                <div class="card-item">🅿 <strong>Slot:</strong> <%= item.parking_slot || "-" %></div>
-                <div class="card-item">🚪 <strong>Gate:</strong> <%= item.entry_gate || "-" %></div>
-                <div class="card-item">⏰ <strong>In:</strong> <%= new Date(item.entered_at).toLocaleTimeString() %></div>
+                <div class="card-item">Plate: <strong><%= item.plate_number || "-" %></strong></div>
+                <div class="card-item">Slot: <strong><%= item.parking_slot || "-" %></strong></div>
+                <div class="card-item">Gate: <strong><%= item.entry_gate || "-" %></strong></div>
+                <div class="card-item">In: <strong><%= new Date(item.entered_at).toLocaleTimeString() %></strong></div>
+                <div class="card-item">Duration: <strong><%= item.duration_label || "-" %></strong></div>
+                <% if (item.overstay_label) { %>
+                  <div class="card-item overstay-card-alert"><strong>Alert:</strong> <%= item.overstay_label %></div>
+                <% } %>
               </div>
               <div class="card-actions">
                 <button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit Vehicle</button>
@@ -404,6 +470,18 @@
         const slotHistoryTitle = document.getElementById("slotHistoryTitle");
         const slotHistoryMeta = document.getElementById("slotHistoryMeta");
         const slotHistoryList = document.getElementById("slotHistoryList");
+        const overstayCountEl = document.getElementById("overstayAlertCount");
+        const overstayListEl = document.getElementById("overstayAlertList");
+        const overstayLimitMetaEl = document.getElementById("overstayLimitMeta");
+        const overstayNoticeEl = document.getElementById("overstayNotice");
+        const overstayLimitHours = Number(<%- JSON.stringify(safeOverstayLimitHours) %>) || 4;
+        const overstayLimitLabel = Number.isInteger(overstayLimitHours)
+          ? `${overstayLimitHours}`
+          : overstayLimitHours.toFixed(1).replace(/\.0$/, "");
+        const seenOverstayIds = new Set(
+          <%- JSON.stringify(safeOverstayAlerts.map((item) => String(item.sticker_id || "")).filter(Boolean)) %>
+        );
+        let overstayNoticeTimer = null;
         if (slotHistoryModal && slotHistoryModal.parentElement !== document.body) {
           document.body.appendChild(slotHistoryModal);
         }
@@ -424,34 +502,129 @@
           } catch (e) { alert("Error"); btn.disabled = false; btn.textContent = "Force Exit"; }
         };
 
+        function getDurationLabel(item) {
+          if (item && item.duration_label) return item.duration_label;
+          const minutes = Math.max(0, Number(item?.minutes_inside) || 0);
+          const days = Math.floor(minutes / 1440);
+          const hours = Math.floor((minutes % 1440) / 60);
+          const mins = minutes % 60;
+          const parts = [];
+          if (days > 0) parts.push(`${days}d`);
+          if (hours > 0 || days > 0) parts.push(`${hours}h`);
+          parts.push(`${mins}m`);
+          return parts.join(" ");
+        }
+
+        function getOverstayText(item) {
+          if (!item || !item.is_overstay) return "";
+          if (item.overstay_label) return item.overstay_label;
+          const overstayMinutes = Math.max(0, Number(item.overstay_minutes) || 0);
+          if (!overstayMinutes) return "Over limit";
+          return `+${getDurationLabel({ minutes_inside: overstayMinutes })} over limit`;
+        }
+
         function renderInsideRow(item) {
-          return `<tr>
+          const duration = getDurationLabel(item);
+          const overstayLabel = getOverstayText(item);
+          const statusChip = item.is_overstay
+            ? `<span class="badge badge-overstay">OVERSTAY</span>`
+            : `<span class="badge badge-inside">INSIDE</span>`;
+          return `<tr class="${item.is_overstay ? "inside-row-overstay" : ""}">
         <td><strong>${item.student_number || "-"}</strong></td>
         <td>${item.full_name || "-"}</td>
         <td><span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.plate_number || "-"}</span></td>
         <td><span class="badge badge-active">${item.sticker_code || "-"}</span></td>
         <td>${item.parking_slot || "-"}</td>
         <td>${item.entry_gate || "-"}</td>
+        <td>${duration}</td>
+        <td>${statusChip}${overstayLabel ? `<div class="table-alert-sub">${overstayLabel}</div>` : ""}</td>
         <td style="text-align:right;"><button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button></td>
       </tr>`;
         }
 
         function renderInsideCard(item) {
-          return `<div class="mobile-data-card" data-sticker-id="${item.sticker_id}">
-            <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div><span class="badge badge-active">${item.sticker_code || "-"}</span></div>
+          const duration = getDurationLabel(item);
+          const overstayLabel = getOverstayText(item);
+          return `<div class="mobile-data-card ${item.is_overstay ? "overstay-card" : ""}" data-sticker-id="${item.sticker_id}">
+            <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div>${item.is_overstay ? `<span class="badge badge-overstay">OVERSTAY</span>` : `<span class="badge badge-inside">INSIDE</span>`}</div>
             <div class="card-body">
-              <div class="card-item">🚗 <strong>Plate:</strong> ${item.plate_number || "-"}</div>
-              <div class="card-item">🚪 <strong>Gate:</strong> ${item.entry_gate || "-"}</div>
-              <div class="card-item">⏰ <strong>PHT:</strong> ${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</div>
+              <div class="card-item">Plate: <strong>${item.plate_number || "-"}</strong></div>
+              <div class="card-item">Slot: <strong>${item.parking_slot || "-"}</strong></div>
+              <div class="card-item">Gate: <strong>${item.entry_gate || "-"}</strong></div>
+              <div class="card-item">In: <strong>${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</strong></div>
+              <div class="card-item">Duration: <strong>${duration}</strong></div>
+              ${overstayLabel ? `<div class="card-item overstay-card-alert"><strong>Alert:</strong> ${overstayLabel}</div>` : ""}
             </div>
             <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit Vehicle</button></div>
           </div>`;
         }
 
+        function renderOverstayAlertItem(item) {
+          return `<div class="overstay-alert-item" data-sticker-id="${item.sticker_id || ""}">
+            <div class="overstay-alert-main">
+              <p class="overstay-alert-title">
+                <strong>${item.full_name || "Unknown Student"}</strong>
+                <span>${item.plate_number || "-"}</span>
+                <span>${item.parking_slot || "-"}</span>
+              </p>
+              <p class="helper-text">Entered ${item.entered_at ? toPHT(item.entered_at) : "-"} | Stayed <strong>${getDurationLabel(item)}</strong>${item.is_overstay ? ` (${getOverstayText(item)})` : ""}</p>
+            </div>
+            <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button>
+          </div>`;
+        }
+
+        function renderEmptyOverstayAlerts() {
+          return `<div class="overstay-empty">No active overstay alerts.</div>`;
+        }
+
+        function showOverstayNotice(message) {
+          if (!overstayNoticeEl) return;
+          overstayNoticeEl.textContent = message;
+          overstayNoticeEl.style.display = "flex";
+          if (overstayNoticeTimer) clearTimeout(overstayNoticeTimer);
+          overstayNoticeTimer = setTimeout(() => {
+            overstayNoticeEl.style.display = "none";
+          }, 6500);
+        }
+
+        function syncOverstayAlerts(overstayRows) {
+          if (overstayListEl) {
+            overstayListEl.innerHTML = overstayRows.length
+              ? overstayRows.map(renderOverstayAlertItem).join("")
+              : renderEmptyOverstayAlerts();
+          }
+
+          const currentIds = new Set();
+          const newlyOverstayed = [];
+          overstayRows.forEach((row) => {
+            const key = String(row.sticker_id || "");
+            if (!key) return;
+            currentIds.add(key);
+            if (!seenOverstayIds.has(key)) newlyOverstayed.push(row);
+          });
+          seenOverstayIds.clear();
+          currentIds.forEach((id) => seenOverstayIds.add(id));
+
+          if (newlyOverstayed.length > 0) {
+            const lead = newlyOverstayed[0];
+            const names = newlyOverstayed.length === 1
+              ? (lead.full_name || "A student")
+              : `${newlyOverstayed.length} vehicles`;
+            const message = `Overstay alert: ${names} exceeded the ${overstayLimitLabel}-hour limit.`;
+            showOverstayNotice(message);
+            if ("Notification" in window && Notification.permission === "granted") {
+              try {
+                new Notification("NAAP Parking Overstay Alert", { body: message });
+              } catch (err) {
+                console.warn("Browser notification failed:", err);
+              }
+            }
+          }
+        }
+
         function renderEmptyInside() {
           return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles inside.</p></div>`;
         }
-
         function renderParkingSlotCard(slot) {
           const occupancy = slot.occupancy || "available";
           const status = occupancy.toUpperCase();
@@ -680,7 +853,8 @@
           students: document.querySelectorAll('.hero-card p')[0],
           vehicles: document.querySelectorAll('.hero-card p')[1],
           activeStickers: document.querySelectorAll('.hero-card p')[2],
-          currentlyInside: insideCount
+          currentlyInside: insideCount,
+          overstayAlerts: overstayCountEl
         };
 
         async function refreshDashboard() {
@@ -694,13 +868,25 @@
             if (statIds.vehicles) statIds.vehicles.textContent = m.vehicles ?? "-";
             if (statIds.activeStickers) statIds.activeStickers.textContent = m.activeStickers ?? "-";
             if (insideCount) insideCount.textContent = m.currentlyInside ?? "-";
-
             const vehicles = data.insideVehicles || [];
+            const overstayRows = Array.isArray(data.overstayAlerts)
+              ? data.overstayAlerts
+              : vehicles.filter((item) => item.is_overstay);
+            const limitLabelFromApi = data.overstayLimitLabel || overstayLimitLabel;
+            if (statIds.overstayAlerts) {
+              statIds.overstayAlerts.textContent = typeof m.overstayAlerts === "number"
+                ? m.overstayAlerts
+                : overstayRows.length;
+            }
+            syncOverstayAlerts(overstayRows);
+            if (overstayLimitMetaEl) {
+              overstayLimitMetaEl.textContent = `Limit: ${limitLabelFromApi} hour(s)`;
+            }
             const insideCardsList = document.getElementById("insideVehiclesCards");
             if (insideBody) {
               insideBody.innerHTML = vehicles.length
                 ? vehicles.map(renderInsideRow).join("")
-                : `<tr id="insideEmptyRow"><td colspan="7">${renderEmptyInside()}</td></tr>`;
+                : `<tr id="insideEmptyRow"><td colspan="9">${renderEmptyInside()}</td></tr>`;
             }
             if (insideCardsList) {
                insideCardsList.innerHTML = vehicles.length
@@ -777,3 +963,4 @@
       })();
     </script>
     <%- include("partials/footer") %>
+

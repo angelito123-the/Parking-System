@@ -11,6 +11,11 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
 const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 12);
+const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
+const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
+  ? Math.max(0.5, rawOverstayLimitHours)
+  : 4;
+const OVERSTAY_LIMIT_MINUTES = Math.max(1, Math.round(OVERSTAY_LIMIT_HOURS * 60));
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "naap2024";
 const SESSION_SECRET = process.env.SESSION_SECRET || "naap-parking-secret";
@@ -89,6 +94,24 @@ function escapeCsv(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function formatDurationMinutes(totalMinutes) {
+  const safeMinutes = Math.max(0, Math.floor(Number(totalMinutes) || 0));
+  const days = Math.floor(safeMinutes / 1440);
+  const hours = Math.floor((safeMinutes % 1440) / 60);
+  const minutes = safeMinutes % 60;
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(" ");
+}
+
+function formatHoursLabel(hours) {
+  const rounded = Math.round(Number(hours) * 10) / 10;
+  if (Number.isInteger(rounded)) return `${rounded}`;
+  return rounded.toFixed(1).replace(/\.0$/, "");
+}
+
 function buildReportFilters(query) {
   const today = new Date();
   const defaultTo = toDateOnly(today);
@@ -165,6 +188,86 @@ async function getVerificationState(token) {
   };
 }
 
+async function getInsideVehiclesWithOverstay(db = pool, limit = 20) {
+  const [rows] = await db.query(
+    `SELECT
+       s.id AS sticker_id,
+       latest.scanned_at AS entered_at,
+       latest.gate AS entry_gate,
+       latest.slot_id,
+       ps.slot_code AS parking_slot,
+       TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
+       s.sticker_code,
+       st.student_number,
+       st.full_name,
+       v.plate_number
+     FROM (
+       SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at, sl.slot_id
+       FROM scan_logs sl
+       JOIN (
+         SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
+         FROM scan_logs
+         WHERE result = 'VALID'
+           AND action IN ('ENTRY', 'EXIT')
+           AND sticker_id IS NOT NULL
+         GROUP BY sticker_id
+       ) latest
+         ON latest.sticker_id = sl.sticker_id
+        AND latest.max_scanned_at = sl.scanned_at
+       WHERE sl.result = 'VALID'
+         AND sl.action IN ('ENTRY', 'EXIT')
+     ) latest
+     JOIN stickers s ON s.id = latest.sticker_id
+     JOIN vehicles v ON v.id = s.vehicle_id
+     JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = latest.slot_id
+     WHERE latest.action = 'ENTRY'
+     ORDER BY latest.scanned_at ASC
+     LIMIT ?`,
+    [Number(limit) || 20]
+  );
+
+  return rows.map((row) => {
+    const minutesInside = Math.max(0, Number(row.minutes_inside) || 0);
+    const overstayMinutes = Math.max(0, minutesInside - OVERSTAY_LIMIT_MINUTES);
+    const isOverstay = overstayMinutes > 0;
+    return {
+      ...row,
+      minutes_inside: minutesInside,
+      duration_label: formatDurationMinutes(minutesInside),
+      is_overstay: isOverstay,
+      overstay_minutes: overstayMinutes,
+      overstay_label: isOverstay ? `+${formatDurationMinutes(overstayMinutes)} over limit` : null
+    };
+  });
+}
+
+async function getOverstayAlertCount(db = pool) {
+  const [[countRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM (
+       SELECT sl.sticker_id, sl.action, sl.scanned_at
+       FROM scan_logs sl
+       JOIN (
+         SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
+         FROM scan_logs
+         WHERE result = 'VALID'
+           AND action IN ('ENTRY', 'EXIT')
+           AND sticker_id IS NOT NULL
+         GROUP BY sticker_id
+       ) latest
+         ON latest.sticker_id = sl.sticker_id
+        AND latest.max_scanned_at = sl.scanned_at
+       WHERE sl.result = 'VALID'
+         AND sl.action IN ('ENTRY', 'EXIT')
+     ) movement
+     WHERE movement.action = 'ENTRY'
+       AND TIMESTAMPDIFF(MINUTE, movement.scanned_at, NOW()) > ?`,
+    [OVERSTAY_LIMIT_MINUTES]
+  );
+  return Number(countRow?.total || 0);
+}
+
 async function getDashboardData() {
   const [[studentsCount]] = await pool.query("SELECT COUNT(*) AS total FROM students");
   const [[vehiclesCount]] = await pool.query("SELECT COUNT(*) AS total FROM vehicles");
@@ -221,42 +324,9 @@ async function getDashboardData() {
      ORDER BY sl.scanned_at DESC
      LIMIT 50`
   );
-  const [insideVehicles] = await pool.query(
-    `SELECT
-       s.id AS sticker_id,
-       latest.scanned_at AS entered_at,
-       latest.gate AS entry_gate,
-       latest.slot_id,
-       ps.slot_code AS parking_slot,
-       TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
-       s.sticker_code,
-       st.student_number,
-       st.full_name,
-       v.plate_number
-     FROM (
-       SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at, sl.slot_id
-       FROM scan_logs sl
-       JOIN (
-         SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
-         FROM scan_logs
-         WHERE result = 'VALID'
-           AND action IN ('ENTRY', 'EXIT')
-           AND sticker_id IS NOT NULL
-         GROUP BY sticker_id
-       ) latest
-         ON latest.sticker_id = sl.sticker_id
-        AND latest.max_scanned_at = sl.scanned_at
-       WHERE sl.result = 'VALID'
-         AND sl.action IN ('ENTRY', 'EXIT')
-     ) latest
-     JOIN stickers s ON s.id = latest.sticker_id
-     JOIN vehicles v ON v.id = s.vehicle_id
-     JOIN students st ON st.id = v.student_id
-     LEFT JOIN parking_slots ps ON ps.id = latest.slot_id
-     WHERE latest.action = 'ENTRY'
-     ORDER BY latest.scanned_at ASC
-     LIMIT 20`
-  );
+  const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
+  const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
+  const overstayAlertCount = await getOverstayAlertCount(pool);
   const parkingSlotOverview = await getParkingSlotOverview();
   const parkingSlots = parkingSlotOverview.slots;
   const availableSlots = parkingSlots.filter((slot) => slot.is_selectable);
@@ -267,10 +337,15 @@ async function getDashboardData() {
       activeStickers: stickersCount.total,
       todayEntries: todayEntries.total,
       todayExits: todayExits.total,
-      currentlyInside: currentlyInside.total
+      currentlyInside: currentlyInside.total,
+      overstayAlerts: overstayAlertCount,
+      overstayLimitHours: OVERSTAY_LIMIT_HOURS
     },
     movementLogs,
     insideVehicles,
+    overstayAlerts,
+    overstayLimitHours: OVERSTAY_LIMIT_HOURS,
+    overstayLimitLabel: formatHoursLabel(OVERSTAY_LIMIT_HOURS),
     parkingSlots,
     availableSlots,
     parkingSlotSummary: parkingSlotOverview.summary
@@ -663,43 +738,17 @@ app.get("/", requireAuth, async (req, res) => {
 // API: inside vehicles (for dashboard auto-refresh)
 app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
   try {
-    const [insideVehicles] = await pool.query(
-      `SELECT
-         s.id AS sticker_id,
-         latest.scanned_at AS entered_at,
-         latest.gate AS entry_gate,
-         latest.slot_id,
-         ps.slot_code AS parking_slot,
-         TIMESTAMPDIFF(MINUTE, latest.scanned_at, NOW()) AS minutes_inside,
-         s.sticker_code,
-         st.student_number,
-         st.full_name,
-         v.plate_number
-       FROM (
-         SELECT sl.sticker_id, sl.action, sl.gate, sl.scanned_at, sl.slot_id
-         FROM scan_logs sl
-         JOIN (
-           SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
-           FROM scan_logs
-           WHERE result = 'VALID'
-             AND action IN ('ENTRY', 'EXIT')
-             AND sticker_id IS NOT NULL
-           GROUP BY sticker_id
-         ) latest
-           ON latest.sticker_id = sl.sticker_id
-          AND latest.max_scanned_at = sl.scanned_at
-         WHERE sl.result = 'VALID'
-           AND sl.action IN ('ENTRY', 'EXIT')
-       ) latest
-       JOIN stickers s ON s.id = latest.sticker_id
-       JOIN vehicles v ON v.id = s.vehicle_id
-       JOIN students st ON st.id = v.student_id
-       LEFT JOIN parking_slots ps ON ps.id = latest.slot_id
-       WHERE latest.action = 'ENTRY'
-       ORDER BY latest.scanned_at ASC
-       LIMIT 20`
-    );
-    res.json({ ok: true, insideVehicles });
+    const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
+    const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
+    const overstayAlertCount = await getOverstayAlertCount(pool);
+    res.json({
+      ok: true,
+      insideVehicles,
+      overstayAlerts,
+      overstayAlertCount,
+      overstayLimitHours: OVERSTAY_LIMIT_HOURS,
+      overstayLimitLabel: formatHoursLabel(OVERSTAY_LIMIT_HOURS)
+    });
   } catch (error) {
     console.error("Inside vehicles API error:", error);
     res.status(500).json({ ok: false, message: "Failed to fetch vehicles." });

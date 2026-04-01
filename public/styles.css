@@ -637,6 +637,25 @@ tbody tr:hover {
   background: transparent;
 }
 
+.inside-row-overstay td {
+  background: #fff1f2;
+  border-top-color: #fecdd3;
+  border-bottom-color: #fecdd3;
+}
+
+[data-theme="dark"] .inside-row-overstay td {
+  background: rgba(190, 18, 60, 0.16);
+  border-top-color: rgba(254, 205, 211, 0.32);
+  border-bottom-color: rgba(254, 205, 211, 0.32);
+}
+
+.table-alert-sub {
+  margin-top: 0.28rem;
+  font-size: 0.7rem;
+  color: var(--red-text);
+  font-weight: 700;
+}
+
 /* ── Forms ─────────────────────────────────────────── */
 form,
 .form-grid {
@@ -736,6 +755,18 @@ a:hover {
   background: var(--green-soft);
   color: var(--green-text);
   border: 1px solid var(--green-border);
+}
+
+.badge-inside {
+  background: var(--blue-soft);
+  color: var(--blue-1);
+  border: 1px solid rgba(59, 130, 246, 0.24);
+}
+
+.badge-overstay {
+  background: var(--red-soft);
+  color: var(--red-text);
+  border: 1px solid var(--red-border);
 }
 
 .badge-invalid,
@@ -912,6 +943,88 @@ button.btn-sm {
 .helper-text {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.overstay-panel {
+  border: 1px solid var(--red-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 241, 242, 0.82), rgba(255, 241, 242, 0.54));
+  padding: 0.75rem;
+}
+
+[data-theme="dark"] .overstay-panel {
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.35), rgba(69, 10, 10, 0.2));
+  border-color: rgba(254, 205, 211, 0.3);
+}
+
+.overstay-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.overstay-panel-head strong {
+  font-size: 0.9rem;
+  color: var(--red-text);
+  letter-spacing: 0.01em;
+}
+
+.overstay-alert-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.overstay-alert-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--red-border);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+}
+
+[data-theme="dark"] .overstay-alert-item {
+  border-color: rgba(254, 205, 211, 0.28);
+}
+
+.overstay-alert-main {
+  min-width: 0;
+}
+
+.overstay-alert-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.84rem;
+}
+
+.overstay-alert-title span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.overstay-alert-main .helper-text {
+  margin-top: 0.2rem;
+  display: block;
+}
+
+.overstay-empty {
+  border: 1px dashed var(--line-strong);
+  border-radius: 9px;
+  padding: 0.7rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.overstay-notice {
+  margin-top: -0.1rem;
 }
 
 .parking-slots-grid {
@@ -1825,6 +1938,22 @@ body.is-ready .container>*:nth-child(4) {
   color: var(--text-secondary);
 }
 
+.mobile-data-card.overstay-card {
+  border-color: var(--red-border);
+  box-shadow: 0 6px 18px rgba(190, 18, 60, 0.14);
+}
+
+[data-theme="dark"] .mobile-data-card.overstay-card {
+  background: rgba(127, 29, 29, 0.18);
+  border-color: rgba(254, 205, 211, 0.28);
+  box-shadow: none;
+}
+
+.overstay-card-alert {
+  color: var(--red-text);
+  font-weight: 700;
+}
+
 .mobile-data-card .card-actions {
   display: grid;
   gap: 0.5rem;
@@ -1889,6 +2018,16 @@ body.is-ready .container>*:nth-child(4) {
   }
   
   .top-nav-links a { font-size: 0.82rem; padding: 0.25rem 0; }
+
+  .overstay-panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .overstay-alert-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
   
   .dashboard-hero {
     padding: 1.5rem 1rem 3.5rem;
