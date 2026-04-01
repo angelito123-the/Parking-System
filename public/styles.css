@@ -1351,12 +1351,6 @@ body.is-ready .container>*:nth-child(4) {
   animation-delay: 180ms;
 }
 
-body.is-leaving .main-shell {
-  opacity: 0.5;
-  transform: translateY(3px);
-  transition: opacity 180ms ease, transform 180ms ease;
-}
-
 @media (prefers-reduced-motion: reduce) {
 
   .sidebar,
@@ -1367,11 +1361,6 @@ body.is-leaving .main-shell {
     transform: none !important;
   }
 
-  body.is-leaving .main-shell {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
 }
 
 /* ── UI Redesign Additions ────────────────────── */
