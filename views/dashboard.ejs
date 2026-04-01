@@ -23,6 +23,10 @@
       occupied: safeParkingSlots.filter(slot => slot.occupancy === "occupied").length,
       disabled: safeParkingSlots.filter(slot => slot.occupancy === "disabled").length
     };
+    const initialSelectedSlot = safeParkingSlots.find(slot => slot.occupancy === "available") || safeParkingSlots[0] || null;
+    const initialSelectedSlotCode = initialSelectedSlot && initialSelectedSlot.slot_code
+      ? String(initialSelectedSlot.slot_code)
+      : "";
   %>
     <section class="dashboard-hero">
       <div class="hero-greeting">
@@ -219,40 +223,40 @@
             <% } %>
           <% } %>
         </div>
-        <div id="parkingSlotsList" class="parking-slots-grid">
-          <% if (safeParkingSlots.length === 0) { %>
-            <div class="empty-state" style="padding:1.25rem 1rem;">
-              <p>No parking slots configured.</p>
-            </div>
-          <% } %>
-          <% safeParkingSlots.forEach(slot => { %>
-            <div
-              class="parking-slot-card <%= slot.occupancy || 'available' %>"
-              data-slot-code="<%= slot.slot_code || '' %>"
-              role="button"
-              tabindex="0"
-              aria-label="View history for slot <%= slot.slot_code || '' %>">
-              <div class="parking-slot-head">
-                <div class="parking-slot-title-wrap">
-                  <span class="parking-slot-dot" aria-hidden="true"></span>
-                  <span class="parking-slot-code"><%= slot.slot_code || "-" %></span>
+        <div class="parking-space-layout">
+          <div class="parking-space-map-shell">
+            <div id="parkingSlotsList" class="parking-space-map">
+              <% if (safeParkingSlots.length === 0) { %>
+                <div class="empty-state" style="padding:1.25rem 1rem;">
+                  <p>No parking slots configured.</p>
                 </div>
-                <span class="parking-slot-status"><%= (slot.occupancy || "available").toUpperCase() %></span>
-              </div>
-              <div class="parking-slot-zone"><%= slot.zone || "General" %></div>
-              <% if (slot.occupancy === "occupied") { %>
-                <div class="parking-slot-detail">Plate: <strong><%= slot.occupied_by_plate || "-" %></strong></div>
-                <div class="parking-slot-detail">Student: <strong><%= slot.occupied_by_name || "Unknown" %></strong></div>
-              <% } else if (slot.occupancy === "available") { %>
-                <div class="parking-slot-detail">Ready for entry assignment</div>
-              <% } else { %>
-                <div class="parking-slot-detail">Slot currently unavailable</div>
               <% } %>
-              <div class="parking-slot-foot">
-                <span class="parking-slot-action-hint">Click to view history</span>
+            </div>
+          </div>
+
+          <aside class="parking-space-panel">
+            <div class="parking-space-panel-head">
+              <div>
+                <p class="parking-space-panel-label">Selected Parking Space</p>
+                <h3 id="slotInspectorTitle"><%= initialSelectedSlotCode || "Not selected" %></h3>
+              </div>
+              <span id="slotInspectorStatus" class="parking-inspector-badge">--</span>
+            </div>
+            <p id="slotInspectorSubtitle" class="helper-text" style="margin-bottom:0.7rem;">
+              Select a slot to review assignment details and recent parking activity.
+            </p>
+            <div id="slotInspectorDetails" class="parking-inspector-details"></div>
+
+            <div class="parking-inspector-history-head">
+              <strong>Recent Activity</strong>
+              <button type="button" id="openSlotHistoryBtn" class="btn-sm">Open Full History</button>
+            </div>
+            <div id="slotInspectorHistory" class="parking-inspector-history-list">
+              <div class="empty-state" style="padding:0.8rem;">
+                <p>Select a slot to load recent history.</p>
               </div>
             </div>
-          <% }) %>
+          </aside>
         </div>
       </section>
 
@@ -438,6 +442,12 @@
         const parkingSlotSearchEl = document.getElementById("parkingSlotSearch");
         const availableSlotsStripEl = document.getElementById("availableSlotsStrip");
         const slotFilterButtons = Array.from(document.querySelectorAll(".slot-filter-btn[data-slot-filter]"));
+        const slotInspectorTitleEl = document.getElementById("slotInspectorTitle");
+        const slotInspectorStatusEl = document.getElementById("slotInspectorStatus");
+        const slotInspectorSubtitleEl = document.getElementById("slotInspectorSubtitle");
+        const slotInspectorDetailsEl = document.getElementById("slotInspectorDetails");
+        const slotInspectorHistoryEl = document.getElementById("slotInspectorHistory");
+        const openSlotHistoryBtnEl = document.getElementById("openSlotHistoryBtn");
         const slotHistoryModal = document.getElementById("slotHistoryModal");
         const slotHistoryTitle = document.getElementById("slotHistoryTitle");
         const slotHistoryMeta = document.getElementById("slotHistoryMeta");
@@ -461,6 +471,12 @@
         let latestParkingSlotSummary = (initialParkingSlotSummary && typeof initialParkingSlotSummary === "object")
           ? initialParkingSlotSummary
           : { total: latestParkingSlots.length, available: 0, occupied: 0, disabled: 0 };
+        let selectedSlotCode = String(<%- JSON.stringify(initialSelectedSlotCode) %> || "").trim().toUpperCase();
+        let selectedSlotHistoryRows = [];
+        let slotInspectorLoading = false;
+        let slotInspectorError = "";
+        let slotHistoryRequestId = 0;
+        const slotHistoryCache = new Map();
         let overstayNoticeTimer = null;
         if (slotHistoryModal && slotHistoryModal.parentElement !== document.body) {
           document.body.appendChild(slotHistoryModal);
@@ -634,30 +650,35 @@
           };
         }
 
+        function normalizeSlotCode(value) {
+          return String(value || "").trim().toUpperCase();
+        }
+
+        function getSelectedSlot() {
+          const code = normalizeSlotCode(selectedSlotCode);
+          if (!code) return null;
+          return latestParkingSlots.find((slot) => normalizeSlotCode(slot.slot_code) === code) || null;
+        }
+
         function renderParkingSlotCard(slot) {
           const occupancy = slot.occupancy || "available";
-          const status = occupancy.toUpperCase();
-          const primaryDetail = occupancy === "occupied"
-            ? `Plate: <strong>${slot.occupied_by_plate || "-"}</strong>`
+          const code = slot.slot_code || "-";
+          const isSelected = normalizeSlotCode(code) === normalizeSlotCode(selectedSlotCode);
+          const tileMeta = occupancy === "occupied"
+            ? (slot.occupied_by_plate || "Occupied")
             : occupancy === "available"
-            ? "Ready for entry assignment"
-            : "Slot currently unavailable";
-          const secondaryDetail = occupancy === "occupied"
-            ? `Student: <strong>${slot.occupied_by_name || "Unknown"}</strong>`
-            : "";
-          return `<div class="parking-slot-card ${occupancy}" data-slot-code="${slot.slot_code || ""}" role="button" tabindex="0" aria-label="View history for slot ${slot.slot_code || ""}">
-            <div class="parking-slot-head">
-              <div class="parking-slot-title-wrap">
-                <span class="parking-slot-dot" aria-hidden="true"></span>
-                <span class="parking-slot-code">${slot.slot_code || "-"}</span>
-              </div>
-              <span class="parking-slot-status">${status}</span>
-            </div>
-            <div class="parking-slot-zone">${slot.zone || "General"}</div>
-            <div class="parking-slot-detail">${primaryDetail}</div>
-            ${secondaryDetail ? `<div class="parking-slot-detail">${secondaryDetail}</div>` : ""}
-            <div class="parking-slot-foot"><span class="parking-slot-action-hint">Click to view history</span></div>
-          </div>`;
+            ? "Available"
+            : "Unavailable";
+
+          return `<button
+            type="button"
+            class="parking-slot-tile ${occupancy} ${isSelected ? "selected" : ""}"
+            data-slot-code="${code}"
+            aria-pressed="${isSelected ? "true" : "false"}"
+            aria-label="Parking slot ${code} ${occupancy}">
+            <span class="tile-code">${code}</span>
+            <span class="tile-meta">${tileMeta}</span>
+          </button>`;
         }
 
         function renderEmptyParkingSlots(message = "No parking slots configured.") {
@@ -708,13 +729,11 @@
           `;
         }
 
-        function focusSlotCardByCode(slotCode) {
+        function focusSlotTileByCode(slotCode) {
           if (!slotCode || !parkingSlotsListEl) return;
-          const cards = Array.from(parkingSlotsListEl.querySelectorAll(".parking-slot-card"));
-          const target = cards.find((card) => {
-            const code = String(card.dataset.slotCode || "").trim().toUpperCase();
-            return code === String(slotCode || "").trim().toUpperCase();
-          });
+          const code = normalizeSlotCode(slotCode);
+          const tiles = Array.from(parkingSlotsListEl.querySelectorAll(".parking-slot-tile"));
+          const target = tiles.find((tile) => normalizeSlotCode(tile.dataset.slotCode) === code);
           if (!target) return;
           target.scrollIntoView({ behavior: "smooth", block: "center" });
           target.classList.add("slot-focus-pulse");
@@ -738,10 +757,133 @@
           });
         }
 
+        function groupSlotsByZone(slots) {
+          return (slots || []).reduce((acc, slot) => {
+            const zone = slot.zone || "General";
+            if (!acc[zone]) acc[zone] = [];
+            acc[zone].push(slot);
+            return acc;
+          }, {});
+        }
+
+        function renderSlotInspectorHistoryItem(item) {
+          const parkedAt = item.parked_at || item.scanned_at;
+          const stateClass = item.is_ongoing ? "inside" : "exited";
+          const stateLabel = item.is_ongoing ? "INSIDE" : "EXITED";
+          return `<article class="parking-inspector-history-item ${stateClass}">
+            <div class="parking-inspector-history-top">
+              <strong>${item.full_name || "Unknown Student"}</strong>
+              <span class="parking-inspector-mini-badge ${stateClass}">${stateLabel}</span>
+            </div>
+            <p>${item.plate_number || "-"} | ${item.student_number || "-"}</p>
+            <p>${parkedAt ? toPHT(parkedAt) : "-"} | ${item.duration_label || "-"}</p>
+          </article>`;
+        }
+
+        function renderSlotInspector() {
+          if (!slotInspectorTitleEl || !slotInspectorStatusEl || !slotInspectorSubtitleEl || !slotInspectorDetailsEl || !slotInspectorHistoryEl) return;
+
+          const slot = getSelectedSlot();
+          if (!slot) {
+            slotInspectorTitleEl.textContent = "Not selected";
+            slotInspectorStatusEl.textContent = "--";
+            slotInspectorStatusEl.className = "parking-inspector-badge";
+            slotInspectorSubtitleEl.textContent = "Select a slot to review assignment details and recent parking activity.";
+            slotInspectorDetailsEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>No slot selected.</p></div>';
+            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>Select a slot to load recent history.</p></div>';
+            if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = true;
+            return;
+          }
+
+          const occupancy = slot.occupancy || "available";
+          const statusText = occupancy.toUpperCase();
+          slotInspectorTitleEl.textContent = slot.slot_code || "-";
+          slotInspectorStatusEl.textContent = statusText;
+          slotInspectorStatusEl.className = `parking-inspector-badge ${occupancy}`;
+          slotInspectorSubtitleEl.textContent = occupancy === "available"
+            ? "This slot is open and ready for a new entry assignment."
+            : occupancy === "occupied"
+            ? "This slot is currently occupied. Review current assignment and activity."
+            : "This slot is currently disabled and cannot be assigned.";
+
+          slotInspectorDetailsEl.innerHTML = `
+            <div class="parking-inspector-detail"><span>Zone</span><strong>${slot.zone || "General"}</strong></div>
+            <div class="parking-inspector-detail"><span>Status</span><strong>${statusText}</strong></div>
+            <div class="parking-inspector-detail"><span>Plate</span><strong>${slot.occupied_by_plate || "-"}</strong></div>
+            <div class="parking-inspector-detail"><span>Student</span><strong>${slot.occupied_by_name || "-"}</strong></div>
+          `;
+
+          if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = false;
+          if (slotInspectorLoading) {
+            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>Loading recent history...</p></div>';
+            return;
+          }
+          if (slotInspectorError) {
+            slotInspectorHistoryEl.innerHTML = `<div class="flash flash-error" style="margin:0;">${slotInspectorError}</div>`;
+            return;
+          }
+          if (!selectedSlotHistoryRows.length) {
+            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>No recent activity for this slot.</p></div>';
+            return;
+          }
+          slotInspectorHistoryEl.innerHTML = selectedSlotHistoryRows.slice(0, 5).map(renderSlotInspectorHistoryItem).join("");
+        }
+
+        async function loadSelectedSlotHistory(slotCode, force = false) {
+          const normalizedCode = normalizeSlotCode(slotCode);
+          if (!normalizedCode) return;
+
+          if (!force && slotHistoryCache.has(normalizedCode)) {
+            selectedSlotHistoryRows = slotHistoryCache.get(normalizedCode) || [];
+            slotInspectorError = "";
+            slotInspectorLoading = false;
+            renderSlotInspector();
+            return;
+          }
+
+          slotInspectorLoading = true;
+          slotInspectorError = "";
+          renderSlotInspector();
+          const requestId = ++slotHistoryRequestId;
+
+          try {
+            const resp = await fetch(`/api/parking-slot-history?slot_code=${encodeURIComponent(normalizedCode)}`, {
+              credentials: "same-origin"
+            });
+            const data = await resp.json();
+            if (!data.ok) {
+              throw new Error(data.message || "Unable to load slot history.");
+            }
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            slotHistoryCache.set(normalizedCode, rows);
+            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
+            selectedSlotHistoryRows = rows;
+            slotInspectorError = "";
+          } catch (error) {
+            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
+            selectedSlotHistoryRows = [];
+            slotInspectorError = error.message || "Unable to load slot history.";
+          } finally {
+            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
+            slotInspectorLoading = false;
+            renderSlotInspector();
+          }
+        }
+
         function renderParkingSlotsSection() {
           const summary = normalizeParkingSlotSummary(latestParkingSlotSummary, latestParkingSlots);
           updateSlotFilterButtons(summary);
           renderAvailableSlotsStrip(latestParkingSlots, summary);
+
+          const previousSelected = normalizeSlotCode(selectedSlotCode);
+          const selectedStillExists = latestParkingSlots.some((slot) => normalizeSlotCode(slot.slot_code) === previousSelected);
+          if (!selectedStillExists) {
+            const fallback = latestParkingSlots.find((slot) => (slot.occupancy || "available") === "available") || latestParkingSlots[0] || null;
+            selectedSlotCode = normalizeSlotCode(fallback?.slot_code || "");
+            selectedSlotHistoryRows = [];
+            slotInspectorError = "";
+          }
+          const selectedChanged = normalizeSlotCode(selectedSlotCode) !== previousSelected;
 
           const filteredSlots = applyParkingSlotFilters(latestParkingSlots);
           if (parkingSlotsMetaEl) {
@@ -751,11 +893,37 @@
             const emptyMessage = latestParkingSlots.length
               ? "No slots match the selected filter."
               : "No parking slots configured.";
-            parkingSlotsListEl.innerHTML = filteredSlots.length
-              ? filteredSlots.map(renderParkingSlotCard).join("")
-              : renderEmptyParkingSlots(emptyMessage);
+            if (!filteredSlots.length) {
+              parkingSlotsListEl.innerHTML = renderEmptyParkingSlots(emptyMessage);
+            } else {
+              const grouped = groupSlotsByZone(filteredSlots);
+              const zoneNames = Object.keys(grouped).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+              parkingSlotsListEl.innerHTML = zoneNames.map((zoneName) => {
+                const zoneSlots = grouped[zoneName]
+                  .slice()
+                  .sort((a, b) => String(a.slot_code || "").localeCompare(String(b.slot_code || ""), undefined, { numeric: true }));
+                const zoneAvailable = zoneSlots.filter((slot) => (slot.occupancy || "available") === "available").length;
+                return `
+                  <section class="parking-zone-section">
+                    <div class="parking-zone-header">
+                      <h4>${zoneName}</h4>
+                      <span>${zoneAvailable}/${zoneSlots.length} available</span>
+                    </div>
+                    <div class="parking-zone-grid">
+                      ${zoneSlots.map(renderParkingSlotCard).join("")}
+                    </div>
+                  </section>
+                `;
+              }).join("");
+            }
           }
           attachParkingSlotHandlers();
+          renderSlotInspector();
+
+          const selectedCode = normalizeSlotCode(selectedSlotCode);
+          if (selectedCode && (selectedChanged || !slotHistoryCache.has(selectedCode))) {
+            loadSelectedSlotHistory(selectedCode);
+          }
         }
 
         const movementTbody = table ? table.querySelector("tbody") : null;
@@ -850,16 +1018,19 @@
         }
 
         function attachParkingSlotHandlers() {
-          const cards = Array.from(document.querySelectorAll(".parking-slot-card"));
-          cards.forEach((card) => {
-            const slotCode = card.dataset.slotCode || "";
-            card.onclick = () => openSlotHistoryModal(slotCode);
-            card.onkeydown = (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                openSlotHistoryModal(slotCode);
+          const tiles = Array.from(document.querySelectorAll(".parking-slot-tile"));
+          tiles.forEach((tile) => {
+            const slotCode = normalizeSlotCode(tile.dataset.slotCode);
+            tile.addEventListener("click", () => {
+              if (!slotCode) return;
+              const changed = slotCode !== normalizeSlotCode(selectedSlotCode);
+              selectedSlotCode = slotCode;
+              if (changed) {
+                selectedSlotHistoryRows = [];
+                slotInspectorError = "";
               }
-            };
+              renderParkingSlotsSection();
+            });
           });
         }
         function renderUpdateItem(scan) {
@@ -969,9 +1140,19 @@
             if (!slotCode) return;
             activeSlotFilter = "all";
             slotSearchQuery = slotCode;
+            selectedSlotCode = normalizeSlotCode(slotCode);
+            selectedSlotHistoryRows = [];
+            slotInspectorError = "";
             if (parkingSlotSearchEl) parkingSlotSearchEl.value = slotCode;
             renderParkingSlotsSection();
-            focusSlotCardByCode(slotCode);
+            focusSlotTileByCode(slotCode);
+          });
+        }
+        if (openSlotHistoryBtnEl) {
+          openSlotHistoryBtnEl.addEventListener("click", () => {
+            const slotCode = normalizeSlotCode(selectedSlotCode);
+            if (!slotCode) return;
+            openSlotHistoryModal(slotCode);
           });
         }
 
