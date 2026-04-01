@@ -913,9 +913,12 @@ button.btn-sm {
 .updates-list {
   display: grid;
   gap: 0.6rem;
-  max-height: 480px;
+  max-height: min(520px, calc(100vh - 260px));
   overflow-y: auto;
   padding-right: 0.25rem;
+  padding-bottom: 0.6rem;
+  scroll-padding-bottom: 0.6rem;
+  overscroll-behavior: contain;
 }
 
 .update-item {
@@ -938,6 +941,10 @@ button.btn-sm {
 .update-item p {
   margin: 0;
   font-size: 0.875rem;
+}
+
+.updates-list .update-item:last-child {
+  margin-bottom: 0.2rem;
 }
 
 .update-dot {
