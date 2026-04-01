@@ -783,30 +783,62 @@ app.get("/api/parking-slot-history", requireAuth, async (req, res) => {
 
     const [rows] = await pool.query(
       `SELECT
-         sl.scanned_at,
-         sl.gate,
+         entry_log.scanned_at AS parked_at,
+         entry_log.gate AS entry_gate,
          ps.slot_code AS parking_slot,
          st.student_number,
          st.full_name,
          v.plate_number,
-         s.sticker_code
-       FROM scan_logs sl
-       JOIN parking_slots ps ON ps.id = sl.slot_id
-       LEFT JOIN stickers s ON s.id = sl.sticker_id
+         s.sticker_code,
+         (
+           SELECT MIN(exit_log.scanned_at)
+           FROM scan_logs exit_log
+           WHERE exit_log.result = 'VALID'
+             AND exit_log.action = 'EXIT'
+             AND exit_log.sticker_id = entry_log.sticker_id
+             AND exit_log.slot_id = entry_log.slot_id
+             AND exit_log.scanned_at > entry_log.scanned_at
+         ) AS exited_at
+       FROM scan_logs entry_log
+       JOIN parking_slots ps ON ps.id = entry_log.slot_id
+       LEFT JOIN stickers s ON s.id = entry_log.sticker_id
        LEFT JOIN vehicles v ON v.id = s.vehicle_id
        LEFT JOIN students st ON st.id = v.student_id
-       WHERE sl.result = 'VALID'
-         AND sl.action = 'ENTRY'
+       WHERE entry_log.result = 'VALID'
+         AND entry_log.action = 'ENTRY'
          AND ps.slot_code = ?
-       ORDER BY sl.scanned_at DESC
+       ORDER BY entry_log.scanned_at DESC
        LIMIT 120`,
       [slotCode]
     );
 
+    const nowMs = Date.now();
+    const durationRows = rows.map((row) => {
+      const startMs = new Date(row.parked_at).getTime();
+      const fallbackStartMs = Number.isFinite(startMs) ? startMs : nowMs;
+      const endMs = row.exited_at
+        ? new Date(row.exited_at).getTime()
+        : nowMs;
+      const safeEndMs = Number.isFinite(endMs) ? endMs : nowMs;
+      const durationMinutes = Math.max(0, Math.floor((safeEndMs - fallbackStartMs) / 60000));
+      const durationHours = Math.floor(durationMinutes / 60);
+      const remainingMinutes = durationMinutes % 60;
+      const durationLabel = durationHours > 0
+        ? `${durationHours}h ${remainingMinutes}m`
+        : `${remainingMinutes}m`;
+
+      return {
+        ...row,
+        duration_minutes: durationMinutes,
+        duration_label: durationLabel,
+        is_ongoing: !row.exited_at
+      };
+    });
+
     res.json({
       ok: true,
       slot_code: slotCode,
-      rows
+      rows: durationRows
     });
   } catch (error) {
     console.error("Parking slot history API error:", error);
