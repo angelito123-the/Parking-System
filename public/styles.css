@@ -1548,6 +1548,7 @@ button.btn-sm {
 
 body.modal-open {
   overflow: hidden;
+  height: 100dvh;
 }
 
 .slot-history-modal {
@@ -1555,11 +1556,15 @@ body.modal-open {
   inset: 0;
   z-index: 1300;
   display: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.9rem 0.65rem;
 }
 
 .slot-history-modal.open {
-  display: grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .slot-history-backdrop {
@@ -1573,13 +1578,15 @@ body.modal-open {
   position: relative;
   z-index: 1;
   width: min(640px, calc(100vw - 1.5rem));
-  max-height: min(82vh, 760px);
-  overflow: auto;
+  max-height: calc(100dvh - 1.8rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow-xl);
   padding: 1rem;
+  margin: 0.2rem 0 0.8rem;
 }
 
 .slot-history-head {
