@@ -902,6 +902,18 @@ button.btn-sm {
   flex-direction: column;
   gap: 0.2rem;
   min-height: 94px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.parking-slot-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.parking-slot-card:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 .parking-slot-head {
@@ -1002,6 +1014,107 @@ button.btn-sm {
 [data-theme="dark"] .parking-slot-card.disabled {
   border-color: rgba(148, 163, 184, 0.35);
   background: rgba(71, 85, 105, 0.25);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.slot-history-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: none;
+}
+
+.slot-history-modal.open {
+  display: grid;
+  place-items: center;
+}
+
+.slot-history-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(2px);
+}
+
+.slot-history-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(640px, calc(100vw - 1.5rem));
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-xl);
+  padding: 1rem;
+}
+
+.slot-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.slot-history-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.slot-history-close {
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--text);
+  border-radius: 8px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.slot-history-close:hover {
+  background: var(--blue-soft);
+  transform: none;
+  box-shadow: none;
+}
+
+.slot-history-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.slot-history-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 0.65rem 0.75rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.slot-history-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.slot-history-card-head strong {
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.slot-history-card-meta {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
 }
 
 .mini-list {

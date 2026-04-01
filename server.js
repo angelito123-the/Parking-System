@@ -773,6 +773,47 @@ app.get("/api/parking-history", requireAuth, async (req, res) => {
   }
 });
 
+// API: parking history for a specific slot (latest ENTRY records)
+app.get("/api/parking-slot-history", requireAuth, async (req, res) => {
+  try {
+    const slotCode = String(req.query.slot_code || "").trim().toUpperCase();
+    if (!slotCode) {
+      return res.status(400).json({ ok: false, message: "Missing slot_code.", rows: [] });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT
+         sl.scanned_at,
+         sl.gate,
+         ps.slot_code AS parking_slot,
+         st.student_number,
+         st.full_name,
+         v.plate_number,
+         s.sticker_code
+       FROM scan_logs sl
+       JOIN parking_slots ps ON ps.id = sl.slot_id
+       LEFT JOIN stickers s ON s.id = sl.sticker_id
+       LEFT JOIN vehicles v ON v.id = s.vehicle_id
+       LEFT JOIN students st ON st.id = v.student_id
+       WHERE sl.result = 'VALID'
+         AND sl.action = 'ENTRY'
+         AND ps.slot_code = ?
+       ORDER BY sl.scanned_at DESC
+       LIMIT 120`,
+      [slotCode]
+    );
+
+    res.json({
+      ok: true,
+      slot_code: slotCode,
+      rows
+    });
+  } catch (error) {
+    console.error("Parking slot history API error:", error);
+    res.status(500).json({ ok: false, message: "Failed to fetch slot history.", rows: [] });
+  }
+});
+
 app.get("/students", requireAuth, async (req, res) => {
   try {
     const [studentRows] = await pool.query(

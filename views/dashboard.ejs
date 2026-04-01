@@ -120,7 +120,7 @@
       <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2rem; background: transparent;">
         <div class="section-head">
           <h2 style="font-size: 1.25rem;">Parking Slot Monitoring</h2>
-          <p>See exactly which vehicle is parked in each occupied slot.</p>
+          <p>See exactly which vehicle is parked in each occupied slot. Click any slot to view its history.</p>
         </div>
         <div class="refresh-row" style="margin-bottom: 0.75rem;">
           <span id="parkingSlotsMeta" class="helper-text">
@@ -134,7 +134,12 @@
             </div>
           <% } %>
           <% safeParkingSlots.forEach(slot => { %>
-            <div class="parking-slot-card <%= slot.occupancy || 'available' %>">
+            <div
+              class="parking-slot-card <%= slot.occupancy || 'available' %>"
+              data-slot-code="<%= slot.slot_code || '' %>"
+              role="button"
+              tabindex="0"
+              aria-label="View history for slot <%= slot.slot_code || '' %>">
               <div class="parking-slot-head">
                 <span class="parking-slot-code"><%= slot.slot_code || "-" %></span>
                 <span class="parking-slot-status"><%= (slot.occupancy || "available").toUpperCase() %></span>
@@ -208,6 +213,20 @@
           </div>
         </div>
       </section>
+
+      <div id="slotHistoryModal" class="slot-history-modal" aria-hidden="true">
+        <div class="slot-history-backdrop" data-close-slot-history></div>
+        <div class="slot-history-dialog" role="dialog" aria-modal="true" aria-labelledby="slotHistoryTitle">
+          <div class="slot-history-head">
+            <h3 id="slotHistoryTitle">Slot History</h3>
+            <button type="button" class="slot-history-close" data-close-slot-history aria-label="Close slot history">x</button>
+          </div>
+          <p id="slotHistoryMeta" class="helper-text" style="margin:0 0 0.75rem;">Loading slot history...</p>
+          <div id="slotHistoryList" class="slot-history-list">
+            <div class="empty-state" style="padding:1rem;"><p>Loading slot history...</p></div>
+          </div>
+        </div>
+      </div>
 
     <section class="dashboard-grid">
       <article class="panel">
@@ -381,6 +400,10 @@
         const parkingHistoryMeta = document.getElementById("parkingHistoryMeta");
         const parkingHistoryBody = document.getElementById("parkingHistoryBody");
         const parkingHistoryCards = document.getElementById("parkingHistoryCards");
+        const slotHistoryModal = document.getElementById("slotHistoryModal");
+        const slotHistoryTitle = document.getElementById("slotHistoryTitle");
+        const slotHistoryMeta = document.getElementById("slotHistoryMeta");
+        const slotHistoryList = document.getElementById("slotHistoryList");
 
         window.forceExit = async function(stickerId, btn) {
           if (!confirm("Force exit this vehicle?")) return;
@@ -437,7 +460,7 @@
           const secondaryDetail = occupancy === "occupied"
             ? `Student: <strong>${slot.occupied_by_name || "Unknown"}</strong>`
             : "";
-          return `<div class="parking-slot-card ${occupancy}">
+          return `<div class="parking-slot-card ${occupancy}" data-slot-code="${slot.slot_code || ""}" role="button" tabindex="0" aria-label="View history for slot ${slot.slot_code || ""}">
             <div class="parking-slot-head">
               <span class="parking-slot-code">${slot.slot_code || "-"}</span>
               <span class="parking-slot-status">${status}</span>
@@ -510,6 +533,72 @@
 
         function renderEmptyParkingHistory(message) {
           return `<div class="empty-state" style="padding:1rem;"><p>${message}</p></div>`;
+        }
+
+        function renderEmptySlotHistory(message) {
+          return `<div class="empty-state" style="padding:1rem;"><p>${message}</p></div>`;
+        }
+
+        function renderSlotHistoryCard(item) {
+          return `<div class="slot-history-card">
+            <div class="slot-history-card-head">
+              <strong>${item.full_name || "Unknown Student"}</strong>
+              <span class="badge" style="background:#f1f5f9; color:#334155; border:1px solid #cbd5e1;">${item.parking_slot || "-"}</span>
+            </div>
+            <div class="slot-history-card-meta">Student No: <strong>${item.student_number || "-"}</strong></div>
+            <div class="slot-history-card-meta">Plate: <strong>${item.plate_number || "-"}</strong></div>
+            <div class="slot-history-card-meta">Gate: <strong>${item.gate || "-"}</strong></div>
+            <div class="slot-history-card-meta">Parked At: <strong>${toPHT(item.scanned_at)}</strong></div>
+          </div>`;
+        }
+
+        function closeSlotHistoryModal() {
+          if (!slotHistoryModal) return;
+          slotHistoryModal.classList.remove("open");
+          slotHistoryModal.setAttribute("aria-hidden", "true");
+          document.body.classList.remove("modal-open");
+        }
+
+        async function openSlotHistoryModal(slotCode) {
+          if (!slotCode || !slotHistoryModal) return;
+          slotHistoryModal.classList.add("open");
+          slotHistoryModal.setAttribute("aria-hidden", "false");
+          document.body.classList.add("modal-open");
+          if (slotHistoryTitle) slotHistoryTitle.textContent = `Slot ${slotCode} History`;
+          if (slotHistoryMeta) slotHistoryMeta.textContent = "Loading slot history...";
+          if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory("Loading slot history...");
+
+          try {
+            const resp = await fetch(`/api/parking-slot-history?slot_code=${encodeURIComponent(slotCode)}`);
+            const data = await resp.json();
+            if (!data.ok) throw new Error(data.message || "Failed to load slot history.");
+            const rows = Array.isArray(data.rows) ? data.rows : [];
+            if (slotHistoryList) {
+              slotHistoryList.innerHTML = rows.length
+                ? rows.map(renderSlotHistoryCard).join("")
+                : renderEmptySlotHistory(`No parking history found for slot ${slotCode}.`);
+            }
+            if (slotHistoryMeta) {
+              slotHistoryMeta.textContent = `${rows.length} parking entr${rows.length === 1 ? "y" : "ies"} found for slot ${slotCode}`;
+            }
+          } catch (error) {
+            if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory(error.message || "Unable to load slot history.");
+            if (slotHistoryMeta) slotHistoryMeta.textContent = error.message || "Unable to load slot history.";
+          }
+        }
+
+        function attachParkingSlotHandlers() {
+          const cards = Array.from(document.querySelectorAll(".parking-slot-card"));
+          cards.forEach((card) => {
+            const slotCode = card.dataset.slotCode || "";
+            card.onclick = () => openSlotHistoryModal(slotCode);
+            card.onkeydown = (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openSlotHistoryModal(slotCode);
+              }
+            };
+          });
         }
 
         async function loadParkingHistory() {
@@ -629,6 +718,7 @@
                 : parkingSlots.length;
               parkingSlotsMetaEl.textContent = `${availableCount} available | ${occupiedCount} occupied | ${disabledCount} disabled | ${totalCount} total`;
             }
+            attachParkingSlotHandlers();
 
             const logs = data.movementLogs || [];
             if (movementTbody) {
@@ -656,12 +746,21 @@
         refreshDashboard();
         setInterval(refreshDashboard, 20000);
         if (refreshBtn) refreshBtn.addEventListener("click", refreshDashboard);
+        attachParkingSlotHandlers();
         if (parkingHistoryForm) {
           parkingHistoryForm.addEventListener("submit", (event) => {
             event.preventDefault();
             loadParkingHistory();
           });
         }
+        if (slotHistoryModal) {
+          slotHistoryModal.querySelectorAll("[data-close-slot-history]").forEach((el) => {
+            el.addEventListener("click", closeSlotHistoryModal);
+          });
+        }
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") closeSlotHistoryModal();
+        });
         loadParkingHistory();
       })();
     </script>
