@@ -56,13 +56,23 @@
             <h1>NAAP Parking</h1>
           </div>
           <div class="top-nav-actions">
-            <button class="theme-toggle" id="themeToggle" title="Toggle theme mode" aria-label="Toggle theme mode" style="border:none;background:transparent;font-size:1.2rem;width:auto;height:auto;">&#9790;</button>
+            <button class="icon-btn theme-toggle" id="themeToggle" title="Toggle theme mode" aria-label="Toggle theme mode">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+              </svg>
+            </button>
             <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
-            <a href="/logout" style="color:rgba(255,255,255,0.7); text-decoration:none; font-size:1.2rem; margin:0 0.5rem;" title="Sign Out">⎋</a>
-            <div class="avatar-dot" style="width:32px; height:32px; font-size:0.8rem; box-shadow:none;">N</div>
+            <a href="/logout" class="icon-btn signout-btn" title="Sign out" aria-label="Sign out">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                <path d="M10 17l5-5-5-5"></path>
+                <path d="M15 12H3"></path>
+              </svg>
+            </a>
+            <div class="avatar-dot top-nav-avatar">N</div>
           </div>
         </div>
-        
+
         <div class="top-nav-links">
           <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
           <a href="/students" class="<%= (pathNow === '/students' || pathNow === '/vehicles') ? 'active' : '' %>">Students &amp; Vehicles</a>
@@ -81,13 +91,16 @@
             window.addEventListener('DOMContentLoaded', () => {
               const toggleBtn = document.getElementById('themeToggle');
               const mobileToggleBtn = document.getElementById('mobileThemeToggle');
+              const moonIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+              const sunIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.93 4.93l1.41 1.41"></path><path d="M17.66 17.66l1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M6.34 17.66l-1.41 1.41"></path><path d="M19.07 4.93l-1.41 1.41"></path></svg>';
+
               const setThemeIcon = (theme) => {
                 const isDark = theme === 'dark';
-                const icon = isDark ? '\u2600' : '\u263E';
+                const icon = isDark ? sunIcon : moonIcon;
                 const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
                 [toggleBtn, mobileToggleBtn].forEach(btn => {
                   if (!btn) return;
-                  btn.textContent = icon;
+                  btn.innerHTML = icon;
                   btn.title = label;
                   btn.setAttribute('aria-label', label);
                 });
@@ -100,7 +113,6 @@
                 localStorage.setItem('theme', newTheme);
                 setThemeIcon(newTheme);
 
-                // Update button icons if needed
                 [toggleBtn, mobileToggleBtn].forEach(btn => {
                   if (btn) btn.blur();
                 });
@@ -111,4 +123,3 @@
               if (mobileToggleBtn) mobileToggleBtn.addEventListener('click', handleToggle);
             });
           </script>
-
