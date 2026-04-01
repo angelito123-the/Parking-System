@@ -1307,7 +1307,7 @@ body.modal-open {
 
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -1319,7 +1319,7 @@ body.modal-open {
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: none;
   }
 }
 

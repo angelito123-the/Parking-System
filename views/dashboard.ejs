@@ -404,6 +404,9 @@
         const slotHistoryTitle = document.getElementById("slotHistoryTitle");
         const slotHistoryMeta = document.getElementById("slotHistoryMeta");
         const slotHistoryList = document.getElementById("slotHistoryList");
+        if (slotHistoryModal && slotHistoryModal.parentElement !== document.body) {
+          document.body.appendChild(slotHistoryModal);
+        }
 
         window.forceExit = async function(stickerId, btn) {
           if (!confirm("Force exit this vehicle?")) return;
