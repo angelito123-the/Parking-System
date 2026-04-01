@@ -157,6 +157,21 @@
     let cameraStarted = false;
     let processingScan = false;
 
+    const QR_STATE = {
+      UNKNOWN: (typeof Html5QrcodeScannerState !== "undefined" && Html5QrcodeScannerState?.UNKNOWN !== undefined)
+        ? Html5QrcodeScannerState.UNKNOWN
+        : 0,
+      NOT_STARTED: (typeof Html5QrcodeScannerState !== "undefined" && Html5QrcodeScannerState?.NOT_STARTED !== undefined)
+        ? Html5QrcodeScannerState.NOT_STARTED
+        : 1,
+      SCANNING: (typeof Html5QrcodeScannerState !== "undefined" && Html5QrcodeScannerState?.SCANNING !== undefined)
+        ? Html5QrcodeScannerState.SCANNING
+        : 2,
+      PAUSED: (typeof Html5QrcodeScannerState !== "undefined" && Html5QrcodeScannerState?.PAUSED !== undefined)
+        ? Html5QrcodeScannerState.PAUSED
+        : 3
+    };
+
     let selectedSlotId = null;
     let pendingToken = null;
     let pendingSticker = null;
@@ -431,6 +446,7 @@
       pendingSlotOverview = null;
       selectedSlotId = null;
       confirmEntryBtn.disabled = true;
+      cancelEntryBtn.disabled = false;
       entryConfirmHint.textContent = "";
       entryStickerDetails.innerHTML = "";
       autoSlotMap.innerHTML = "";
@@ -467,19 +483,76 @@
       }
     }
 
-    async function resumeScanner(delayMs = 0) {
-      if (!html5QrCode || !cameraStarted) return;
-      window.setTimeout(async () => {
+    function getScannerState() {
+      if (!html5QrCode || typeof html5QrCode.getState !== "function") return QR_STATE.UNKNOWN;
+      try {
+        return html5QrCode.getState();
+      } catch (_error) {
+        return QR_STATE.UNKNOWN;
+      }
+    }
+
+    async function hardRestartScanner() {
+      if (html5QrCode) {
         try {
+          await html5QrCode.stop();
+        } catch (_stopError) {
+          // ignore stop race conditions
+        }
+        try {
+          await html5QrCode.clear();
+        } catch (_clearError) {
+          // ignore clear race conditions
+        }
+      }
+
+      html5QrCode = null;
+      cameraStarted = false;
+      toggleCameraBtn.textContent = "Stop Camera";
+      resetStability();
+      setCameraStatus("Reinitializing camera...", "ok");
+      setChip(chipCameraState, "Reinitializing", "warning");
+      setChip(chipAutoState, "Recovering Scanner", "warning");
+
+      await startCamera();
+    }
+
+    async function resumeScanner(delayMs = 0) {
+      const waitMs = Math.max(0, Number(delayMs) || 0);
+      if (waitMs) {
+        await new Promise((resolve) => window.setTimeout(resolve, waitMs));
+      }
+
+      if (!html5QrCode || !cameraStarted) {
+        await startCamera();
+        return;
+      }
+
+      const state = getScannerState();
+
+      try {
+        if (state === QR_STATE.SCANNING) {
+          setCameraStatus("Scanner active", "ok");
+          setChip(chipAutoState, "Auto-Scan Active", "live");
+          setChip(chipCameraState, "Camera Ready", "live");
+          resetStability();
+          return;
+        }
+
+        if (state === QR_STATE.PAUSED) {
           await html5QrCode.resume();
           setCameraStatus("Scanner active", "ok");
           setChip(chipAutoState, "Auto-Scan Active", "live");
+          setChip(chipCameraState, "Camera Ready", "live");
           resetStability();
-        } catch (_error) {
-          setCameraStatus("Unable to resume scanner", "error");
-          setChip(chipAutoState, "Scanner Paused", "warning");
+          return;
         }
-      }, Math.max(0, delayMs));
+
+        await hardRestartScanner();
+      } catch (_error) {
+        setCameraStatus("Scanner resume failed. Reinitializing...", "error");
+        await hardRestartScanner();
+      }
     }
 
     async function fetchLatestSlotOverview() {
@@ -706,13 +779,20 @@
     }
 
     async function stopCamera() {
-      if (!html5QrCode || !cameraStarted) return;
+      if (!html5QrCode && !cameraStarted) return;
 
-      try {
-        await html5QrCode.stop();
-        await html5QrCode.clear();
-      } catch (_error) {
-        // ignore stop race conditions
+      if (html5QrCode) {
+        try {
+          await html5QrCode.stop();
+        } catch (_stopError) {
+          // ignore stop race conditions
+        }
+
+        try {
+          await html5QrCode.clear();
+        } catch (_clearError) {
+          // ignore clear race conditions
+        }
       }
 
       html5QrCode = null;
