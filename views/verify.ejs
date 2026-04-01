@@ -315,6 +315,8 @@
   <%
     const vResult = result.result || "INVALID";
     const statusClass = result.ok ? "valid" : String(vResult).toLowerCase();
+    const roleNow = String(currentRole || "").toLowerCase();
+    const canRecordMovement = roleNow === "admin" || roleNow === "guard";
     const slotOverview = parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
     const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
     const grouped = slots.reduce((acc, slot) => {
@@ -386,7 +388,7 @@
           <div><span>Occupied</span><strong style="color:#b91c1c;"><%= slotOverview.summary?.occupied || 0 %></strong></div>
         </div>
 
-        <% if (result.ok && !result.movement_saved) { %>
+        <% if (result.ok && !result.movement_saved && canRecordMovement) { %>
           <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" id="movementForm" class="movement-form" style="margin-top:0.95rem;">
             <label class="verify-label" for="gateField" style="margin-bottom:0;">Gate Name</label>
             <input id="gateField" name="gate" value="Main Gate" />
@@ -418,6 +420,13 @@
             </div>
             <p id="movementHint" class="verify-msg" style="font-size:0.8rem; margin:0;"></p>
           </form>
+        <% } %>
+
+        <% if (result.ok && !result.movement_saved && !canRecordMovement) { %>
+          <p class="verify-msg" style="margin-top:0.95rem;">
+            Guard/Admin login is required to record ENTRY or EXIT.
+            <a href="/login">Sign in</a> to continue.
+          </p>
         <% } %>
 
         <% if (!result.ok && !result.sticker) { %>

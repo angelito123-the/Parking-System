@@ -33,6 +33,9 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 
 ## Main Features
 
+- Role-based access control (Admin and Guard)
+- Secure login with hashed passwords (`bcryptjs`)
+- Role-specific dashboards and dynamic navigation
 - Register students
 - Register student vehicles
 - Issue parking stickers with unique QR token
@@ -46,19 +49,21 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 
 ## Routes
 
-- `/` Dashboard and recent scans
-- `/students` Manage students
-- `/vehicles` Manage vehicles
-- `/stickers` Issue/revoke stickers and view QR links
-- `/scanner` Live camera QR scanner
-- `/scanner/auto` Automatic gate phone camera scanner
+- `/` Role-based redirect (Admin/Guard)
+- `/admin` Admin dashboard
+- `/admin/users` User management and role assignment
+- `/guard` Guard dashboard
+- `/students` Manage students (Admin)
+- `/stickers` Issue/revoke stickers and view QR links (Admin)
+- `/scanner` Live camera QR scanner (Guard/Admin)
+- `/scanner/auto` Automatic gate phone camera scanner (Guard/Admin)
 - `/verify/:token` Manual verification endpoint
-- `POST /api/scan` Scan API used by scanner page
-- `POST /api/auto-scan/detect` Auto-detect QR and trigger ENTRY/EXIT flow
-- `POST /api/auto-scan/confirm-entry` Guard-confirmed ENTRY save with slot assignment
-- `/reports` Analytics page with filters and CSV export (`?format=csv`)
+- `POST /api/scan` Scan API used by scanner page (Guard/Admin)
+- `POST /api/auto-scan/detect` Auto-detect QR and trigger ENTRY/EXIT flow (Guard/Admin)
+- `POST /api/auto-scan/confirm-entry` Guard-confirmed ENTRY save with slot assignment (Guard/Admin)
+- `/reports` Analytics page with filters and CSV export (`?format=csv`) (Admin)
 
 ## Notes
 
-- For production, add user authentication/roles for admin and guards.
+- Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.

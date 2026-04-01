@@ -42,10 +42,46 @@
     })();
   </script>
 </head>
-<% const pathNow=typeof currentPath==="string" ? currentPath : "" ; const pageSlug=(pathNow==="/" ? "dashboard" :
-  pathNow.replace(/\//g, "-" ).replace(/^-+/, "" )) || "dashboard" ; const pageTitleMap={ "/" : "Dashboard"
-  , "/students" : "Students & Vehicles" , "/stickers" : "Stickers" , "/reports" : "Reports" , "/scanner"
-  : "Gate Console", "/scanner/auto": "Automatic Gate Camera" }; const pageTitle=pageTitleMap[pathNow] || "Verification" ; %>
+<%
+  const pathNow = typeof currentPath === "string" ? currentPath : "";
+  const safeUser = typeof currentUser === "object" && currentUser ? currentUser : null;
+  const roleNow = String(safeUser?.role || "").toLowerCase();
+  const usernameNow = String(safeUser?.username || "User");
+  const avatarInitial = usernameNow ? usernameNow.charAt(0).toUpperCase() : "U";
+  const roleLabelMap = {
+    admin: "Admin",
+    guard: "Guard"
+  };
+  const roleLabel = roleLabelMap[roleNow] || "User";
+  const pageSlug = (pathNow === "/" ? "dashboard" : pathNow.replace(/\//g, "-").replace(/^-+/, "")) || "dashboard";
+  const pageTitleMap = {
+    "/": "Dashboard",
+    "/admin": "Admin Dashboard",
+    "/guard": "Guard Dashboard",
+    "/admin/users": "User Management",
+    "/students": "Students & Vehicles",
+    "/stickers": "Stickers",
+    "/reports": "Reports",
+    "/scanner": "Gate Console",
+    "/scanner/auto": "Automatic Gate Camera"
+  };
+  const pageTitle = pageTitleMap[pathNow] || "NAAP Parking";
+  const navLinksByRole = {
+    admin: [
+      { href: "/admin", label: "Dashboard", active: ["/", "/admin"] },
+      { href: "/admin/users", label: "Users", active: ["/admin/users"] },
+      { href: "/students", label: "Students & Vehicles", active: ["/students", "/vehicles"] },
+      { href: "/stickers", label: "Stickers", active: ["/stickers"] },
+      { href: "/reports", label: "Reports", active: ["/reports"] },
+      { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto", "/guard"] }
+    ],
+    guard: [
+      { href: "/guard", label: "Dashboard", active: ["/guard"] },
+      { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto"] }
+    ]
+  };
+  const navLinks = navLinksByRole[roleNow] || [];
+%>
 
   <body class="page-<%= pageSlug %>">
     <div class="app-shell">
@@ -62,6 +98,7 @@
               </svg>
             </button>
             <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
+            <span class="role-chip"><%= roleLabel %></span>
             <a href="/logout" class="icon-btn signout-btn" title="Sign out" aria-label="Sign out">
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
@@ -69,16 +106,15 @@
                 <path d="M15 12H3"></path>
               </svg>
             </a>
-            <div class="avatar-dot top-nav-avatar">N</div>
+            <div class="avatar-dot top-nav-avatar"><%= avatarInitial %></div>
           </div>
         </div>
 
         <div class="top-nav-links">
-          <a href="/" class="<%= pathNow === '/' ? 'active' : '' %>">Dashboard</a>
-          <a href="/students" class="<%= (pathNow === '/students' || pathNow === '/vehicles') ? 'active' : '' %>">Students &amp; Vehicles</a>
-          <a href="/stickers" class="<%= pathNow === '/stickers' ? 'active' : '' %>">Stickers</a>
-          <a href="/reports" class="<%= pathNow === '/reports' ? 'active' : '' %>">Reports</a>
-          <a href="/scanner" class="<%= pathNow === '/scanner' || pathNow === '/scanner/auto' ? 'active' : '' %>">Gate Console</a>
+          <% navLinks.forEach((link) => { %>
+            <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
+            <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>"><%= link.label %></a>
+          <% }) %>
         </div>
       </nav>
 

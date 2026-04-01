@@ -10,6 +10,28 @@ CREATE TABLE IF NOT EXISTS students (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  username VARCHAR(80) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role ENUM('admin', 'guard') NOT NULL,
+  student_id INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_users_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  title VARCHAR(150) NOT NULL,
+  body TEXT NOT NULL,
+  published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO announcements (id, title, body) VALUES
+  (1, 'Welcome to NAAP Parking', 'Use your assigned QR and follow guard instructions when entering campus.'),
+  (2, 'Gate Reminder', 'Always park only in the assigned slot to avoid violations and delayed exit processing.');
+
 CREATE TABLE IF NOT EXISTS vehicles (
   id INT PRIMARY KEY AUTO_INCREMENT,
   student_id INT NOT NULL,

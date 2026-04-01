@@ -1,0 +1,168 @@
+<%- include("partials/header") %>
+
+<%
+  const safeUsers = Array.isArray(users) ? users : [];
+  const adminCount = safeUsers.filter((user) => user.role === "admin").length;
+  const guardCount = safeUsers.filter((user) => user.role === "guard").length;
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Administration</h2>
+    <h1>User Management</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Total Users</h3>
+      <p><%= safeUsers.length %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Admins</h3>
+      <p><%= adminCount %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Guards</h3>
+      <p><%= guardCount %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Role Types</h3>
+      <p>2</p>
+    </div>
+  </div>
+  <% if (flash) { %>
+    <div class="flash flash-<%= flash.type === 'success' ? 'success' : 'error' %>" style="margin-top:1rem;">
+      <%= flash.message %>
+    </div>
+  <% } %>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Add User</h2>
+      <p>Create a new account and assign either Admin or Guard role.</p>
+    </div>
+
+    <form method="post" action="/admin/users" class="form-grid user-admin-form">
+      <div class="form-row-3">
+        <div>
+          <label for="new_username">Username <span class="req">*</span></label>
+          <input id="new_username" name="username" required autocomplete="off" />
+        </div>
+        <div>
+          <label for="new_password">Password <span class="req">*</span></label>
+          <input id="new_password" name="password" type="password" required />
+        </div>
+        <div>
+          <label for="new_role">Role <span class="req">*</span></label>
+          <select id="new_role" name="role" required>
+            <option value="admin">Admin</option>
+            <option value="guard">Guard</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit">Create User</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Existing Accounts</h2>
+      <p>Edit role, reset password, or remove accounts.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeUsers.length) { %>
+            <tr>
+              <td colspan="4">
+                <div class="empty-state"><p>No users found.</p></div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeUsers.forEach((user) => { %>
+            <tr>
+              <td><strong><%= user.username %></strong></td>
+              <td><span class="badge"><%= user.role %></span></td>
+              <td><%= new Date(user.created_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
+              <td>
+                <button
+                  type="button"
+                  class="btn-edit-sm"
+                  onclick="window.toggleUserEditor('<%= user.id %>')"
+                  id="editUserBtn_<%= user.id %>">
+                  Edit
+                </button>
+              </td>
+            </tr>
+            <tr id="userEditor_<%= user.id %>" style="display:none;">
+              <td colspan="4">
+                <form method="post" action="/admin/users/<%= user.id %>/edit" class="inline-edit-form" style="display:block;">
+                  <div class="form-row-3">
+                    <div>
+                      <label>Username</label>
+                      <input name="username" value="<%= user.username %>" required />
+                    </div>
+                    <div>
+                      <label>Role</label>
+                      <select name="role" required>
+                        <option value="admin" <%= user.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                        <option value="guard" <%= user.role === 'guard' ? 'selected' : '' %>>Guard</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>New Password (Optional)</label>
+                      <input type="password" name="password" placeholder="Leave blank to keep current" />
+                    </div>
+                  </div>
+                  <div class="edit-form-actions">
+                    <button type="submit" class="btn-save-sm">Save Changes</button>
+                    <button
+                      type="button"
+                      class="btn-cancel-sm"
+                      onclick="window.toggleUserEditor('<%= user.id %>')">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+                <form
+                  method="post"
+                  action="/admin/users/<%= user.id %>/delete"
+                  onsubmit="return confirm('Delete user <%= user.username %>? This cannot be undone.')"
+                  style="margin-top:0.75rem;">
+                  <button type="submit" class="btn-delete-sm">Delete User</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    window.toggleUserEditor = (userId) => {
+      const row = document.getElementById(`userEditor_${userId}`);
+      const trigger = document.getElementById(`editUserBtn_${userId}`);
+      if (!row || !trigger) return;
+      const isOpen = row.style.display !== "none";
+      row.style.display = isOpen ? "none" : "";
+      trigger.textContent = isOpen ? "Edit" : "Close";
+    };
+  })();
+</script>
+
+<%- include("partials/footer") %>

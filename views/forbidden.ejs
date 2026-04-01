@@ -1,0 +1,24 @@
+<%- include("partials/header") %>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>403 Forbidden</h1>
+  </div>
+  <p style="color: rgba(255,255,255,0.8); margin-top: 0.5rem;">
+    Your role does not have permission to open this page.
+  </p>
+</section>
+
+<div class="overlap-wrapper">
+  <section class="panel forbidden-panel">
+    <h2>Access Denied</h2>
+    <p><%= message || "You do not have permission to view this page." %></p>
+    <div class="forbidden-actions">
+      <a href="<%= homePath || '/' %>" class="btn-sm">Back to My Dashboard</a>
+      <a href="/logout" class="btn-sm danger">Sign Out</a>
+    </div>
+  </section>
+</div>
+
+<%- include("partials/footer") %>

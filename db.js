@@ -1,6 +1,7 @@
 const mysql = require("mysql2/promise");
 const fs = require("fs");
 const path = require("path");
+const bcrypt = require("bcryptjs");
 require("dotenv").config();
 
 const host = process.env.DB_HOST || process.env.MYSQLHOST || "localhost";
@@ -35,6 +36,20 @@ async function ensureDatabaseSchema() {
   await ensureParkingSlotMigrations();
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
+  await ensureUserMigrations();
+  await ensureAnnouncementMigrations();
+}
+
+async function tableExists(tableName) {
+  const [rows] = await pool.query(
+    `SELECT 1
+     FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+     LIMIT 1`,
+    [database, tableName]
+  );
+  return rows.length > 0;
 }
 
 async function columnExists(tableName, columnName) {
@@ -61,6 +76,135 @@ async function constraintExists(tableName, constraintName) {
     [database, tableName, constraintName]
   );
   return rows.length > 0;
+}
+
+async function ensureUserMigrations() {
+  await pool.query("SET FOREIGN_KEY_CHECKS = 0");
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        username VARCHAR(80) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'guard') NOT NULL,
+        student_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    if (!(await columnExists("users", "username"))) {
+      await pool.query("ALTER TABLE users ADD COLUMN username VARCHAR(80) NOT NULL UNIQUE");
+    }
+    if (!(await columnExists("users", "password"))) {
+      await pool.query("ALTER TABLE users ADD COLUMN password VARCHAR(255) NOT NULL");
+    }
+    if (!(await columnExists("users", "role"))) {
+      await pool.query(
+        "ALTER TABLE users ADD COLUMN role ENUM('admin', 'guard') NOT NULL DEFAULT 'guard' AFTER password"
+      );
+    }
+    if (!(await columnExists("users", "student_id"))) {
+      await pool.query("ALTER TABLE users ADD COLUMN student_id INT NULL AFTER role");
+    }
+    if (!(await columnExists("users", "updated_at"))) {
+      await pool.query(
+        "ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+      );
+    }
+  } finally {
+    await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+  }
+
+  if (!(await constraintExists("users", "fk_users_student"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE users ADD CONSTRAINT fk_users_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL"
+      );
+    } catch (error) {
+      if (error.errno !== 1826 && error.errno !== 1061) {
+        console.warn("users fk_users_student warning (non-fatal):", error.message);
+      }
+    }
+  }
+
+  // Normalize legacy role values before tightening enum values.
+  await pool.query(
+    `UPDATE users
+     SET
+       role = CASE
+         WHEN role = 'admin' THEN 'admin'
+         WHEN role = 'guard' THEN 'guard'
+         ELSE 'guard'
+       END`
+  );
+
+  try {
+    await pool.query(
+      "ALTER TABLE users MODIFY COLUMN role ENUM('admin', 'guard') NOT NULL DEFAULT 'guard'"
+    );
+  } catch (error) {
+    console.warn("users role enum migration warning (non-fatal):", error.message);
+  }
+
+  const defaultUsers = [
+    {
+      username: String(process.env.ADMIN_USERNAME || "admin").trim(),
+      password: String(process.env.ADMIN_PASSWORD || "naap2024"),
+      role: "admin",
+      studentId: null
+    },
+    {
+      username: String(process.env.GUARD_USERNAME || "guard").trim(),
+      password: String(process.env.GUARD_PASSWORD || "guard123"),
+      role: "guard",
+      studentId: null
+    }
+  ];
+
+  for (const seededUser of defaultUsers) {
+    if (!seededUser.username || !seededUser.password) continue;
+
+    const [existingRows] = await pool.query(
+      "SELECT id, role, password FROM users WHERE username = ? LIMIT 1",
+      [seededUser.username]
+    );
+
+    if (!existingRows.length) {
+      const hashedPassword = await bcrypt.hash(seededUser.password, 10);
+      await pool.query(
+        "INSERT INTO users (username, password, role, student_id) VALUES (?, ?, ?, ?)",
+        [seededUser.username, hashedPassword, seededUser.role, seededUser.studentId]
+      );
+      continue;
+    }
+
+    const existingUser = existingRows[0];
+    const rawPassword = String(existingUser.password || "");
+    if (rawPassword && !rawPassword.startsWith("$2")) {
+      const migratedHash = await bcrypt.hash(rawPassword, 10);
+      await pool.query("UPDATE users SET password = ? WHERE id = ?", [migratedHash, existingUser.id]);
+    }
+  }
+}
+
+async function ensureAnnouncementMigrations() {
+  if (!(await tableExists("announcements"))) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS announcements (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        title VARCHAR(150) NOT NULL,
+        body TEXT NOT NULL,
+        published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  await pool.query(`
+    INSERT IGNORE INTO announcements (id, title, body) VALUES
+      (1, 'Welcome to NAAP Parking', 'Use your assigned QR and follow guard instructions when entering campus.'),
+      (2, 'Gate Reminder', 'Always park only in the assigned slot to avoid violations and delayed exit processing.')
+  `);
 }
 
 async function ensureParkingSlotMigrations() {

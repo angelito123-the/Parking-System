@@ -1,0 +1,189 @@
+<%- include("partials/header") %>
+
+<%
+  const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
+  const safeInsideVehicles = Array.isArray(insideVehicles) ? insideVehicles : [];
+  const safeOverstayAlerts = Array.isArray(overstayAlerts) ? overstayAlerts : [];
+  const safeVisitorLogs = Array.isArray(visitorLogs) ? visitorLogs : [];
+  const summary = typeof parkingSlotSummary === "object" && parkingSlotSummary
+    ? parkingSlotSummary
+    : { total: 0, available: 0, occupied: 0, disabled: 0 };
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Security Operations</h2>
+    <h1>Guard Dashboard</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Today Entries</h3>
+      <p><%= safeMetrics.todayEntries || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Today Exits</h3>
+      <p><%= safeMetrics.todayExits || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Inside Campus</h3>
+      <p><%= safeMetrics.currentlyInside || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+      <h3>Alert Notifications</h3>
+      <p><%= safeMetrics.overstayAlerts || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Pending Approvals</h3>
+      <p><%= safeMetrics.pendingApprovals || 0 %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
+  <section class="panel quick-links-panel">
+    <div class="section-head">
+      <h2>Guard Tools</h2>
+      <p>Use the camera monitor and gate console to process entry and exit quickly.</p>
+    </div>
+    <div class="quick-links-grid">
+      <a href="/scanner" class="quick-link-card">
+        <h3>Gate Console</h3>
+        <p>Entry and exit monitoring, manual movement, and pending confirmations.</p>
+      </a>
+      <a href="/scanner/auto" class="quick-link-card">
+        <h3>Phone Camera Scan</h3>
+        <p>Live camera mode for automatic QR detection at the gate.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Current Occupancy</h2>
+      <p>
+        <%= summary.available || 0 %> available ·
+        <%= summary.occupied || 0 %> occupied ·
+        <%= summary.disabled || 0 %> disabled ·
+        <%= summary.total || 0 %> total
+      </p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Plate</th>
+            <th>Slot</th>
+            <th>Gate</th>
+            <th>Duration</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeInsideVehicles.length) { %>
+            <tr>
+              <td colspan="6">
+                <div class="empty-state">
+                  <p>No vehicles currently inside.</p>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeInsideVehicles.forEach((item) => { %>
+            <tr>
+              <td>
+                <strong><%= item.full_name || "-" %></strong><br />
+                <small><%= item.student_number || "-" %></small>
+              </td>
+              <td><%= item.plate_number || "-" %></td>
+              <td><%= item.parking_slot || "-" %></td>
+              <td><%= item.entry_gate || "-" %></td>
+              <td><%= item.duration_label || "-" %></td>
+              <td>
+                <% if (item.is_overstay) { %>
+                  <span class="badge badge-overstay">Overstay</span>
+                <% } else { %>
+                  <span class="badge badge-inside">Inside</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Alert Notifications</h2>
+      <p>Vehicles parked beyond <%= overstayLimitLabel || "4" %> hour(s).</p>
+    </div>
+    <div class="updates-list">
+      <% if (!safeOverstayAlerts.length) { %>
+        <div class="empty-state"><p>No active alerts right now.</p></div>
+      <% } %>
+      <% safeOverstayAlerts.forEach((item) => { %>
+        <div class="update-item">
+          <span class="update-dot invalid"></span>
+          <div>
+            <p>
+              <strong><%= item.full_name || "Unknown Student" %></strong>
+              <span class="badge badge-overstay">Overstay</span>
+            </p>
+            <p class="helper-text">
+              <%= item.plate_number || "-" %> · Slot <%= item.parking_slot || "-" %> ·
+              <%= item.overstay_label || "Over limit" %>
+            </p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Visitor Logs</h2>
+      <p>Latest valid gate movements.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date/Time</th>
+            <th>Student</th>
+            <th>Plate</th>
+            <th>Slot</th>
+            <th>Gate</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeVisitorLogs.length) { %>
+            <tr>
+              <td colspan="6">
+                <div class="empty-state"><p>No logs available yet.</p></div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeVisitorLogs.forEach((log) => { %>
+            <tr>
+              <td><%= new Date(log.scanned_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
+              <td>
+                <strong><%= log.full_name || "-" %></strong><br />
+                <small><%= log.student_number || "-" %></small>
+              </td>
+              <td><%= log.plate_number || "-" %></td>
+              <td><%= log.parking_slot || "-" %></td>
+              <td><%= log.gate || "-" %></td>
+              <td>
+                <span class="badge badge-<%= String(log.action || '').toLowerCase() %>"><%= log.action || "-" %></span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<%- include("partials/footer") %>

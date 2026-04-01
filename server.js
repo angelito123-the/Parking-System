@@ -4,6 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
+const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const { pool, ensureDatabaseSchema } = require("./db");
 require("dotenv").config();
@@ -24,11 +25,14 @@ const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
   ? Math.max(0.5, rawOverstayLimitHours)
   : 4;
 const OVERSTAY_LIMIT_MINUTES = Math.max(1, Math.round(OVERSTAY_LIMIT_HOURS * 60));
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "naap2024";
 const SESSION_SECRET = process.env.SESSION_SECRET || "naap-parking-secret";
 const SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
+const USER_ROLES = Object.freeze({
+  ADMIN: "admin",
+  GUARD: "guard"
+});
+const VALID_ROLES = new Set(Object.values(USER_ROLES));
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -45,40 +49,157 @@ app.use(session({
     maxAge: 8 * 60 * 60 * 1000  // 8 hours
   }
 }));
+function normalizeRole(rawRole) {
+  const role = String(rawRole || "").trim().toLowerCase();
+  return VALID_ROLES.has(role) ? role : null;
+}
+
+function getRoleHomePath(role) {
+  const safeRole = normalizeRole(role);
+  if (safeRole === USER_ROLES.ADMIN) return "/admin";
+  if (safeRole === USER_ROLES.GUARD) return "/guard";
+  return "/login";
+}
+
+function getSessionUser(req) {
+  const user = req.session?.user;
+  if (!user || typeof user !== "object") return null;
+  const role = normalizeRole(user.role);
+  if (!role) return null;
+  return {
+    id: Number(user.id) || null,
+    username: String(user.username || "").trim(),
+    role
+  };
+}
+
+function getAuthActorName(req) {
+  const username = req.authUser?.username || getSessionUser(req)?.username || "";
+  return username || "system";
+}
+
+function isApiRequest(req) {
+  return req.path.startsWith("/api/");
+}
+
+function renderForbiddenPage(req, res, message = "You do not have permission to view this page.") {
+  if (isApiRequest(req)) {
+    return res.status(403).json({ ok: false, message: "Forbidden." });
+  }
+  return res.status(403).render("forbidden", {
+    message,
+    homePath: getRoleHomePath(getSessionUser(req)?.role)
+  });
+}
 app.use((req, res, next) => {
   res.locals.currentPath = req.path;
   res.locals.requestBaseUrl = `${req.protocol}://${req.get("host")}`;
-  res.locals.adminUser = req.session.adminUser || null;
+  const user = getSessionUser(req);
+  res.locals.currentUser = user;
+  res.locals.currentRole = user?.role || null;
   next();
 });
 
-// Auth middleware — protects all admin routes
+// Auth middleware for all protected routes
 function requireAuth(req, res, next) {
-  if (req.session && req.session.adminUser) return next();
-  if (req.path.startsWith("/api/")) {
+  const user = getSessionUser(req);
+  if (user) {
+    req.authUser = user;
+    return next();
+  }
+  if (isApiRequest(req)) {
     return res.status(401).json({ ok: false, message: "Unauthorized. Please log in again." });
   }
   res.redirect("/login");
 }
 
+function requireRole(...roles) {
+  const allowedRoles = roles
+    .map((role) => normalizeRole(role))
+    .filter(Boolean);
+
+  return (req, res, next) => {
+    const user = getSessionUser(req);
+    if (!user) {
+      if (isApiRequest(req)) {
+        return res.status(401).json({ ok: false, message: "Unauthorized. Please log in again." });
+      }
+      return res.redirect("/login");
+    }
+
+    if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+      return renderForbiddenPage(req, res);
+    }
+
+    req.authUser = user;
+    return next();
+  };
+}
+
 // Login routes
 app.get("/login", (req, res) => {
-  if (req.session.adminUser) return res.redirect("/");
+  const user = getSessionUser(req);
+  if (user) {
+    return res.redirect(getRoleHomePath(user.role));
+  }
   res.render("login", { error: null, usernameVal: "" });
 });
 
-app.post("/login", (req, res) => {
-  const { username, password } = req.body;
-  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-    req.session.adminUser = username;
-    return res.redirect("/");
+app.post("/login", async (req, res) => {
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+
+  if (!username || !password) {
+    return res.render("login", { error: "Please enter your username and password.", usernameVal: username });
   }
-  res.render("login", { error: "Invalid username or password.", usernameVal: username });
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, username, password, role
+       FROM users
+       WHERE username = ?
+       LIMIT 1`,
+      [username]
+    );
+
+    if (!rows.length) {
+      return res.render("login", { error: "Invalid username or password.", usernameVal: username });
+    }
+
+    const user = rows[0];
+    const role = normalizeRole(user.role);
+    if (!role) {
+      return res.render("login", {
+        error: "Your account role is invalid. Please contact an administrator.",
+        usernameVal: username
+      });
+    }
+
+    const passwordHash = String(user.password || "");
+    const passwordMatched = passwordHash.startsWith("$2")
+      ? await bcrypt.compare(password, passwordHash)
+      : password === passwordHash;
+
+    if (!passwordMatched) {
+      return res.render("login", { error: "Invalid username or password.", usernameVal: username });
+    }
+
+    req.session.user = {
+      id: Number(user.id) || null,
+      username: String(user.username || "").trim(),
+      role
+    };
+    return res.redirect(getRoleHomePath(role));
+  } catch (error) {
+    console.error("Login error:", error);
+    return res.render("login", { error: "Unable to sign in right now. Please try again.", usernameVal: username });
+  }
 });
 
 app.get("/logout", (req, res) => {
-  req.session.destroy();
-  res.redirect("/login");
+  req.session.destroy(() => {
+    res.redirect("/login");
+  });
 });
 
 function createStickerCode() {
@@ -758,6 +879,75 @@ async function getReportsData(filters) {
   };
 }
 
+async function getGuardDashboardData() {
+  const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
+  const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
+  const parkingSlotOverview = await getParkingSlotOverview();
+
+  const [[todayEntries]] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM scan_logs
+     WHERE result = 'VALID'
+       AND action = 'ENTRY'
+       AND DATE(scanned_at) = CURDATE()`
+  );
+  const [[todayExits]] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM scan_logs
+     WHERE result = 'VALID'
+       AND action = 'EXIT'
+       AND DATE(scanned_at) = CURDATE()`
+  );
+  const [[pendingQueue]] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM auto_scan_queue
+     WHERE status = 'PENDING'`
+  );
+  const [[invalidScans]] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM scan_logs
+     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
+       AND DATE(scanned_at) = CURDATE()`
+  );
+
+  const [visitorLogs] = await pool.query(
+    `SELECT
+       sl.scanned_at,
+       sl.action,
+       sl.result,
+       sl.gate,
+       ps.slot_code AS parking_slot,
+       st.full_name,
+       st.student_number,
+       v.plate_number
+     FROM scan_logs sl
+     LEFT JOIN stickers s ON s.id = sl.sticker_id
+     LEFT JOIN vehicles v ON v.id = s.vehicle_id
+     LEFT JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+     WHERE sl.result = 'VALID'
+       AND sl.action IN ('ENTRY', 'EXIT')
+     ORDER BY sl.scanned_at DESC
+     LIMIT 40`
+  );
+
+  return {
+    metrics: {
+      todayEntries: Number(todayEntries?.total || 0),
+      todayExits: Number(todayExits?.total || 0),
+      currentlyInside: insideVehicles.length,
+      overstayAlerts: overstayAlerts.length,
+      pendingApprovals: Number(pendingQueue?.total || 0),
+      invalidScans: Number(invalidScans?.total || 0)
+    },
+    insideVehicles,
+    overstayAlerts,
+    visitorLogs,
+    parkingSlotSummary: parkingSlotOverview.summary,
+    overstayLimitLabel: formatHoursLabel(OVERSTAY_LIMIT_HOURS)
+  };
+}
+
 async function getAvailableParkingSlots(db = pool) {
   const [rows] = await db.query(
     `SELECT id, slot_code, zone
@@ -1123,7 +1313,15 @@ async function verifyAndLog(token, gate = "Manual Verification") {
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
-app.get("/", requireAuth, async (req, res) => {
+app.get("/", requireAuth, (req, res) => {
+  res.redirect(getRoleHomePath(req.authUser?.role));
+});
+
+app.get("/forbidden", requireAuth, (req, res) => {
+  return renderForbiddenPage(req, res);
+});
+
+app.get("/admin", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const data = await getDashboardData();
     res.render("dashboard", data);
@@ -1133,8 +1331,165 @@ app.get("/", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/guard", requireRole(USER_ROLES.GUARD, USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const data = await getGuardDashboardData();
+    res.render("guard_dashboard", data);
+  } catch (error) {
+    console.error("Guard dashboard error:", error);
+    res.status(500).send("An error occurred loading the guard dashboard.");
+  }
+});
+
+app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const [users] = await pool.query(
+      `SELECT
+         u.id,
+         u.username,
+         u.role,
+         u.created_at
+       FROM users u
+       ORDER BY
+         CASE
+           WHEN u.role = 'admin' THEN 1
+           WHEN u.role = 'guard' THEN 2
+           ELSE 99
+         END,
+         u.username ASC`
+    );
+
+    const flash = req.query.success
+      ? { type: "success", message: "User saved successfully." }
+      : req.query.updated
+        ? { type: "success", message: "User updated successfully." }
+        : req.query.deleted
+          ? { type: "success", message: "User deleted successfully." }
+          : req.query.error === "duplicate"
+            ? { type: "error", message: "Username already exists." }
+            : req.query.error === "self-delete"
+              ? { type: "error", message: "You cannot delete your own account." }
+              : req.query.error === "self-role"
+                ? { type: "error", message: "You cannot remove your own admin role." }
+                : req.query.error === "invalid"
+                  ? { type: "error", message: "Invalid user details provided." }
+                : req.query.error === "notfound"
+                    ? { type: "error", message: "User was not found." }
+                    : null;
+
+    res.render("admin_users", { users, flash });
+  } catch (error) {
+    console.error("Admin users page error:", error);
+    res.status(500).send("An error occurred loading user management.");
+  }
+});
+
+app.post("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const username = String(req.body.username || "").trim();
+  const password = String(req.body.password || "");
+  const role = normalizeRole(req.body.role);
+
+  if (!username || !password || !role) {
+    return res.redirect("/admin/users?error=invalid");
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    await pool.query(
+      "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+      [username, passwordHash, role]
+    );
+    return res.redirect("/admin/users?success=1");
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.redirect("/admin/users?error=duplicate");
+    }
+    console.error("Create user error:", error);
+    return res.redirect("/admin/users?error=invalid");
+  }
+});
+
+app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const userId = Number(req.params.id);
+  const username = String(req.body.username || "").trim();
+  const role = normalizeRole(req.body.role);
+  const password = String(req.body.password || "");
+
+  if (!Number.isInteger(userId) || userId <= 0 || !username || !role) {
+    return res.redirect("/admin/users?error=invalid");
+  }
+
+  try {
+    const [existingRows] = await pool.query(
+      "SELECT id, role FROM users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    if (!existingRows.length) {
+      return res.redirect("/admin/users?error=notfound");
+    }
+
+    if (
+      req.authUser?.id &&
+      Number(req.authUser.id) === userId &&
+      role !== USER_ROLES.ADMIN
+    ) {
+      return res.redirect("/admin/users?error=self-role");
+    }
+
+    if (password) {
+      const passwordHash = await bcrypt.hash(password, 10);
+      await pool.query(
+        `UPDATE users
+         SET username = ?, role = ?, password = ?
+         WHERE id = ?`,
+        [username, role, passwordHash, userId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE users
+         SET username = ?, role = ?
+         WHERE id = ?`,
+        [username, role, userId]
+      );
+    }
+
+    if (req.authUser?.id && Number(req.authUser.id) === userId) {
+      req.session.user = {
+        ...(req.session.user || {}),
+        username,
+        role
+      };
+    }
+    return res.redirect("/admin/users?updated=1");
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.redirect("/admin/users?error=duplicate");
+    }
+    console.error("Update user error:", error);
+    return res.redirect("/admin/users?error=invalid");
+  }
+});
+
+app.post("/admin/users/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.redirect("/admin/users?error=invalid");
+  }
+  if (req.authUser?.id && Number(req.authUser.id) === userId) {
+    return res.redirect("/admin/users?error=self-delete");
+  }
+
+  try {
+    await pool.query("DELETE FROM users WHERE id = ?", [userId]);
+    return res.redirect("/admin/users?deleted=1");
+  } catch (error) {
+    console.error("Delete user error:", error);
+    return res.redirect("/admin/users?error=invalid");
+  }
+});
+
 // API: inside vehicles (for dashboard auto-refresh)
-app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
+app.get("/api/inside-vehicles", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
     const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
@@ -1154,7 +1509,7 @@ app.get("/api/inside-vehicles", requireAuth, async (req, res) => {
 });
 
 // API: full dashboard stats refresh (metrics + movement log)
-app.get("/api/dashboard-stats", requireAuth, async (req, res) => {
+app.get("/api/dashboard-stats", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const data = await getDashboardData();
     res.json({ ok: true, ...data });
@@ -1165,7 +1520,7 @@ app.get("/api/dashboard-stats", requireAuth, async (req, res) => {
 });
 
 // API: parking history filtered by day and time window
-app.get("/api/parking-history", requireAuth, async (req, res) => {
+app.get("/api/parking-history", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const date = toDateOnly(req.query.date) || toDateOnly(new Date());
     const rawFrom = String(req.query.from_time || "").trim();
@@ -1221,7 +1576,7 @@ app.get("/api/parking-history", requireAuth, async (req, res) => {
 });
 
 // API: parking history for a specific slot (latest ENTRY records)
-app.get("/api/parking-slot-history", requireAuth, async (req, res) => {
+app.get("/api/parking-slot-history", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     const slotCode = String(req.query.slot_code || "").trim().toUpperCase();
     if (!slotCode) {
@@ -1293,7 +1648,7 @@ app.get("/api/parking-slot-history", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/students", requireAuth, async (req, res) => {
+app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const [studentRows] = await pool.query(
       "SELECT * FROM students ORDER BY created_at DESC, id DESC"
@@ -1330,7 +1685,7 @@ app.get("/students", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/students", requireAuth, async (req, res) => {
+app.post("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { student_number, full_name, program, email, plate_number, model, color } = req.body;
   const connection = await pool.getConnection();
   try {
@@ -1360,7 +1715,7 @@ app.post("/students", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/students/:id/edit", requireAuth, async (req, res) => {
+app.post("/students/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { student_number, full_name, program, email } = req.body;
   try {
     await pool.query(
@@ -1377,7 +1732,7 @@ app.post("/students/:id/edit", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/students/:id/delete", requireAuth, async (req, res) => {
+app.post("/students/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     await pool.query("DELETE FROM students WHERE id = ?", [req.params.id]);
     res.redirect("/students?deleted=1");
@@ -1388,11 +1743,11 @@ app.post("/students/:id/delete", requireAuth, async (req, res) => {
 });
 
 // /vehicles → redirect to unified page
-app.get("/vehicles", requireAuth, (req, res) => {
+app.get("/vehicles", requireRole(USER_ROLES.ADMIN), (req, res) => {
   res.redirect("/students");
 });
 
-app.post("/vehicles", requireAuth, async (req, res) => {
+app.post("/vehicles", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { student_id, plate_number, model, color } = req.body;
   try {
     await pool.query(
@@ -1409,7 +1764,7 @@ app.post("/vehicles", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/vehicles/:id/edit", requireAuth, async (req, res) => {
+app.post("/vehicles/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { plate_number, model, color } = req.body;
   try {
     await pool.query(
@@ -1426,7 +1781,7 @@ app.post("/vehicles/:id/edit", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/vehicles/:id/delete", requireAuth, async (req, res) => {
+app.post("/vehicles/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     await pool.query("DELETE FROM vehicles WHERE id = ?", [req.params.id]);
     res.redirect("/students?vdeleted=1");
@@ -1436,7 +1791,7 @@ app.post("/vehicles/:id/delete", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/stickers", requireAuth, async (req, res) => {
+app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const [vehicles] = await pool.query(
       `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
@@ -1463,7 +1818,7 @@ app.get("/stickers", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/stickers", requireAuth, async (req, res) => {
+app.post("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { vehicle_id, expires_at } = req.body;
   const sticker_code = createStickerCode();
   const qr_token = createQrToken();
@@ -1480,7 +1835,7 @@ app.post("/stickers", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/stickers/:id/revoke", requireAuth, async (req, res) => {
+app.post("/stickers/:id/revoke", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     await pool.query("UPDATE stickers SET status = 'revoked' WHERE id = ?", [req.params.id]);
     res.redirect("/stickers?revoked=1");
@@ -1490,7 +1845,7 @@ app.post("/stickers/:id/revoke", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/stickers/:id/qr", requireAuth, async (req, res) => {
+app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const [rows] = await pool.query("SELECT qr_token FROM stickers WHERE id = ?", [req.params.id]);
     if (rows.length === 0) return res.status(404).send("Sticker not found");
@@ -1527,7 +1882,7 @@ app.get("/verify/:token", async (req, res) => {
   }
 });
 
-app.post("/verify/:token/movement", async (req, res) => {
+app.post("/verify/:token/movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const selectedAction = String(req.body.action || "").toUpperCase();
   const gate = req.body.gate || "Manual Verification";
   const slotId = req.body.slot_id ? Number(req.body.slot_id) : null;
@@ -1585,7 +1940,7 @@ app.post("/verify/:token/movement", async (req, res) => {
             studentId: sticker.student_id_ref || null,
             vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
             assignedArea: currentSlot?.zone || null,
-            assignedByGuard: req.session?.adminUser || null,
+            assignedByGuard: getAuthActorName(req),
             scanSource: "manual",
             status: "AUTHORIZED"
           }
@@ -1639,18 +1994,18 @@ app.post("/verify/:token/movement", async (req, res) => {
   }
 });
 
-app.get("/scanner", requireAuth, (req, res) => {
+app.get("/scanner", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, res) => {
   res.render("scanner");
 });
 
-app.get("/scanner/auto", requireAuth, (req, res) => {
+app.get("/scanner/auto", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, res) => {
   res.render("scanner_auto", {
     scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
   });
 });
 
 // API: phone camera auto-detection (ENTRY requires guard confirmation, EXIT is auto-recorded)
-app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
+app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
   const deferEntryConfirmation = req.body.defer_entry_confirmation === true
@@ -1661,7 +2016,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
   const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
     ? req.body.snapshot_data_url
     : "";
-  const guardName = req.session?.adminUser || "guard";
+  const guardName = getAuthActorName(req);
 
   if (!token) {
     return res.status(400).json({
@@ -1880,7 +2235,7 @@ app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
 });
 
 // API: guard confirms ENTRY after auto-detection and slot selection
-app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
+app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
   const slotId = Number(req.body.slot_id);
@@ -1889,7 +2244,7 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
   const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
     ? req.body.snapshot_data_url
     : "";
-  const guardName = req.session?.adminUser || "guard";
+  const guardName = getAuthActorName(req);
 
   if (!token) {
     return res.status(400).json({
@@ -2009,7 +2364,7 @@ app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
 });
 
 // API: pending phone-scanned ENTRY requests for laptop guard monitoring
-app.get("/api/auto-scan/pending-entries", requireAuth, async (req, res) => {
+app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const limit = Number(req.query.limit) || 25;
   try {
     await expireStalePendingAutoEntries();
@@ -2027,10 +2382,10 @@ app.get("/api/auto-scan/pending-entries", requireAuth, async (req, res) => {
 });
 
 // API: guard confirms a pending phone-scanned ENTRY and assigns slot
-app.post("/api/auto-scan/pending-entries/:id/confirm", requireAuth, async (req, res) => {
+app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const entryId = Number(req.params.id);
   const slotId = Number(req.body.slot_id);
-  const guardName = req.session?.adminUser || "guard";
+  const guardName = getAuthActorName(req);
   const requestedGate = String(req.body.gate || "").trim();
 
   if (!Number.isInteger(entryId) || entryId <= 0) {
@@ -2172,9 +2527,9 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireAuth, async (req, 
 });
 
 // API: guard cancels a pending phone-scanned ENTRY request
-app.post("/api/auto-scan/pending-entries/:id/cancel", requireAuth, async (req, res) => {
+app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const entryId = Number(req.params.id);
-  const guardName = req.session?.adminUser || "guard";
+  const guardName = getAuthActorName(req);
   const reason = String(req.body.reason || "Cancelled by guard monitor.").trim();
 
   if (!Number.isInteger(entryId) || entryId <= 0) {
@@ -2220,7 +2575,7 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireAuth, async (req, r
 });
 
 // API: search students/vehicles by plate, name, or student number
-app.get("/api/gate-lookup", requireAuth, async (req, res) => {
+app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json({ ok: false, message: "No query provided.", results: [] });
 
@@ -2276,7 +2631,7 @@ app.get("/api/gate-lookup", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/parking-slots", requireAuth, async (req, res) => {
+app.get("/api/parking-slots", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     const slots = await getAvailableParkingSlots();
     res.json({ ok: true, slots });
@@ -2286,7 +2641,7 @@ app.get("/api/parking-slots", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/parking-slot-overview", requireAuth, async (req, res) => {
+app.get("/api/parking-slot-overview", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     const overview = await getParkingSlotOverview();
     res.json({ ok: true, ...overview });
@@ -2302,7 +2657,7 @@ app.get("/api/parking-slot-overview", requireAuth, async (req, res) => {
 });
 
 // API: manually record ENTRY or EXIT for a sticker (by qr_token)
-app.post("/api/manual-movement", requireAuth, async (req, res) => {
+app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const { action, gate, slot_id } = req.body;
   const selectedAction = String(action || "").toUpperCase();
@@ -2360,7 +2715,7 @@ app.post("/api/manual-movement", requireAuth, async (req, res) => {
           studentId: verification.sticker.student_id_ref || null,
           vehicleId: verification.sticker.vehicle_id_ref || verification.sticker.vehicle_id || null,
           assignedArea: currentSlot?.zone || null,
-          assignedByGuard: req.session?.adminUser || null,
+          assignedByGuard: getAuthActorName(req),
           scanSource: "manual",
           status: "AUTHORIZED"
         }
@@ -2393,7 +2748,7 @@ app.post("/api/manual-movement", requireAuth, async (req, res) => {
 });
 
 // API: force exit for a sticker (admin only)
-app.post("/api/force-exit", requireAuth, async (req, res) => {
+app.post("/api/force-exit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const { sticker_id, gate } = req.body;
   if (!sticker_id) return res.status(400).json({ ok: false, message: "Missing sticker_id" });
 
@@ -2414,7 +2769,7 @@ app.post("/api/force-exit", requireAuth, async (req, res) => {
           gateId: gate || "Admin Console",
           slotId: currentSlot?.id || null,
           assignedArea: currentSlot?.zone || null,
-          assignedByGuard: req.session?.adminUser || null,
+          assignedByGuard: getAuthActorName(req),
           scanSource: "manual",
           status: "AUTHORIZED"
         }
@@ -2442,7 +2797,7 @@ app.post("/api/force-exit", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/reports", requireAuth, async (req, res) => {
+app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const filters = buildReportFilters(req.query);
     const data = await getReportsData(filters);
@@ -2491,7 +2846,7 @@ app.get("/reports", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/scan", requireAuth, async (req, res) => {
+app.post("/api/scan", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const { gate } = req.body;
   if (!token) return res.status(400).json({ ok: false, message: "Missing token" });
@@ -2506,7 +2861,7 @@ app.post("/api/scan", requireAuth, async (req, res) => {
 });
 
 // PWA Offline Sync: Download active roster to local DB
-app.get("/api/sync-roster", requireAuth, async (req, res) => {
+app.get("/api/sync-roster", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     const [roster] = await pool.query(`
       SELECT
@@ -2532,7 +2887,7 @@ app.get("/api/sync-roster", requireAuth, async (req, res) => {
 });
 
 // PWA Offline Sync: Upload pending outbox to main DB
-app.post("/api/sync-queue", requireAuth, async (req, res) => {
+app.post("/api/sync-queue", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const { movements } = req.body;
   if (!Array.isArray(movements) || movements.length === 0) {
     return res.json({ ok: true });
