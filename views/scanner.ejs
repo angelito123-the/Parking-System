@@ -1,4 +1,5 @@
 <%- include("partials/header") %>
+<% const isGuardQueueMode = String(currentRole || "").toLowerCase() === "guard"; %>
 
 <section class="dashboard-hero">
   <div class="hero-greeting">
@@ -46,6 +47,7 @@
     </div>
   </section>
 
+  <% if (isGuardQueueMode) { %>
   <section class="panel remote-queue-panel">
     <div class="section-head">
       <h2>Phone Camera Pending Entries</h2>
@@ -61,6 +63,7 @@
     </div>
     <div id="remoteQueueList" class="remote-queue-list"></div>
   </section>
+  <% } %>
 
   <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
   <div class="section-head">
@@ -129,6 +132,7 @@
   </div>
 </section>
 
+  <% if (isGuardQueueMode) { %>
   <div id="remoteEntryModal" class="slot-history-modal" aria-hidden="true">
     <div class="slot-history-backdrop" data-remote-close></div>
     <article class="slot-history-dialog remote-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="remoteEntryModalTitle">
@@ -152,6 +156,7 @@
       </div>
     </article>
   </div>
+  <% } %>
 
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
@@ -201,6 +206,7 @@
     let didInitialRemoteLoad = false;
     let lastAutoOpenedEntryId = 0;
     let remoteQueueAlertTimer = null;
+    const guardQueueMode = <%- isGuardQueueMode ? "true" : "false" %>;
 
     // --- Audio Feedback ---
     function playBeep(type) {
@@ -328,6 +334,7 @@
     }
 
     async function fetchRemotePendingEntries({ silent = false } = {}) {
+      if (!guardQueueMode) return;
       if (!remoteQueueStatus || !remoteQueueList) return;
       if (!silent) {
         remoteQueueStatus.textContent = "Loading pending phone entries...";
@@ -795,18 +802,20 @@
     searchBtn.addEventListener("click", doSearch);
     searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
 
-    remoteQueueRefreshBtn?.addEventListener("click", () => fetchRemotePendingEntries({ silent: false }));
-    remoteEntryCloseBtn?.addEventListener("click", closeRemoteEntryModal);
-    remoteEntryConfirmBtn?.addEventListener("click", confirmRemoteEntry);
-    remoteEntryCancelBtn?.addEventListener("click", cancelRemoteEntry);
-    remoteEntryModal?.querySelectorAll("[data-remote-close]").forEach((node) => {
-      node.addEventListener("click", closeRemoteEntryModal);
-    });
-    window.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && remoteEntryModal?.classList.contains("open")) {
-        closeRemoteEntryModal();
-      }
-    });
+    if (guardQueueMode) {
+      remoteQueueRefreshBtn?.addEventListener("click", () => fetchRemotePendingEntries({ silent: false }));
+      remoteEntryCloseBtn?.addEventListener("click", closeRemoteEntryModal);
+      remoteEntryConfirmBtn?.addEventListener("click", confirmRemoteEntry);
+      remoteEntryCancelBtn?.addEventListener("click", cancelRemoteEntry);
+      remoteEntryModal?.querySelectorAll("[data-remote-close]").forEach((node) => {
+        node.addEventListener("click", closeRemoteEntryModal);
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && remoteEntryModal?.classList.contains("open")) {
+          closeRemoteEntryModal();
+        }
+      });
+    }
 
     // --- Record Logic ---
     async function recordMovement(action) {
@@ -911,10 +920,12 @@
       if (selectedLabel) addToHistory(selectedLabel, "EXIT", !window.OfflineManager?.isOnline, true);
     });
 
-    fetchRemotePendingEntries({ silent: false });
-    setInterval(() => {
-      fetchRemotePendingEntries({ silent: true });
-    }, 3000);
+    if (guardQueueMode) {
+      fetchRemotePendingEntries({ silent: false });
+      setInterval(() => {
+        fetchRemotePendingEntries({ silent: true });
+      }, 3000);
+    }
 
     renderHistory();
   })();
