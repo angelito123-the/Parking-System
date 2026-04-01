@@ -33,6 +33,7 @@ async function ensureDatabaseSchema() {
 
   await pool.query(sql);
   await ensureParkingSlotMigrations();
+  await ensureScanLogMigrations();
 }
 
 async function columnExists(tableName, columnName) {
@@ -44,6 +45,19 @@ async function columnExists(tableName, columnName) {
        AND COLUMN_NAME = ?
      LIMIT 1`,
     [database, tableName, columnName]
+  );
+  return rows.length > 0;
+}
+
+async function constraintExists(tableName, constraintName) {
+  const [rows] = await pool.query(
+    `SELECT 1
+     FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?
+     LIMIT 1`,
+    [database, tableName, constraintName]
   );
   return rows.length > 0;
 }
@@ -119,6 +133,79 @@ async function ensureParkingSlotMigrations() {
     `);
   } finally {
     await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+  }
+}
+
+async function ensureScanLogMigrations() {
+  async function addColumnIfMissing(tableName, columnName, columnDefinition) {
+    if (await columnExists(tableName, columnName)) return;
+    await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+
+  try {
+    await addColumnIfMissing("scan_logs", "gate_id", "VARCHAR(80) NULL AFTER gate");
+    await addColumnIfMissing("scan_logs", "qr_value", "VARCHAR(120) NULL AFTER slot_id");
+    await addColumnIfMissing("scan_logs", "student_id", "INT NULL AFTER qr_value");
+    await addColumnIfMissing("scan_logs", "vehicle_id", "INT NULL AFTER student_id");
+    await addColumnIfMissing("scan_logs", "assigned_area", "VARCHAR(80) NULL AFTER vehicle_id");
+    await addColumnIfMissing("scan_logs", "assigned_by_guard", "VARCHAR(120) NULL AFTER assigned_area");
+    await addColumnIfMissing("scan_logs", "scan_source", "VARCHAR(40) NOT NULL DEFAULT 'manual' AFTER assigned_by_guard");
+    await addColumnIfMissing("scan_logs", "snapshot_path", "VARCHAR(255) NULL AFTER scan_source");
+    await addColumnIfMissing("scan_logs", "status", "VARCHAR(40) NULL AFTER snapshot_path");
+  } catch (error) {
+    if (error.errno !== 1060) {
+      throw error;
+    }
+  }
+
+  try {
+    await pool.query(`
+      UPDATE scan_logs sl
+      LEFT JOIN stickers s ON s.id = sl.sticker_id
+      LEFT JOIN vehicles v ON v.id = s.vehicle_id
+      LEFT JOIN students st ON st.id = v.student_id
+      LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+      SET
+        sl.gate_id = COALESCE(sl.gate_id, sl.gate),
+        sl.qr_value = COALESCE(sl.qr_value, s.qr_token),
+        sl.student_id = COALESCE(sl.student_id, st.id),
+        sl.vehicle_id = COALESCE(sl.vehicle_id, v.id),
+        sl.assigned_area = COALESCE(sl.assigned_area, ps.zone),
+        sl.scan_source = COALESCE(sl.scan_source, 'manual'),
+        sl.status = COALESCE(
+          sl.status,
+          CASE
+            WHEN sl.result = 'VALID' THEN 'AUTHORIZED'
+            ELSE sl.result
+          END
+        )
+    `);
+  } catch (error) {
+    console.warn("scan_logs backfill warning (non-fatal):", error.message);
+  }
+
+  if (!(await constraintExists("scan_logs", "fk_scan_student"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE scan_logs ADD CONSTRAINT fk_scan_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL"
+      );
+    } catch (error) {
+      if (error.errno !== 1826 && error.errno !== 1061) {
+        console.warn("scan_logs fk_scan_student warning (non-fatal):", error.message);
+      }
+    }
+  }
+
+  if (!(await constraintExists("scan_logs", "fk_scan_vehicle"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE scan_logs ADD CONSTRAINT fk_scan_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL"
+      );
+    } catch (error) {
+      if (error.errno !== 1826 && error.errno !== 1061) {
+        console.warn("scan_logs fk_scan_vehicle warning (non-fatal):", error.message);
+      }
+    }
   }
 }
 

@@ -38,6 +38,7 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - Issue parking stickers with unique QR token
 - View printable QR image per sticker
 - Camera-based scanner page for gate officers
+- Automatic phone camera QR detection mode with guard slot assignment
 - Auto log each scan with result and entry/exit action
 - Revoke stickers
 - Reports module with date/gate filters
@@ -50,8 +51,11 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - `/vehicles` Manage vehicles
 - `/stickers` Issue/revoke stickers and view QR links
 - `/scanner` Live camera QR scanner
+- `/scanner/auto` Automatic gate phone camera scanner
 - `/verify/:token` Manual verification endpoint
 - `POST /api/scan` Scan API used by scanner page
+- `POST /api/auto-scan/detect` Auto-detect QR and trigger ENTRY/EXIT flow
+- `POST /api/auto-scan/confirm-entry` Guard-confirmed ENTRY save with slot assignment
 - `/reports` Analytics page with filters and CSV export (`?format=csv`)
 
 ## Notes

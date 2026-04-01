@@ -1,6 +1,7 @@
 process.env.TZ = "Asia/Manila";
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const session = require("express-session");
@@ -10,7 +11,7 @@ require("dotenv").config();
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
-const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 12);
+const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 10);
 const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
 const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
   ? Math.max(0.5, rawOverstayLimitHours)
@@ -19,6 +20,8 @@ const OVERSTAY_LIMIT_MINUTES = Math.max(1, Math.round(OVERSTAY_LIMIT_HOURS * 60)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "naap2024";
 const SESSION_SECRET = process.env.SESSION_SECRET || "naap-parking-secret";
+const SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
+const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -112,6 +115,83 @@ function formatHoursLabel(hours) {
   return rounded.toFixed(1).replace(/\.0$/, "");
 }
 
+function normalizeScanStatus(result) {
+  if (result === "VALID") return "AUTHORIZED";
+  if (result === "INVALID") return "INVALID";
+  if (result === "REVOKED") return "REVOKED";
+  if (result === "EXPIRED") return "EXPIRED";
+  return "UNKNOWN";
+}
+
+function normalizeQrTokenInput(rawInput) {
+  const raw = String(rawInput || "").trim();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2 && parts[0] === "verify") {
+      return parts[1];
+    }
+  } catch (_error) {
+    return raw;
+  }
+
+  return raw;
+}
+
+function getDuplicateScanInfo(lastMovement) {
+  if (!lastMovement || SCAN_COOLDOWN_SECONDS <= 0) {
+    return { duplicate: false, secondsSinceLastScan: null };
+  }
+
+  const lastScannedAtMs = new Date(lastMovement.scanned_at).getTime();
+  if (!Number.isFinite(lastScannedAtMs)) {
+    return { duplicate: false, secondsSinceLastScan: null };
+  }
+
+  const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
+  const duplicate = secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS;
+  return { duplicate, secondsSinceLastScan };
+}
+
+function getAutoStickerPayload(sticker) {
+  if (!sticker) return null;
+  return {
+    sticker_id: sticker.id,
+    sticker_code: sticker.sticker_code,
+    student_id: sticker.student_id_ref || null,
+    student_number: sticker.student_number || null,
+    full_name: sticker.full_name || null,
+    vehicle_id: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+    plate_number: sticker.plate_number || null,
+    vehicle_type: sticker.model || "Unspecified",
+    vehicle_model: sticker.model || null,
+    vehicle_color: sticker.color || null
+  };
+}
+
+async function saveSnapshotDataUrl(snapshotDataUrl, prefix = "scan") {
+  if (!snapshotDataUrl || typeof snapshotDataUrl !== "string") return null;
+  const trimmed = snapshotDataUrl.trim();
+  if (!trimmed) return null;
+
+  const match = trimmed.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+
+  const ext = match[1].toLowerCase() === "jpg" ? "jpeg" : match[1].toLowerCase();
+  const imageBuffer = Buffer.from(match[2], "base64");
+  if (!imageBuffer.length || imageBuffer.length > SNAPSHOT_MAX_BYTES) {
+    throw new Error("Snapshot image is too large. Please keep it under 3MB.");
+  }
+
+  await fs.promises.mkdir(SNAPSHOT_DIR, { recursive: true });
+  const filename = `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
+  const absolutePath = path.join(SNAPSHOT_DIR, filename);
+  await fs.promises.writeFile(absolutePath, imageBuffer);
+  return `/snapshots/${filename}`;
+}
+
 function buildReportFilters(query) {
   const today = new Date();
   const defaultTo = toDateOnly(today);
@@ -141,7 +221,15 @@ function buildWhereClause(filters) {
 
 async function findStickerByToken(token) {
   const [rows] = await pool.query(
-    `SELECT s.*, v.plate_number, v.model, st.full_name, st.student_number
+    `SELECT
+       s.*,
+       v.id AS vehicle_id_ref,
+       v.plate_number,
+       v.model,
+       v.color,
+       st.id AS student_id_ref,
+       st.full_name,
+       st.student_number
      FROM stickers s
      JOIN vehicles v ON v.id = s.vehicle_id
      JOIN students st ON st.id = v.student_id
@@ -570,12 +658,53 @@ async function insertScanLog(stickerId, result, action, gate, notes, options = {
 
 async function insertScanLogWithDb(db, stickerId, result, action, gate, notes, options = {}) {
   const slotId = options.slotId || null;
+  const gateId = options.gateId || gate || null;
+  const qrValue = options.qrValue || null;
+  const studentId = options.studentId || null;
+  const vehicleId = options.vehicleId || null;
+  const assignedArea = options.assignedArea || null;
+  const assignedByGuard = options.assignedByGuard || null;
+  const scanSource = options.scanSource || "manual";
+  const snapshotPath = options.snapshotPath || null;
+  const status = options.status || normalizeScanStatus(result);
   const [insertResult] = await db.query(
-    "INSERT INTO scan_logs (sticker_id, result, action, gate, slot_id, notes) VALUES (?, ?, ?, ?, ?, ?)",
-    [stickerId, result, action, gate, slotId, notes]
+    `INSERT INTO scan_logs (
+       sticker_id,
+       result,
+       action,
+       gate,
+       gate_id,
+       slot_id,
+       qr_value,
+       student_id,
+       vehicle_id,
+       assigned_area,
+       assigned_by_guard,
+       scan_source,
+       snapshot_path,
+       status,
+       notes
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      stickerId,
+      result,
+      action,
+      gate,
+      gateId,
+      slotId,
+      qrValue,
+      studentId,
+      vehicleId,
+      assignedArea,
+      assignedByGuard,
+      scanSource,
+      snapshotPath,
+      status,
+      notes
+    ]
   );
   const [logRows] = await db.query(
-    "SELECT id, scanned_at, slot_id FROM scan_logs WHERE id = ? LIMIT 1",
+    "SELECT id, scanned_at, slot_id, snapshot_path FROM scan_logs WHERE id = ? LIMIT 1",
     [insertResult.insertId]
   );
 
@@ -600,7 +729,12 @@ async function getLastValidMovement(stickerId, db = pool) {
 async function resolveScan(token, gate = "Main Gate") {
   const verification = await getVerificationState(token);
   if (!verification.ok && verification.result === "INVALID") {
-    const scanLog = await insertScanLog(null, "INVALID", "VERIFY", gate, "Token not found");
+    const scanLog = await insertScanLog(null, "INVALID", "VERIFY", gate, "Token not found", {
+      gateId: gate,
+      qrValue: token,
+      scanSource: "scanner",
+      status: normalizeScanStatus("INVALID")
+    });
     return {
       ...verification,
       scan_log_id: scanLog?.id || null,
@@ -614,7 +748,15 @@ async function resolveScan(token, gate = "Main Gate") {
       "REVOKED",
       "VERIFY",
       gate,
-      "Sticker is not active"
+      "Sticker is not active",
+      {
+        gateId: gate,
+        qrValue: token,
+        studentId: verification.sticker?.student_id_ref || null,
+        vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+        scanSource: "scanner",
+        status: normalizeScanStatus("REVOKED")
+      }
     );
     return {
       ...verification,
@@ -629,7 +771,15 @@ async function resolveScan(token, gate = "Main Gate") {
       "EXPIRED",
       "VERIFY",
       gate,
-      "Sticker expired"
+      "Sticker expired",
+      {
+        gateId: gate,
+        qrValue: token,
+        studentId: verification.sticker?.student_id_ref || null,
+        vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+        scanSource: "scanner",
+        status: normalizeScanStatus("EXPIRED")
+      }
     );
     return {
       ...verification,
@@ -646,24 +796,19 @@ async function resolveScan(token, gate = "Main Gate") {
     await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
     const lastMovement = await getLastValidMovement(sticker.id, connection);
 
-    if (lastMovement && SCAN_COOLDOWN_SECONDS > 0) {
-      const lastScannedAtMs = new Date(lastMovement.scanned_at).getTime();
-      if (Number.isFinite(lastScannedAtMs)) {
-        const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
-        if (secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS) {
-          await connection.rollback();
-          return {
-            ...verification,
-            action: lastMovement.action,
-            duplicate_scan: true,
-            cooldown_seconds: SCAN_COOLDOWN_SECONDS,
-            seconds_since_last_scan: secondsSinceLastScan,
-            message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
-            scan_log_id: null,
-            scanned_at: lastMovement.scanned_at
-          };
-        }
-      }
+    const duplicateInfo = getDuplicateScanInfo(lastMovement);
+    if (duplicateInfo.duplicate) {
+      await connection.rollback();
+      return {
+        ...verification,
+        action: lastMovement.action,
+        duplicate_scan: true,
+        cooldown_seconds: SCAN_COOLDOWN_SECONDS,
+        seconds_since_last_scan: duplicateInfo.secondsSinceLastScan,
+        message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
+        scan_log_id: null,
+        scanned_at: lastMovement.scanned_at
+      };
     }
 
     const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
@@ -677,7 +822,16 @@ async function resolveScan(token, gate = "Main Gate") {
       action,
       gate,
       "Verified",
-      { slotId: slot?.id || null }
+      {
+        gateId: gate,
+        slotId: slot?.id || null,
+        qrValue: token,
+        studentId: sticker.student_id_ref || null,
+        vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+        assignedArea: slot?.zone || null,
+        scanSource: "scanner",
+        status: "AUTHORIZED"
+      }
     );
     if (action === "EXIT") {
       await releaseParkingSlot(connection, sticker.id);
@@ -713,7 +867,15 @@ async function verifyAndLog(token, gate = "Manual Verification") {
     verification.result,
     "VERIFY",
     gate,
-    noteByResult[verification.result] || "Manual verification"
+    noteByResult[verification.result] || "Manual verification",
+    {
+      gateId: gate,
+      qrValue: token,
+      studentId: verification.sticker?.student_id_ref || null,
+      vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+      scanSource: "manual",
+      status: normalizeScanStatus(verification.result)
+    }
   );
 
   return {
@@ -1180,7 +1342,17 @@ app.post("/verify/:token/movement", async (req, res) => {
           selectedAction,
           gate,
           "Movement selected manually",
-          { slotId: currentSlot?.id || null }
+          {
+            gateId: gate,
+            slotId: currentSlot?.id || null,
+            qrValue: req.params.token,
+            studentId: sticker.student_id_ref || null,
+            vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+            assignedArea: currentSlot?.zone || null,
+            assignedByGuard: req.session?.adminUser || null,
+            scanSource: "manual",
+            status: "AUTHORIZED"
+          }
         );
         if (selectedAction === "EXIT") {
           await releaseParkingSlot(connection, sticker.id);
@@ -1233,6 +1405,279 @@ app.post("/verify/:token/movement", async (req, res) => {
 
 app.get("/scanner", requireAuth, (req, res) => {
   res.render("scanner");
+});
+
+app.get("/scanner/auto", requireAuth, (req, res) => {
+  res.render("scanner_auto", {
+    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
+  });
+});
+
+// API: phone camera auto-detection (ENTRY requires guard confirmation, EXIT is auto-recorded)
+app.post("/api/auto-scan/detect", requireAuth, async (req, res) => {
+  const token = normalizeQrTokenInput(req.body.token);
+  const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
+  const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
+    ? req.body.snapshot_data_url
+    : "";
+  const guardName = req.session?.adminUser || "guard";
+
+  if (!token) {
+    return res.status(400).json({ ok: false, message: "Missing QR token." });
+  }
+
+  try {
+    const verification = await getVerificationState(token);
+
+    if (!verification.ok) {
+      let snapshotPath = null;
+      if (snapshotDataUrl) {
+        try {
+          snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-verify");
+        } catch (_error) {
+          snapshotPath = null;
+        }
+      }
+
+      const scanLog = await insertScanLog(
+        verification.sticker?.id || null,
+        verification.result || "INVALID",
+        "VERIFY",
+        gate,
+        "Auto camera verification failed",
+        {
+          gateId: gate,
+          qrValue: token,
+          studentId: verification.sticker?.student_id_ref || null,
+          vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+          assignedByGuard: guardName,
+          scanSource: "camera_phone",
+          snapshotPath,
+          status: normalizeScanStatus(verification.result || "INVALID")
+        }
+      );
+
+      return res.json({
+        ...verification,
+        sticker: getAutoStickerPayload(verification.sticker),
+        action: "VERIFY",
+        movement_saved: false,
+        requires_confirmation: false,
+        snapshot_path: scanLog?.snapshot_path || snapshotPath || null,
+        scan_log_id: scanLog?.id || null,
+        scanned_at: scanLog?.scanned_at || null
+      });
+    }
+
+    const sticker = verification.sticker;
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
+
+      const lastMovement = await getLastValidMovement(sticker.id, connection);
+      const duplicateInfo = getDuplicateScanInfo(lastMovement);
+      if (duplicateInfo.duplicate) {
+        await connection.rollback();
+        return res.json({
+          ok: false,
+          result: "VALID",
+          message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
+          duplicate_scan: true,
+          cooldown_seconds: SCAN_COOLDOWN_SECONDS,
+          seconds_since_last_scan: duplicateInfo.secondsSinceLastScan,
+          action: lastMovement?.action || null,
+          sticker: getAutoStickerPayload(sticker),
+          scanned_at: lastMovement?.scanned_at || null
+        });
+      }
+
+      const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
+
+      if (action === "ENTRY") {
+        await connection.rollback();
+        const parkingSlotOverview = await getParkingSlotOverview();
+        return res.json({
+          ok: true,
+          result: "VALID",
+          action: "ENTRY",
+          movement_saved: false,
+          requires_confirmation: true,
+          message: "Valid sticker detected. Select a parking slot and confirm ENTRY.",
+          sticker: getAutoStickerPayload(sticker),
+          parkingSlotOverview
+        });
+      }
+
+      const currentSlot = await getCurrentParkingSlotBySticker(sticker.id, connection);
+      if (!snapshotDataUrl) {
+        throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+      }
+      const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-exit");
+      if (!snapshotPath) {
+        throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+      }
+
+      const scanLog = await insertScanLogWithDb(
+        connection,
+        sticker.id,
+        "VALID",
+        "EXIT",
+        gate,
+        "Auto camera exit",
+        {
+          gateId: gate,
+          slotId: currentSlot?.id || null,
+          qrValue: token,
+          studentId: sticker.student_id_ref || null,
+          vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+          assignedArea: currentSlot?.zone || null,
+          assignedByGuard: guardName,
+          scanSource: "camera_phone",
+          snapshotPath,
+          status: "AUTHORIZED"
+        }
+      );
+
+      await releaseParkingSlot(connection, sticker.id);
+      await connection.commit();
+
+      return res.json({
+        ok: true,
+        result: "VALID",
+        action: "EXIT",
+        movement_saved: true,
+        requires_confirmation: false,
+        message: currentSlot
+          ? `EXIT recorded. Released slot ${currentSlot.slot_code}.`
+          : "EXIT recorded successfully.",
+        released_slot: currentSlot?.slot_code || null,
+        sticker: getAutoStickerPayload(sticker),
+        snapshot_path: scanLog?.snapshot_path || snapshotPath || null,
+        scan_log_id: scanLog?.id || null,
+        scanned_at: scanLog?.scanned_at || null
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Auto detect scan error:", error);
+    res.status(500).json({
+      ok: false,
+      message: error.message || "Failed to process automatic scan."
+    });
+  }
+});
+
+// API: guard confirms ENTRY after auto-detection and slot selection
+app.post("/api/auto-scan/confirm-entry", requireAuth, async (req, res) => {
+  const token = normalizeQrTokenInput(req.body.token);
+  const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
+  const slotId = Number(req.body.slot_id);
+  const snapshotDataUrl = typeof req.body.snapshot_data_url === "string"
+    ? req.body.snapshot_data_url
+    : "";
+  const guardName = req.session?.adminUser || "guard";
+
+  if (!token) {
+    return res.status(400).json({ ok: false, message: "Missing QR token." });
+  }
+  if (!Number.isInteger(slotId) || slotId <= 0) {
+    return res.status(400).json({ ok: false, message: "Please choose a parking slot before recording entry." });
+  }
+
+  try {
+    const verification = await getVerificationState(token);
+    if (!verification.ok) {
+      return res.status(400).json({ ok: false, message: verification.message });
+    }
+
+    const sticker = verification.sticker;
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
+
+      const lastMovement = await getLastValidMovement(sticker.id, connection);
+      const duplicateInfo = getDuplicateScanInfo(lastMovement);
+      if (duplicateInfo.duplicate) {
+        await connection.rollback();
+        return res.status(400).json({
+          ok: false,
+          duplicate_scan: true,
+          message: `Scan ignored to prevent duplicate. Please wait ${SCAN_COOLDOWN_SECONDS} seconds before rescanning.`,
+          cooldown_seconds: SCAN_COOLDOWN_SECONDS,
+          seconds_since_last_scan: duplicateInfo.secondsSinceLastScan
+        });
+      }
+
+      if (lastMovement && lastMovement.action === "ENTRY") {
+        await connection.rollback();
+        return res.status(400).json({
+          ok: false,
+          duplicate_movement: true,
+          message: "Vehicle is already marked as inside. Record EXIT first."
+        });
+      }
+
+      const assignedSlot = await assignParkingSlot(connection, sticker.id, slotId);
+      if (!snapshotDataUrl) {
+        throw new Error("Snapshot capture failed. Keep the camera active and confirm again.");
+      }
+      const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-entry");
+      if (!snapshotPath) {
+        throw new Error("Snapshot capture failed. Keep the camera active and confirm again.");
+      }
+      const scanLog = await insertScanLogWithDb(
+        connection,
+        sticker.id,
+        "VALID",
+        "ENTRY",
+        gate,
+        "Auto camera entry confirmed by guard",
+        {
+          gateId: gate,
+          slotId: assignedSlot.id,
+          qrValue: token,
+          studentId: sticker.student_id_ref || null,
+          vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
+          assignedArea: assignedSlot.zone || null,
+          assignedByGuard: guardName,
+          scanSource: "camera_phone",
+          snapshotPath,
+          status: "AUTHORIZED"
+        }
+      );
+      await connection.commit();
+
+      return res.json({
+        ok: true,
+        movement_saved: true,
+        result: "VALID",
+        action: "ENTRY",
+        message: `ENTRY recorded. Assigned slot ${assignedSlot.slot_code}.`,
+        sticker: getAutoStickerPayload(sticker),
+        parking_slot: assignedSlot.slot_code,
+        assigned_area: assignedSlot.zone,
+        assigned_by_guard: guardName,
+        scan_source: "camera_phone",
+        snapshot_path: scanLog?.snapshot_path || snapshotPath || null,
+        scan_log_id: scanLog?.id || null,
+        scanned_at: scanLog?.scanned_at || null
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Auto confirm entry error:", error);
+    res.status(400).json({ ok: false, message: error.message || "Failed to record entry." });
+  }
 });
 
 // API: search students/vehicles by plate, name, or student number
@@ -1319,7 +1764,8 @@ app.get("/api/parking-slot-overview", requireAuth, async (req, res) => {
 
 // API: manually record ENTRY or EXIT for a sticker (by qr_token)
 app.post("/api/manual-movement", requireAuth, async (req, res) => {
-  const { token, action, gate, slot_id } = req.body;
+  const token = normalizeQrTokenInput(req.body.token);
+  const { action, gate, slot_id } = req.body;
   const selectedAction = String(action || "").toUpperCase();
   const slotId = slot_id ? Number(slot_id) : null;
 
@@ -1368,7 +1814,17 @@ app.post("/api/manual-movement", requireAuth, async (req, res) => {
         selectedAction,
         gate || "Manual Gate",
         "Recorded via Gate Console",
-        { slotId: currentSlot?.id || null }
+        {
+          gateId: gate || "Manual Gate",
+          slotId: currentSlot?.id || null,
+          qrValue: token,
+          studentId: verification.sticker.student_id_ref || null,
+          vehicleId: verification.sticker.vehicle_id_ref || verification.sticker.vehicle_id || null,
+          assignedArea: currentSlot?.zone || null,
+          assignedByGuard: req.session?.adminUser || null,
+          scanSource: "manual",
+          status: "AUTHORIZED"
+        }
       );
 
       if (selectedAction === "EXIT") {
@@ -1415,7 +1871,14 @@ app.post("/api/force-exit", requireAuth, async (req, res) => {
         "EXIT",
         gate || "Admin Console",
         "Forced Exit by Admin",
-        { slotId: currentSlot?.id || null }
+        {
+          gateId: gate || "Admin Console",
+          slotId: currentSlot?.id || null,
+          assignedArea: currentSlot?.zone || null,
+          assignedByGuard: req.session?.adminUser || null,
+          scanSource: "manual",
+          status: "AUTHORIZED"
+        }
       );
       await releaseParkingSlot(connection, sticker_id);
       await connection.commit();
@@ -1490,7 +1953,8 @@ app.get("/reports", requireAuth, async (req, res) => {
 });
 
 app.post("/api/scan", requireAuth, async (req, res) => {
-  const { token, gate } = req.body;
+  const token = normalizeQrTokenInput(req.body.token);
+  const { gate } = req.body;
   if (!token) return res.status(400).json({ ok: false, message: "Missing token" });
 
   try {

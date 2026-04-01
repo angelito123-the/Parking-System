@@ -32,6 +32,38 @@ CREATE TABLE IF NOT EXISTS stickers (
   CONSTRAINT fk_sticker_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS parking_slots (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  slot_code VARCHAR(30) NOT NULL UNIQUE,
+  zone VARCHAR(50) NOT NULL DEFAULT 'General',
+  status ENUM('available', 'disabled') NOT NULL DEFAULT 'available',
+  current_sticker_id INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_parking_slot_sticker FOREIGN KEY (current_sticker_id) REFERENCES stickers(id) ON DELETE SET NULL
+);
+
+INSERT IGNORE INTO parking_slots (slot_code, zone) VALUES
+  ('A-01', 'Zone A'),
+  ('A-02', 'Zone A'),
+  ('A-03', 'Zone A'),
+  ('A-04', 'Zone A'),
+  ('A-05', 'Zone A'),
+  ('A-06', 'Zone A'),
+  ('A-07', 'Zone A'),
+  ('A-08', 'Zone A'),
+  ('A-09', 'Zone A'),
+  ('A-10', 'Zone A'),
+  ('B-01', 'Zone B'),
+  ('B-02', 'Zone B'),
+  ('B-03', 'Zone B'),
+  ('B-04', 'Zone B'),
+  ('B-05', 'Zone B'),
+  ('B-06', 'Zone B'),
+  ('B-07', 'Zone B'),
+  ('B-08', 'Zone B'),
+  ('B-09', 'Zone B'),
+  ('B-10', 'Zone B');
+
 CREATE TABLE IF NOT EXISTS scan_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,
   sticker_id INT NULL,
@@ -39,6 +71,19 @@ CREATE TABLE IF NOT EXISTS scan_logs (
   result ENUM('VALID', 'INVALID', 'REVOKED', 'EXPIRED') NOT NULL,
   action ENUM('ENTRY', 'EXIT', 'VERIFY') NOT NULL DEFAULT 'VERIFY',
   gate VARCHAR(80),
+  gate_id VARCHAR(80) NULL,
+  slot_id INT NULL,
+  qr_value VARCHAR(120) NULL,
+  student_id INT NULL,
+  vehicle_id INT NULL,
+  assigned_area VARCHAR(80) NULL,
+  assigned_by_guard VARCHAR(120) NULL,
+  scan_source VARCHAR(40) NOT NULL DEFAULT 'manual',
+  snapshot_path VARCHAR(255) NULL,
+  status VARCHAR(40) NULL,
   notes VARCHAR(255),
-  CONSTRAINT fk_scan_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL
+  CONSTRAINT fk_scan_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_scan_slot FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL,
+  CONSTRAINT fk_scan_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
+  CONSTRAINT fk_scan_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL
 );

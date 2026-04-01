@@ -1,0 +1,544 @@
+﻿<%- include("partials/header") %>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Automatic Gate Camera Scan</h1>
+  </div>
+  <p style="color: rgba(255,255,255,0.82); margin-top: 0.5rem;">
+    Phone camera mode for automatic QR detection with guard-controlled parking assignment.
+  </p>
+</section>
+
+<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>">
+  <section class="panel auto-gate-camera-panel">
+    <div class="auto-gate-toolbar">
+      <div>
+        <h3>Live Camera Feed</h3>
+        <p>Keep this page open on a fixed phone camera at the gate.</p>
+      </div>
+      <div class="auto-gate-controls">
+        <label for="autoGateSelect">Gate</label>
+        <select id="autoGateSelect">
+          <option value="Main Gate">Main Gate</option>
+          <option value="Side Gate">Side Gate</option>
+          <option value="North Gate">North Gate</option>
+          <option value="South Gate">South Gate</option>
+        </select>
+        <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Stop Camera</button>
+      </div>
+    </div>
+
+    <div id="autoCameraWrapper" class="auto-camera-wrapper">
+      <div id="autoQrReader"></div>
+      <p id="autoCameraStatus" class="auto-camera-status">Initializing rear camera...</p>
+    </div>
+
+    <p class="helper-text">
+      Scanner runs continuously. On ENTRY detection, guard confirmation is required before recording.
+    </p>
+  </section>
+
+  <section class="panel auto-gate-result-panel">
+    <div class="section-head">
+      <h2>Detection Result</h2>
+      <p>Review status and confirm parking assignment when required.</p>
+    </div>
+
+    <div id="autoResultCard" class="auto-result-card state-idle">
+      <h3 id="autoResultTitle">Waiting for QR detection</h3>
+      <p id="autoResultMessage">Point the camera to a student vehicle QR sticker.</p>
+      <div id="autoResultMeta" class="auto-result-meta"></div>
+    </div>
+
+    <div id="entryConfirmPanel" class="entry-confirm-panel" style="display:none;">
+      <div class="entry-confirm-head">
+        <h3>Confirm Entry Assignment</h3>
+        <p>Select a parking slot before saving this ENTRY transaction.</p>
+      </div>
+
+      <div id="entryStickerDetails" class="entry-sticker-grid"></div>
+
+      <div class="auto-slot-header">
+        <strong>Available Parking Slots</strong>
+        <span id="autoSlotStatus" class="helper-text">Loading slot map...</span>
+      </div>
+      <div id="autoSlotMap" class="auto-slot-map"></div>
+      <p id="entryConfirmHint" class="helper-text"></p>
+
+      <div class="entry-confirm-actions">
+        <button type="button" id="confirmEntryBtn" class="entry-confirm-btn" disabled>Confirm Entry</button>
+        <button type="button" id="cancelEntryBtn" class="entry-cancel-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="auto-fallback-actions">
+      <a href="/scanner" class="link-btn">Open Manual Gate Console</a>
+      <button type="button" id="resumeScannerBtn" class="auto-resume-btn">Resume Scanner</button>
+    </div>
+  </section>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+  (() => {
+    const shell = document.querySelector(".auto-gate-shell");
+    const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
+
+    const gateSelect = document.getElementById("autoGateSelect");
+    const toggleCameraBtn = document.getElementById("toggleAutoCameraBtn");
+    const resumeScannerBtn = document.getElementById("resumeScannerBtn");
+    const cameraWrapper = document.getElementById("autoCameraWrapper");
+    const cameraStatus = document.getElementById("autoCameraStatus");
+
+    const resultCard = document.getElementById("autoResultCard");
+    const resultTitle = document.getElementById("autoResultTitle");
+    const resultMessage = document.getElementById("autoResultMessage");
+    const resultMeta = document.getElementById("autoResultMeta");
+
+    const entryConfirmPanel = document.getElementById("entryConfirmPanel");
+    const entryStickerDetails = document.getElementById("entryStickerDetails");
+    const autoSlotStatus = document.getElementById("autoSlotStatus");
+    const autoSlotMap = document.getElementById("autoSlotMap");
+    const entryConfirmHint = document.getElementById("entryConfirmHint");
+    const confirmEntryBtn = document.getElementById("confirmEntryBtn");
+    const cancelEntryBtn = document.getElementById("cancelEntryBtn");
+
+    let html5QrCode = null;
+    let cameraStarted = false;
+    let processingScan = false;
+    let selectedSlotId = null;
+    let pendingToken = null;
+    let pendingSticker = null;
+    let pendingSlotOverview = null;
+    const localCooldown = new Map();
+
+    function setCameraStatus(message, kind = "neutral") {
+      if (!cameraStatus) return;
+      cameraStatus.textContent = message;
+      cameraStatus.classList.remove("status-ok", "status-error");
+      if (kind === "ok") cameraStatus.classList.add("status-ok");
+      if (kind === "error") cameraStatus.classList.add("status-error");
+    }
+
+    function setResultState(state, title, message, detailsHtml = "") {
+      resultCard.className = `auto-result-card state-${state}`;
+      resultTitle.textContent = title;
+      resultMessage.textContent = message;
+      resultMeta.innerHTML = detailsHtml || "";
+    }
+
+    function extractToken(decodedText) {
+      const raw = String(decodedText || "").trim();
+      if (!raw) return "";
+      try {
+        const url = new URL(raw);
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length >= 2 && parts[0] === "verify") {
+          return parts[1];
+        }
+      } catch (_error) {
+        return raw;
+      }
+      return raw;
+    }
+
+    function captureSnapshotDataUrl() {
+      const video = document.querySelector("#autoQrReader video");
+      if (!video || !video.videoWidth || !video.videoHeight) return "";
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d", { willReadFrequently: false });
+      if (!ctx) return "";
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.86);
+    }
+
+    async function postJson(url, payload) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (_error) {
+        data = { ok: false, message: "Invalid server response." };
+      }
+      if (!response.ok) {
+        throw new Error(data.message || `Request failed (${response.status})`);
+      }
+      return data;
+    }
+
+    function groupSlotsByZone(slots) {
+      return (slots || []).reduce((acc, slot) => {
+        const zone = slot.zone || "General";
+        if (!acc[zone]) acc[zone] = [];
+        acc[zone].push(slot);
+        return acc;
+      }, {});
+    }
+
+    function renderSlotMap() {
+      const slots = Array.isArray(pendingSlotOverview?.slots) ? pendingSlotOverview.slots : [];
+      const summary = pendingSlotOverview?.summary || { total: 0, available: 0, occupied: 0, disabled: 0 };
+
+      if (!slots.length) {
+        autoSlotMap.innerHTML = '<div class="flash flash-error" style="margin:0;">No parking slots available right now.</div>';
+        autoSlotStatus.textContent = "No slots configured";
+        confirmEntryBtn.disabled = true;
+        return;
+      }
+
+      const grouped = groupSlotsByZone(slots);
+      autoSlotStatus.textContent = `${summary.available || 0} available of ${summary.total || slots.length}`;
+
+      autoSlotMap.innerHTML = `
+        <div class="auto-slot-summary">
+          <span>Available: <strong>${summary.available || 0}</strong></span>
+          <span>Occupied: <strong>${summary.occupied || 0}</strong></span>
+          <span>Disabled: <strong>${summary.disabled || 0}</strong></span>
+        </div>
+        ${Object.keys(grouped).map((zone) => `
+          <div class="auto-zone-block">
+            <p class="auto-zone-title">${zone}</p>
+            <div class="auto-zone-grid">
+              ${grouped[zone].map((slot) => {
+                const selected = String(selectedSlotId || "") === String(slot.id);
+                const occupancy = slot.occupancy || "available";
+                const selectable = occupancy === "available";
+                const occupant = slot.occupied_by_name
+                  ? `<small>${slot.occupied_by_name}</small>`
+                  : "<small></small>";
+                return `
+                  <button
+                    type="button"
+                    class="auto-slot-btn ${occupancy} ${selected ? "selected" : ""}"
+                    data-slot-id="${slot.id}"
+                    data-slot-code="${slot.slot_code}"
+                    ${selectable ? "" : "disabled"}>
+                    <span>${slot.slot_code}</span>
+                    ${occupant}
+                  </button>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        `).join("")}
+      `;
+
+      autoSlotMap.querySelectorAll(".auto-slot-btn.available").forEach((button) => {
+        button.addEventListener("click", () => {
+          selectedSlotId = button.dataset.slotId;
+          renderSlotMap();
+          confirmEntryBtn.disabled = false;
+          entryConfirmHint.textContent = `Selected slot: ${button.dataset.slotCode}`;
+        });
+      });
+    }
+
+    function renderEntryDetails(sticker) {
+      const safe = sticker || {};
+      entryStickerDetails.innerHTML = `
+        <div><span>Authorized</span><strong>Yes</strong></div>
+        <div><span>Student</span><strong>${safe.full_name || "-"}</strong></div>
+        <div><span>Student ID</span><strong>${safe.student_number || "-"}</strong></div>
+        <div><span>Plate Number</span><strong>${safe.plate_number || "-"}</strong></div>
+        <div><span>Vehicle Type</span><strong>${safe.vehicle_type || safe.vehicle_model || "-"}</strong></div>
+      `;
+    }
+
+    function hideEntryPanel() {
+      pendingToken = null;
+      pendingSticker = null;
+      pendingSlotOverview = null;
+      selectedSlotId = null;
+      confirmEntryBtn.disabled = true;
+      entryConfirmHint.textContent = "";
+      entryStickerDetails.innerHTML = "";
+      autoSlotMap.innerHTML = "";
+      entryConfirmPanel.style.display = "none";
+    }
+
+    async function fetchLatestSlotOverview() {
+      const resp = await fetch("/api/parking-slot-overview");
+      const data = await resp.json();
+      if (!data.ok) {
+        throw new Error(data.message || "Failed to load parking slots.");
+      }
+      return {
+        slots: Array.isArray(data.slots) ? data.slots : [],
+        summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
+      };
+    }
+
+    async function pauseScanner() {
+      if (!html5QrCode || !cameraStarted) return;
+      try {
+        await html5QrCode.pause();
+      } catch (_error) {
+        // ignore pause race conditions
+      }
+    }
+
+    async function resumeScanner(delayMs = 0) {
+      if (!html5QrCode || !cameraStarted) return;
+      setTimeout(async () => {
+        try {
+          await html5QrCode.resume();
+          setCameraStatus("Scanner active", "ok");
+        } catch (_error) {
+          setCameraStatus("Unable to resume scanner", "error");
+        }
+      }, Math.max(0, delayMs));
+    }
+
+    async function handleDecodedText(decodedText) {
+      const token = extractToken(decodedText);
+      if (!token || processingScan) return;
+
+      const now = Date.now();
+      const previous = localCooldown.get(token) || 0;
+      if (now - previous < 2000) return;
+      localCooldown.set(token, now);
+
+      processingScan = true;
+      await pauseScanner();
+      setResultState("processing", "Processing QR scan", "Verifying sticker and determining movement...");
+
+      try {
+        const payload = {
+          token,
+          gate: gateSelect.value,
+          snapshot_data_url: captureSnapshotDataUrl()
+        };
+        const data = await postJson("/api/auto-scan/detect", payload);
+
+        if (data.duplicate_scan) {
+          hideEntryPanel();
+          const waitSeconds = Math.max(1, cooldownSeconds - Number(data.seconds_since_last_scan || 0));
+          setResultState(
+            "warning",
+            "Duplicate scan ignored",
+            data.message || `Please wait ${waitSeconds} seconds before scanning this sticker again.`
+          );
+          await resumeScanner(1200);
+          return;
+        }
+
+        if (!data.ok) {
+          hideEntryPanel();
+          setResultState(
+            "invalid",
+            `Unauthorized (${(data.result || "INVALID").toUpperCase()})`,
+            data.message || "QR sticker is not valid.",
+            data.sticker
+              ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>`
+              : ""
+          );
+          await resumeScanner(1500);
+          return;
+        }
+
+        if (data.action === "EXIT" && data.movement_saved) {
+          hideEntryPanel();
+          setResultState(
+            "success",
+            "EXIT recorded",
+            data.message || "Vehicle exit logged successfully.",
+            `
+              <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
+              <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
+              <p><strong>Released Slot:</strong> ${data.released_slot || "N/A"}</p>
+            `
+          );
+          await resumeScanner(1600);
+          return;
+        }
+
+        if (data.action === "ENTRY" && data.requires_confirmation) {
+          pendingToken = token;
+          pendingSticker = data.sticker || null;
+          pendingSlotOverview = data.parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
+          selectedSlotId = null;
+          confirmEntryBtn.disabled = true;
+          renderEntryDetails(pendingSticker);
+          renderSlotMap();
+          entryConfirmPanel.style.display = "block";
+
+          setResultState(
+            "entry",
+            "ENTRY detected - guard confirmation required",
+            data.message || "Select a parking slot and confirm to save ENTRY.",
+            `
+              <p><strong>Student:</strong> ${pendingSticker?.full_name || "-"}</p>
+              <p><strong>Plate:</strong> ${pendingSticker?.plate_number || "-"}</p>
+              <p><strong>Vehicle Type:</strong> ${pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-"}</p>
+            `
+          );
+          return;
+        }
+
+        hideEntryPanel();
+        setResultState("warning", "Scan completed", data.message || "No action was recorded.");
+        await resumeScanner(1200);
+      } catch (error) {
+        hideEntryPanel();
+        setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.");
+        await resumeScanner(1500);
+      } finally {
+        processingScan = false;
+      }
+    }
+
+    async function startCamera() {
+      if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("autoQrReader");
+      }
+
+      const config = {
+        fps: 14,
+        qrbox: { width: 260, height: 260 },
+        aspectRatio: 1.333333
+      };
+
+      const onFailure = () => {
+        // Keep scanning silently for unreadable frames.
+      };
+
+      try {
+        await html5QrCode.start(
+          { facingMode: { exact: "environment" } },
+          config,
+          handleDecodedText,
+          onFailure
+        );
+        cameraStarted = true;
+        toggleCameraBtn.textContent = "Stop Camera";
+        setCameraStatus("Rear camera active", "ok");
+        setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
+        return;
+      } catch (_rearError) {
+        // fallback below
+      }
+
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (!devices || devices.length === 0) {
+          throw new Error("No camera found on this device.");
+        }
+        const rear = devices.find((d) => /back|rear|environment/i.test(d.label)) || devices[0];
+        await html5QrCode.start(rear.id, config, handleDecodedText, onFailure);
+        cameraStarted = true;
+        toggleCameraBtn.textContent = "Stop Camera";
+        setCameraStatus("Camera active", "ok");
+        setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker.");
+      } catch (error) {
+        cameraStarted = false;
+        toggleCameraBtn.textContent = "Start Camera";
+        const message = String(error && error.message ? error.message : error);
+        const prettyMessage = /permission|denied/i.test(message)
+          ? "Camera permission denied. Allow camera access and retry."
+          : message;
+        setCameraStatus(prettyMessage, "error");
+        setResultState("error", "Camera unavailable", prettyMessage);
+      }
+    }
+
+    async function stopCamera() {
+      if (!html5QrCode || !cameraStarted) return;
+      try {
+        await html5QrCode.stop();
+        await html5QrCode.clear();
+      } catch (_error) {
+        // ignore stop race conditions
+      }
+      html5QrCode = null;
+      cameraStarted = false;
+      toggleCameraBtn.textContent = "Start Camera";
+      setCameraStatus("Camera stopped");
+    }
+
+    toggleCameraBtn.addEventListener("click", async () => {
+      if (cameraStarted) {
+        await stopCamera();
+      } else {
+        await startCamera();
+      }
+    });
+
+    resumeScannerBtn.addEventListener("click", async () => {
+      hideEntryPanel();
+      setResultState("idle", "Scanner resumed", "Waiting for the next QR scan.");
+      if (!cameraStarted) {
+        await startCamera();
+      } else {
+        await resumeScanner(0);
+      }
+    });
+
+    cancelEntryBtn.addEventListener("click", async () => {
+      hideEntryPanel();
+      setResultState("idle", "Entry confirmation cancelled", "Waiting for the next QR scan.");
+      await resumeScanner(500);
+    });
+
+    confirmEntryBtn.addEventListener("click", async () => {
+      if (!pendingToken) {
+        entryConfirmHint.textContent = "No pending entry to confirm.";
+        return;
+      }
+      if (!selectedSlotId) {
+        entryConfirmHint.textContent = "Please select a parking slot before confirming ENTRY.";
+        return;
+      }
+
+      confirmEntryBtn.disabled = true;
+      entryConfirmHint.textContent = "Saving entry record...";
+
+      try {
+        const payload = {
+          token: pendingToken,
+          gate: gateSelect.value,
+          slot_id: selectedSlotId,
+          snapshot_data_url: captureSnapshotDataUrl()
+        };
+        const data = await postJson("/api/auto-scan/confirm-entry", payload);
+        if (!data.ok) {
+          throw new Error(data.message || "Failed to save entry.");
+        }
+
+        hideEntryPanel();
+        setResultState(
+          "success",
+          "ENTRY recorded",
+          data.message || "Entry logged successfully.",
+          `
+            <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
+            <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
+            <p><strong>Assigned Slot:</strong> ${data.parking_slot || "-"}</p>
+            <p><strong>Assigned Area:</strong> ${data.assigned_area || "-"}</p>
+          `
+        );
+        await resumeScanner(1400);
+      } catch (error) {
+        entryConfirmHint.textContent = error.message || "Failed to save entry.";
+        confirmEntryBtn.disabled = false;
+
+        try {
+          pendingSlotOverview = await fetchLatestSlotOverview();
+          renderSlotMap();
+        } catch (_loadError) {
+          // If refresh fails, keep current map and error hint.
+        }
+      }
+    });
+
+    startCamera();
+  })();
+</script>
+
+<%- include("partials/footer") %>
