@@ -9,35 +9,39 @@
 </section>
 
 <div class="overlap-wrapper" style="display: grid; gap: 2rem;">
-  <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
-    <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
-      <button id="toggleCameraBtn" class="btn" style="background:var(--navy); color:#fff; display:flex; align-items:center; gap:0.5rem; flex: 1; justify-content: center; min-width: 200px; padding: 1rem; font-size: 1.1rem; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);">
-        📷 Launch Camera Scanner
+  <section class="panel gate-console-panel">
+    <div class="gate-console-top">
+      <div class="gate-console-headline">
+        <h3>Operator Controls</h3>
+        <p>Open camera scanning or manually search by student, plate, or sticker details.</p>
+      </div>
+      <button id="toggleCameraBtn" type="button" class="gate-camera-btn">
+        <span class="gate-camera-btn-title">Launch Camera Scanner</span>
+        <span class="gate-camera-btn-sub">Realtime QR verification</span>
       </button>
     </div>
 
-  <!-- In-App Camera Container -->
-  <div id="cameraWrapper" style="display:none; background:#000; border-radius:8px; overflow:hidden; margin-bottom: 1.5rem; position:relative;">
-    <div id="qr-reader" style="width:100%; min-height:300px; max-height: 60vh;"></div>
-    <p id="cameraStatus" style="position:absolute; bottom:10px; left:0; width:100%; text-align:center; color:#fff; font-size:0.85rem; background:rgba(0,0,0,0.5); margin:0; padding:0.25rem 0;">Ready</p>
-  </div>
+    <div id="cameraWrapper" class="gate-camera-wrapper">
+      <div id="qr-reader"></div>
+      <p id="cameraStatus" class="gate-camera-status">Camera ready</p>
+    </div>
 
-  <div class="search-grid" style="display: grid; gap: 0.75rem; align-items: end; margin-bottom: 1rem;">
-    <div>
-      <label for="gateSearchInput">Search Manually (Plate, ID, Name)</label>
-      <input id="gateSearchInput" type="search" placeholder="e.g. ABC 1234 or 2024-001" autocomplete="off" style="width:100%;" />
+    <div class="gate-search-grid">
+      <div>
+        <label for="gateSearchInput">Search Manually (Plate, ID, Name)</label>
+        <input id="gateSearchInput" type="search" placeholder="e.g. ABC 1234 or 2024-001" autocomplete="off" />
+      </div>
+      <div>
+        <label for="gateNameSelect">Current Gate</label>
+        <select id="gateNameSelect">
+          <option value="Main Gate">Main Gate</option>
+          <option value="Side Gate">Side Gate</option>
+          <option value="Manual Verification">Manual Verification</option>
+        </select>
+      </div>
+      <button type="button" id="gateSearchBtn" class="gate-search-btn">Search Record</button>
     </div>
-    <div>
-      <label for="gateNameSelect">Current Gate</label>
-      <select id="gateNameSelect" style="width:100%;">
-        <option value="Main Gate">Main Gate</option>
-        <option value="Side Gate">Side Gate</option>
-        <option value="Manual Verification">Manual Verification</option>
-      </select>
-    </div>
-  </div>
-  <button type="button" id="gateSearchBtn" class="btn" style="width:100%;">Search</button>
-</section>
+  </section>
 
   <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
   <div class="section-head">
@@ -125,6 +129,7 @@
     const exitBtn = document.getElementById("gateExitBtn");
     const toggleCameraBtn = document.getElementById("toggleCameraBtn");
     const cameraWrapper = document.getElementById("cameraWrapper");
+    const cameraStatus = document.getElementById("cameraStatus");
 
     let selectedToken = null;
     let selectedLabel = "";
@@ -277,22 +282,34 @@
     }
 
     // --- Camera Logic ---
+    function setCameraButton(isOpen) {
+      if (isOpen) {
+        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Close Camera Scanner</span><span class="gate-camera-btn-sub">Stop realtime QR verification</span>';
+      } else {
+        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Launch Camera Scanner</span><span class="gate-camera-btn-sub">Realtime QR verification</span>';
+      }
+    }
+
+    setCameraButton(false);
+
     toggleCameraBtn.addEventListener("click", () => {
-      if (cameraWrapper.style.display === "none") {
+      const currentlyHidden = cameraWrapper.style.display === "none" || getComputedStyle(cameraWrapper).display === "none";
+      if (currentlyHidden) {
         cameraWrapper.style.display = "block";
-        toggleCameraBtn.innerHTML = "❌ Close Scanner";
+        setCameraButton(true);
+        if (cameraStatus) cameraStatus.textContent = "Scanner active";
         if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
         html5QrCode.start({ facingMode: "environment" }, { fps: 30, qrbox: { width: 250, height: 250 } }, onScanSuccess)
           .catch(e => {
-            document.getElementById("cameraStatus").textContent = "Camera Error: " + e;
+            if (cameraStatus) cameraStatus.textContent = "Camera error: " + e;
           });
       } else {
         cameraWrapper.style.display = "none";
-        toggleCameraBtn.innerHTML = "📷 Open Scanner";
+        setCameraButton(false);
+        if (cameraStatus) cameraStatus.textContent = "Camera ready";
         if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear());
       }
     });
-
     async function onScanSuccess(decodedText) {
       if (html5QrCode && html5QrCode.getState() === 2) {
         html5QrCode.pause(); // Pause scanning
@@ -603,3 +620,4 @@
 </div> <!-- end overlap-wrapper -->
 
 <%- include("partials/footer") %>
+

@@ -1974,6 +1974,154 @@ body.is-ready .container>*:nth-child(4) {
 
 
 /* ── Mobile Responsiveness for Redesign ────────────────────── */
+.gate-console-panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1.1rem !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+[data-theme="dark"] .gate-console-panel {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.82) 0%, rgba(15, 23, 42, 0.72) 100%) !important;
+  border-color: rgba(148, 163, 184, 0.28);
+  box-shadow: none !important;
+}
+
+.gate-console-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.gate-console-headline h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  color: var(--navy);
+}
+
+.gate-console-headline p {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+[data-theme="dark"] .gate-console-headline h3 {
+  color: var(--text);
+}
+
+.gate-camera-btn {
+  min-width: 280px;
+  max-width: 340px;
+  width: 100%;
+  background: linear-gradient(135deg, #102f52 0%, #0f2942 100%) !important;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 14px !important;
+  padding: 0.85rem 1rem !important;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.18rem;
+  box-shadow: 0 10px 24px rgba(15, 41, 66, 0.28) !important;
+}
+
+.gate-camera-btn:hover {
+  transform: translateY(-1px);
+}
+
+.gate-camera-btn-title {
+  font-size: 0.96rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.gate-camera-btn-sub {
+  font-size: 0.74rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 600;
+}
+
+.gate-camera-wrapper {
+  display: none;
+  background: #020617;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.gate-camera-wrapper #qr-reader {
+  width: 100%;
+  min-height: 300px;
+  max-height: 60vh;
+}
+
+.gate-camera-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0.45rem 0.65rem;
+  text-align: center;
+  color: #e2e8f0;
+  background: rgba(2, 6, 23, 0.76);
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+}
+
+.gate-search-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.gate-search-grid label {
+  display: inline-block;
+  margin-bottom: 0.32rem;
+}
+
+.gate-search-grid input,
+.gate-search-grid select {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+[data-theme="dark"] .gate-search-grid input,
+[data-theme="dark"] .gate-search-grid select {
+  box-shadow: none;
+}
+
+.gate-search-btn {
+  min-height: 48px;
+  border-radius: 12px !important;
+  padding: 0.75rem 1.15rem !important;
+  font-size: 0.88rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+@media (max-width: 1080px) {
+  .gate-search-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  }
+
+  .gate-search-btn {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
 @media (max-width: 768px) {
   .top-nav {
     padding: 0.75rem 1rem;
@@ -2028,6 +2176,25 @@ body.is-ready .container>*:nth-child(4) {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .gate-console-top {
+    grid-template-columns: 1fr;
+  }
+
+  .gate-camera-btn {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .gate-search-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gate-search-btn {
+    grid-column: auto;
+    width: 100%;
+  }
   
   .dashboard-hero {
     padding: 1.5rem 1rem 3.5rem;
@@ -2060,3 +2227,4 @@ body.is-ready .container>*:nth-child(4) {
   table { min-width: 500px; }
   td, th { padding: 0.6rem 0.4rem; font-size: 0.75rem; }
 }
+
