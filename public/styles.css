@@ -1385,7 +1385,7 @@ body.is-ready .container>*:nth-child(4) {
 }
 
 .top-nav .brand { order: 1; }
-.top-nav-links { order: 2; display: flex !important; gap: 1.5rem; align-items: center; overflow-x: auto; }
+.top-nav-links { order: 2; display: flex !important; gap: 1.5rem; align-items: center; overflow-x: visible; }
 .top-nav-actions { order: 3; display: flex; align-items: center; gap: 1rem; }
 
 .top-nav .brand h1 { font-size: 1.25rem; font-weight: 800; margin: 0; white-space: nowrap; }
@@ -1584,7 +1584,13 @@ body.is-ready .container>*:nth-child(4) {
     padding: 0.5rem 0;
     gap: 1.25rem;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+    scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .top-nav-links::-webkit-scrollbar {
+    display: none;
   }
   
   .top-nav-links a { font-size: 0.82rem; padding: 0.25rem 0; }
