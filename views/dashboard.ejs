@@ -1,531 +1,282 @@
 <%- include("partials/header") %>
-  <%
-    const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
-    const rawMovementLogs = typeof movementLogs !== "undefined" ? movementLogs : [];
-    const safeMovementLogs = Array.isArray(rawMovementLogs) ? rawMovementLogs : [];
-    const rawInsideVehicles = typeof insideVehicles !== "undefined" ? insideVehicles : [];
-    const safeInsideVehicles = Array.isArray(rawInsideVehicles) ? rawInsideVehicles : [];
-    const rawParkingSlots = typeof parkingSlots !== "undefined" ? parkingSlots : [];
-    const safeParkingSlots = Array.isArray(rawParkingSlots) ? rawParkingSlots : [];
-    const rawOverstayAlerts = typeof overstayAlerts !== "undefined" ? overstayAlerts : [];
-    const safeOverstayAlerts = Array.isArray(rawOverstayAlerts) ? rawOverstayAlerts : [];
-    const safeOverstayLimitHours = Number(
-      typeof overstayLimitHours !== "undefined"
-        ? overstayLimitHours
-        : (safeMetrics.overstayLimitHours || 4)
-    ) || 4;
-    const safeOverstayLimitLabel = Number.isInteger(safeOverstayLimitHours)
-      ? `${safeOverstayLimitHours}`
-      : safeOverstayLimitHours.toFixed(1).replace(/\.0$/, "");
-    const safeParkingSlotSummary = typeof parkingSlotSummary === "object" && parkingSlotSummary ? parkingSlotSummary : {
-      total: safeParkingSlots.length,
-      available: safeParkingSlots.filter(slot => slot.occupancy === "available").length,
-      occupied: safeParkingSlots.filter(slot => slot.occupancy === "occupied").length,
-      disabled: safeParkingSlots.filter(slot => slot.occupancy === "disabled").length
-    };
-    const initialSelectedSlot = safeParkingSlots.find(slot => slot.occupancy === "available") || safeParkingSlots[0] || null;
-    const initialSelectedSlotCode = initialSelectedSlot && initialSelectedSlot.slot_code
-      ? String(initialSelectedSlot.slot_code)
-      : "";
-  %>
-    <section class="dashboard-hero">
-      <div class="hero-greeting">
-        <h2>Welcome Back,</h2>
-        <h1>NAAP Administrator</h1>
-      </div>
-      <div class="hero-cards">
-        <div class="hero-card">
-          <h3>Total Students</h3>
-          <p><%= safeMetrics.students || 0 %></p>
-        </div>
-        <div class="hero-card">
-          <h3>Registered Vehicles</h3>
-          <p><%= safeMetrics.vehicles || 0 %></p>
-        </div>
-        <div class="hero-card">
-          <h3>Active Stickers</h3>
-          <p id="activeStickersCount"><%= safeMetrics.activeStickers || 0 %></p>
-        </div>
-        <div class="hero-card" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
-          <h3>Currently Inside</h3>
-          <p id="currentlyInsideCount"><%= safeMetrics.currentlyInside || 0 %></p>
-        </div>
-        <div class="hero-card" style="background: rgba(190, 18, 60, 0.2); border: 1px solid rgba(251, 113, 133, 0.4);">
-          <h3>Overstay Alerts</h3>
-          <p id="overstayAlertCount"><%= safeMetrics.overstayAlerts || safeOverstayAlerts.length || 0 %></p>
-        </div>
-      </div>
-    </section>
+<%
+  const safeMetrics = typeof metrics === "object" && metrics ? metrics : {};
+  const safeInsideVehicles = Array.isArray(insideVehicles) ? insideVehicles : [];
+  const safeOverstayAlerts = Array.isArray(overstayAlerts) ? overstayAlerts : [];
+  const safeOverstayLimitHours = Number(
+    typeof overstayLimitHours !== "undefined"
+      ? overstayLimitHours
+      : (safeMetrics.overstayLimitHours || 4)
+  ) || 4;
+  const safeOverstayLimitLabel = Number.isInteger(safeOverstayLimitHours)
+    ? `${safeOverstayLimitHours}`
+    : safeOverstayLimitHours.toFixed(1).replace(/\.0$/, "");
+%>
 
-    <div class="overlap-wrapper">
-      <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2.5rem; background: transparent;">
-        <div class="section-head">
-          <h2 style="font-size: 1.25rem;">Overview of Inside Vehicles</h2>
-          <p>Live roster of vehicles currently inside campus.</p>
-        </div>
-        <div class="refresh-row" style="margin-bottom: 0.75rem;">
-          <span id="insideLastUpdated" class="helper-text">Loading...</span>
-          <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn" style="background: var(--surface-soft); color: var(--text); border: 1px solid var(--line);">↻ Refresh</button>
-        </div>
-        <div id="overstayNotice" class="flash flash-error overstay-notice" style="display:none; margin-bottom:0.85rem;"></div>
-        <div class="overstay-panel" style="margin-bottom: 1rem;">
-          <div class="overstay-panel-head">
-            <strong>Overstay Watch</strong>
-            <span id="overstayLimitMeta" class="helper-text">Limit: <%= safeOverstayLimitLabel %> hour(s)</span>
-          </div>
-          <div id="overstayAlertList" class="overstay-alert-list">
-            <% if (safeOverstayAlerts.length === 0) { %>
-              <div class="overstay-empty">No active overstay alerts.</div>
-            <% } %>
-            <% safeOverstayAlerts.forEach(item => { %>
-              <div class="overstay-alert-item" data-sticker-id="<%= item.sticker_id %>">
-                <div class="overstay-alert-main">
-                  <p class="overstay-alert-title">
-                    <strong><%= item.full_name || "Unknown Student" %></strong>
-                    <span><%= item.plate_number || "-" %></span>
-                    <span><%= item.parking_slot || "-" %></span>
-                  </p>
-                  <p class="helper-text">
-                    Entered <%= new Date(item.entered_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) %>
-                    | Stayed <strong><%= item.duration_label || "-" %></strong>
-                    <% if (item.overstay_label) { %>
-                      (<%= item.overstay_label %>)
-                    <% } %>
-                  </p>
-                </div>
-                <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
-              </div>
-            <% }) %>
-          </div>
-        </div>
-        <div class="table-wrap desktop-only-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Student No.</th>
-                <th>Name</th>
-                <th>Plate</th>
-                <th>Sticker</th>
-                <th>Slot</th>
-                <th>Gate</th>
-                <th>Duration</th>
-                <th>Status</th>
-                <th style="text-align: right; padding-right: 1.5rem;">Action</th>
-              </tr>
-            </thead>
-            <tbody id="insideVehiclesBody">
-              <% if (safeInsideVehicles.length === 0) { %>
-                <tr id="insideEmptyRow" style="box-shadow: none;">
-                  <td colspan="9" style="background: transparent; border: none;">
-                    <div class="empty-state">
-                      <div class="empty-state-icon">🚗</div>
-                      <p>No vehicles currently inside campus.</p>
-                    </div>
-                  </td>
-                </tr>
-              <% } %>
-              <% safeInsideVehicles.forEach(item => { %>
-                <tr class="<%= item.is_overstay ? 'inside-row-overstay' : '' %>">
-                  <td><strong><%= item.student_number || "-" %></strong></td>
-                  <td><%= item.full_name || "-" %></td>
-                  <td><span class="badge badge-soft badge-plate"><%= item.plate_number || "-" %></span></td>
-                  <td><span class="badge badge-active"><%= item.sticker_code || "-" %></span></td>
-                  <td><%= item.parking_slot || "-" %></td>
-                  <td><%= item.entry_gate || "-" %></td>
-                  <td><%= item.duration_label || "-" %></td>
-                  <td>
-                    <% if (item.is_overstay) { %>
-                      <span class="badge badge-overstay">Overstay</span>
-                    <% } else { %>
-                      <span class="badge badge-inside">Inside</span>
-                    <% } %>
-                  </td>
-                  <td style="text-align: right;">
-                    <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
-                  </td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
-        </div>
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Administrator Command Center</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Total Students</h3>
+      <p id="metricStudents"><%= safeMetrics.students || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Registered Vehicles</h3>
+      <p id="metricVehicles"><%= safeMetrics.vehicles || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+      <h3>Currently Inside</h3>
+      <p id="metricInside"><%= safeMetrics.currentlyInside || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+      <h3>Overstay Alerts</h3>
+      <p id="metricOverstay"><%= safeMetrics.overstayAlerts || safeOverstayAlerts.length || 0 %></p>
+    </div>
+  </div>
+</section>
 
-        <!-- Mobile-Ready Cards for Inside Vehicles -->
-        <div class="mobile-data-list" id="insideVehiclesCards">
-          <% if (safeInsideVehicles.length === 0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">🚗</div>
-              <p>No vehicles inside campus.</p>
+<div class="overlap-wrapper" style="display:grid; gap:1.35rem;">
+  <section class="panel quick-links-panel">
+    <div class="section-head">
+      <h2>Operations Pages</h2>
+      <p>Open each page directly for cleaner monitoring and faster review.</p>
+    </div>
+    <div class="quick-links-grid">
+      <a href="/admin/slots" class="quick-link-card">
+        <h3>Available Slots</h3>
+        <p>Live slot map, occupancy status, and per-slot parking history.</p>
+      </a>
+      <a href="/admin/updates" class="quick-link-card">
+        <h3>Latest Updates</h3>
+        <p>Real-time activity feed and overstay watch notifications.</p>
+      </a>
+      <a href="/admin/records" class="quick-link-card">
+        <h3>Gate Exit / Records</h3>
+        <p>Searchable entry and exit table for full audit review.</p>
+      </a>
+      <a href="/scanner" class="quick-link-card">
+        <h3>Gate Console</h3>
+        <p>Manual gate verification and phone camera confirmations.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="panel admin-overview-panel">
+    <div class="section-head">
+      <h2>Overview of Inside Vehicles</h2>
+      <p>Live roster of vehicles currently inside campus.</p>
+    </div>
+    <div class="refresh-row" style="margin-bottom: 0.75rem;">
+      <span id="insideLastUpdated" class="helper-text">Last updated: --</span>
+      <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn">Refresh</button>
+    </div>
+    <div id="overstayNotice" class="flash flash-error overstay-notice" style="display:none; margin-bottom:0.85rem;"></div>
+    <div class="overstay-panel" style="margin-bottom: 1rem;">
+      <div class="overstay-panel-head">
+        <strong>Overstay Watch</strong>
+        <span id="overstayLimitMeta" class="helper-text">Limit: <%= safeOverstayLimitLabel %> hour(s)</span>
+      </div>
+      <div id="overstayAlertList" class="overstay-alert-list">
+        <% if (!safeOverstayAlerts.length) { %>
+          <div class="overstay-empty">No active overstay alerts.</div>
+        <% } %>
+        <% safeOverstayAlerts.forEach((item) => { %>
+          <div class="overstay-alert-item" data-sticker-id="<%= item.sticker_id %>">
+            <div class="overstay-alert-main">
+              <p class="overstay-alert-title">
+                <strong><%= item.full_name || "Unknown Student" %></strong>
+                <span><%= item.plate_number || "-" %></span>
+                <span><%= item.parking_slot || "-" %></span>
+              </p>
+              <p class="helper-text">
+                Entered <%= new Date(item.entered_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %>
+                | Stayed <strong><%= item.duration_label || "-" %></strong>
+                <% if (item.overstay_label) { %>
+                  (<%= item.overstay_label %>)
+                <% } %>
+              </p>
             </div>
+            <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+
+    <div class="table-wrap desktop-only-table ops-table-shell">
+      <table>
+        <thead>
+          <tr>
+            <th>Student No.</th>
+            <th>Name</th>
+            <th>Plate</th>
+            <th>Sticker</th>
+            <th>Slot</th>
+            <th>Gate</th>
+            <th>Duration</th>
+            <th>Status</th>
+            <th style="text-align:right; padding-right:1.2rem;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="insideVehiclesBody">
+          <% if (!safeInsideVehicles.length) { %>
+            <tr id="insideEmptyRow" style="box-shadow: none;">
+              <td colspan="9" style="background: transparent; border: none;">
+                <div class="empty-state">
+                  <div class="empty-state-icon">🚗</div>
+                  <p>No vehicles currently inside campus.</p>
+                </div>
+              </td>
+            </tr>
           <% } %>
-          <% safeInsideVehicles.forEach(item => { %>
-            <div class="mobile-data-card <%= item.is_overstay ? 'overstay-card' : '' %>" data-sticker-id="<%= item.sticker_id %>">
-              <div class="card-header">
-                <div class="card-title"><%= item.full_name || "Unknown" %></div>
+          <% safeInsideVehicles.forEach((item) => { %>
+            <tr class="<%= item.is_overstay ? 'inside-row-overstay' : '' %>">
+              <td><strong><%= item.student_number || "-" %></strong></td>
+              <td><%= item.full_name || "-" %></td>
+              <td><span class="badge badge-soft badge-plate"><%= item.plate_number || "-" %></span></td>
+              <td><span class="badge badge-active"><%= item.sticker_code || "-" %></span></td>
+              <td><%= item.parking_slot || "-" %></td>
+              <td><%= item.entry_gate || "-" %></td>
+              <td><%= item.duration_label || "-" %></td>
+              <td>
                 <% if (item.is_overstay) { %>
                   <span class="badge badge-overstay">Overstay</span>
                 <% } else { %>
                   <span class="badge badge-inside">Inside</span>
                 <% } %>
-              </div>
-              <div class="card-body">
-                <div class="card-item">Plate: <strong><%= item.plate_number || "-" %></strong></div>
-                <div class="card-item">Slot: <strong><%= item.parking_slot || "-" %></strong></div>
-                <div class="card-item">Gate: <strong><%= item.entry_gate || "-" %></strong></div>
-                <div class="card-item">In: <strong><%= new Date(item.entered_at).toLocaleTimeString() %></strong></div>
-                <div class="card-item">Duration: <strong><%= item.duration_label || "-" %></strong></div>
-                <% if (item.overstay_label) { %>
-                  <div class="card-item overstay-card-alert"><strong>Alert:</strong> <%= item.overstay_label %></div>
-                <% } %>
-              </div>
-              <div class="card-actions">
-                <button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit Vehicle</button>
-              </div>
-            </div>
+              </td>
+              <td style="text-align:right;">
+                <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
+              </td>
+            </tr>
           <% }) %>
-        </div>
-      </section>
+        </tbody>
+      </table>
+    </div>
 
-      <section class="panel" style="border:none; box-shadow:none; padding:0; margin-bottom: 2rem; background: transparent;">
-        <div class="section-head">
-          <h2 style="font-size: 1.25rem;">Parking Slot Monitoring</h2>
-          <p>See exactly which vehicle is parked in each occupied slot. Click any slot to view its history.</p>
+    <div class="mobile-data-list" id="insideVehiclesCards">
+      <% if (!safeInsideVehicles.length) { %>
+        <div class="empty-state">
+          <div class="empty-state-icon">🚗</div>
+          <p>No vehicles inside campus.</p>
         </div>
-        <div class="parking-slots-toolbar">
-          <div class="parking-slots-toolbar-left">
-            <span id="parkingSlotsMeta" class="helper-text">
-              <%= safeParkingSlotSummary.available %> available | <%= safeParkingSlotSummary.occupied %> occupied | <%= safeParkingSlotSummary.disabled %> disabled | <%= safeParkingSlotSummary.total %> total
-            </span>
-            <label for="parkingSlotSearch" class="sr-only">Find parking slot</label>
-            <input
-              type="search"
-              id="parkingSlotSearch"
-              class="slot-search-input"
-              placeholder="Find slot code, zone, plate, or student..." />
-          </div>
-          <div class="slot-filter-group" role="group" aria-label="Parking slot status filter">
-            <button type="button" class="slot-filter-btn is-active" data-slot-filter="all">All (<%= safeParkingSlotSummary.total %>)</button>
-            <button type="button" class="slot-filter-btn" data-slot-filter="available">Available (<%= safeParkingSlotSummary.available %>)</button>
-            <button type="button" class="slot-filter-btn" data-slot-filter="occupied">Occupied (<%= safeParkingSlotSummary.occupied %>)</button>
-            <button type="button" class="slot-filter-btn" data-slot-filter="disabled">Disabled (<%= safeParkingSlotSummary.disabled %>)</button>
-          </div>
-        </div>
-        <div id="availableSlotsStrip" class="available-slots-strip">
-          <% const initialAvailableSlots = safeParkingSlots.filter(slot => slot.occupancy === "available"); %>
-          <% if (initialAvailableSlots.length === 0) { %>
-            <span class="available-slots-empty">No available slots right now.</span>
-          <% } else { %>
-            <span class="available-slots-label">Available now:</span>
-            <% initialAvailableSlots.slice(0, 16).forEach(slot => { %>
-              <button type="button" class="available-slot-pill" data-slot-pill="<%= slot.slot_code || '' %>"><%= slot.slot_code || "-" %></button>
-            <% }) %>
-            <% if (initialAvailableSlots.length > 16) { %>
-              <span class="available-slots-more">+<%= initialAvailableSlots.length - 16 %> more</span>
+      <% } %>
+      <% safeInsideVehicles.forEach((item) => { %>
+        <div class="mobile-data-card <%= item.is_overstay ? 'overstay-card' : '' %>" data-sticker-id="<%= item.sticker_id %>">
+          <div class="card-header">
+            <div class="card-title"><%= item.full_name || "Unknown" %></div>
+            <% if (item.is_overstay) { %>
+              <span class="badge badge-overstay">Overstay</span>
+            <% } else { %>
+              <span class="badge badge-inside">Inside</span>
             <% } %>
-          <% } %>
-        </div>
-        <div class="parking-space-layout">
-          <div class="parking-space-map-shell">
-            <div id="parkingSlotsList" class="parking-space-map">
-              <% if (safeParkingSlots.length === 0) { %>
-                <div class="empty-state" style="padding:1.25rem 1rem;">
-                  <p>No parking slots configured.</p>
-                </div>
-              <% } %>
-            </div>
           </div>
-
-          <aside class="parking-space-panel">
-            <div class="parking-space-panel-head">
-              <div>
-                <p class="parking-space-panel-label">Selected Parking Space</p>
-                <h3 id="slotInspectorTitle"><%= initialSelectedSlotCode || "Not selected" %></h3>
-              </div>
-              <span id="slotInspectorStatus" class="parking-inspector-badge">--</span>
-            </div>
-            <p id="slotInspectorSubtitle" class="helper-text" style="margin-bottom:0.7rem;">
-              Select a slot to review assignment details and recent parking activity.
-            </p>
-            <div id="slotInspectorDetails" class="parking-inspector-details"></div>
-
-            <div class="parking-inspector-history-head">
-              <strong>Recent Activity</strong>
-              <button type="button" id="openSlotHistoryBtn" class="btn-sm">Open Full History</button>
-            </div>
-            <div id="slotInspectorHistory" class="parking-inspector-history-list">
-              <div class="empty-state" style="padding:0.8rem;">
-                <p>Select a slot to load recent history.</p>
-              </div>
-            </div>
-          </aside>
-        </div>
-      </section>
-
-      <div id="slotHistoryModal" class="slot-history-modal" aria-hidden="true">
-        <div class="slot-history-backdrop" data-close-slot-history></div>
-        <div class="slot-history-dialog" role="dialog" aria-modal="true" aria-labelledby="slotHistoryTitle">
-          <div class="slot-history-head">
-            <h3 id="slotHistoryTitle">Slot History</h3>
-            <button type="button" class="slot-history-close" data-close-slot-history aria-label="Close slot history">x</button>
-          </div>
-          <p id="slotHistoryMeta" class="helper-text" style="margin:0 0 0.75rem;">Loading slot history...</p>
-          <div id="slotHistoryList" class="slot-history-list">
-            <div class="empty-state" style="padding:1rem;"><p>Loading slot history...</p></div>
-          </div>
-        </div>
-      </div>
-
-    <section class="dashboard-grid">
-      <article class="panel">
-        <div class="section-head">
-          <h2>Student Gate Entry and Exit Records</h2>
-          <p>Latest verified movements captured from campus gates.</p>
-        </div>
-        <div class="table-tools">
-          <label for="movementSearch" class="sr-only">Search student name or plate</label>
-          <input id="movementSearch" type="search"
-            placeholder="Search by name, plate, or student number..." />
-          <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
-        </div>
-        <div class="table-wrap desktop-only-table">
-          <table id="movementTable">
-            <thead>
-              <tr>
-                <th>Date/Time</th>
-                <th>Student</th>
-                <th>Plate</th>
-                <th>Sticker</th>
-                <th>Result</th>
-                <th>Movement</th>
-                <th>Gate</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (safeMovementLogs.length===0) { %>
-                <tr id="movementEmptyRow" style="box-shadow: none;">
-                  <td colspan="7" style="background: transparent; border: none;">
-                    <div class="empty-state">
-                      <div class="empty-state-icon">📋</div>
-                      <p>No scan records yet.</p>
-                    </div>
-                  </td>
-                </tr>
-                <% } %>
-                  <% safeMovementLogs.forEach(scan=> { %>
-                    <tr class="movement-row">
-                      <td style="color:var(--muted); font-size:0.8rem;">
-                        <%= new Date(scan.scanned_at).toLocaleString('en-US', { hour: 'numeric', minute: 'numeric' }) %>
-                      </td>
-                      <td>
-                        <strong><%= scan.student_number || "-" %></strong><br><small><%= scan.full_name || "" %></small>
-                      </td>
-                      <td>
-                        <%= scan.plate_number || "-" %>
-                      </td>
-                      <td>
-                        <%= scan.sticker_code || "-" %>
-                      </td>
-                      <td><span class="badge badge-<%= (scan.result || " INVALID").toLowerCase() %>"><%= scan.result %></span></td>
-                      <td><span class="badge badge-<%= (scan.action || " ").toLowerCase() %>"><%= scan.action %></span></td>
-                      <td>
-                        <%= scan.gate_name || "-" %>
-                      </td>
-                    </tr>
-                    <% }) %>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Mobile-Ready Cards for Movement Logs -->
-        <div class="mobile-data-list" id="movementCards">
-          <% if (safeMovementLogs.length === 0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">📋</div>
-              <p>No scan records yet.</p>
-            </div>
-          <% } %>
-          <% safeMovementLogs.forEach(scan => { %>
-            <div class="mobile-data-card" data-searchable="<%= (scan.full_name || '').toLowerCase() %> <%= (scan.plate_number || '').toLowerCase() %> <%= (scan.student_number || '').toLowerCase() %>">
-              <div class="card-header">
-                <div class="card-title text-truncate" style="max-width: 60%;"><%= scan.full_name || "Guest" %></div>
-                <span class="badge badge-<%= (scan.action || ' ').toLowerCase() %>"><%= scan.action %></span>
-              </div>
-              <div class="card-body">
-                <div class="card-item">🚗 <strong>Plate:</strong> <%= scan.plate_number || "-" %></div>
-                <div class="card-item">🪪 <strong>Sticker:</strong> <%= scan.sticker_code || "-" %></div>
-                <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-<%= (scan.result || 'INVALID').toLowerCase() %>"><%= scan.result %></span></div>
-                <div class="card-item">📅 <strong>Time:</strong> <%= new Date(scan.scanned_at).toLocaleTimeString() %></div>
-              </div>
-            </div>
-          <% }) %>
-        </div>
-      </article>
-
-      <article class="panel">
-        <div class="section-head">
-          <h2>Latest Updates</h2>
-          <p>Recent gate activity snapshots.</p>
-        </div>
-        <div class="updates-list">
-          <% if (safeMovementLogs.length===0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">🔔</div>
-              <p>No updates yet.</p>
-            </div>
+          <div class="card-body">
+            <div class="card-item">Plate: <strong><%= item.plate_number || "-" %></strong></div>
+            <div class="card-item">Slot: <strong><%= item.parking_slot || "-" %></strong></div>
+            <div class="card-item">Gate: <strong><%= item.entry_gate || "-" %></strong></div>
+            <div class="card-item">In: <strong><%= new Date(item.entered_at).toLocaleTimeString() %></strong></div>
+            <div class="card-item">Duration: <strong><%= item.duration_label || "-" %></strong></div>
+            <% if (item.overstay_label) { %>
+              <div class="card-item overstay-card-alert"><strong>Alert:</strong> <%= item.overstay_label %></div>
             <% } %>
-              <% safeMovementLogs.slice(0, 8).forEach(scan=> { %>
-                <div class="update-item">
-                  <span
-                    class="update-dot <%= (scan.result || 'invalid').toLowerCase() %> <%= (scan.action || 'verify').toLowerCase() %>"></span>
-                  <div>
-                    <p>
-                      <strong>
-                        <%= scan.full_name || "Unknown Student" %>
-                      </strong>
-                      <span class="update-action <%= (scan.action || 'verify').toLowerCase() %>">
-                        <%= scan.action || "VERIFY" %>
-                      </span>
-                    </p>
-                    <p class="helper-text">
-                      <%= scan.gate_name || "Main Gate" %> — <%= new Date(scan.scanned_at).toLocaleTimeString() %>
-                    </p>
-                  </div>
-                </div>
-                <% }) %>
+          </div>
+          <div class="card-actions">
+            <button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit Vehicle</button>
+          </div>
         </div>
-      </article>
-    </section>
+      <% }) %>
+    </div>
+  </section>
+</div>
 
-    <script>
-      (() => {
-        const searchInput = document.getElementById("movementSearch");
-        const table = document.getElementById("movementTable");
-        const countLabel = document.getElementById("movementSearchCount");
+<script>
+  (() => {
+    const insideBody = document.getElementById("insideVehiclesBody");
+    const insideCards = document.getElementById("insideVehiclesCards");
+    const metricStudents = document.getElementById("metricStudents");
+    const metricVehicles = document.getElementById("metricVehicles");
+    const metricInside = document.getElementById("metricInside");
+    const metricOverstay = document.getElementById("metricOverstay");
+    const overstayListEl = document.getElementById("overstayAlertList");
+    const overstayLimitMetaEl = document.getElementById("overstayLimitMeta");
+    const overstayNoticeEl = document.getElementById("overstayNotice");
+    const lastUpdatedEl = document.getElementById("insideLastUpdated");
+    const refreshBtn = document.getElementById("refreshInsideBtn");
+    const seenOverstayIds = new Set(
+      <%- JSON.stringify(safeOverstayAlerts.map((item) => String(item.sticker_id || "")).filter(Boolean)) %>
+    );
+    const overstayLimitHours = Number(<%- JSON.stringify(safeOverstayLimitHours) %>) || 4;
+    const overstayLimitLabel = Number.isInteger(overstayLimitHours)
+      ? String(overstayLimitHours)
+      : overstayLimitHours.toFixed(1).replace(/\.0$/, "");
+    let overstayNoticeTimer = null;
 
-        function applySearch() {
-          if (!searchInput || !table || !countLabel) return;
-          const q = searchInput.value.trim().toLowerCase();
-          const rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.id !== 'movementEmptyRow');
-          let tableVisible = 0;
-          rows.forEach(row => {
-            const match = !q || row.textContent.toLowerCase().includes(q);
-            row.style.display = match ? "" : "none";
-            if (match) tableVisible++;
-          });
-          
-          const cardsList = document.getElementById("movementCards");
-          const cardItems = cardsList ? Array.from(cardsList.querySelectorAll(".mobile-data-card")) : [];
-          const emptyCardState = cardsList ? cardsList.querySelector(".empty-state") : null;
-          let cardsVisible = 0;
-          
-          cardItems.forEach(card => {
-            const searchable = card.dataset.searchable.toLowerCase();
-            const match = !q || searchable.includes(q);
-            card.style.display = match ? "flex" : "none";
-            if (match) cardsVisible++;
-          });
+    function toPht(value) {
+      return new Date(value).toLocaleString("en-US", { timeZone: "Asia/Manila" });
+    }
 
-          if (emptyCardState) emptyCardState.style.display = (cardsVisible === 0 && cardItems.length > 0) ? "block" : "none";
-          countLabel.textContent = q ? `Found ${tableVisible || cardsVisible} records` : `Showing ${rows.length || cardItems.length} records`;
+    function getDurationLabel(item) {
+      if (item && item.duration_label) return item.duration_label;
+      const minutes = Math.max(0, Number(item?.minutes_inside) || 0);
+      const days = Math.floor(minutes / 1440);
+      const hours = Math.floor((minutes % 1440) / 60);
+      const mins = minutes % 60;
+      const parts = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0 || days > 0) parts.push(`${hours}h`);
+      parts.push(`${mins}m`);
+      return parts.join(" ");
+    }
+
+    function getOverstayText(item) {
+      if (!item || !item.is_overstay) return "";
+      if (item.overstay_label) return item.overstay_label;
+      const overstayMinutes = Math.max(0, Number(item.overstay_minutes) || 0);
+      if (!overstayMinutes) return "Over limit";
+      return `+${getDurationLabel({ minutes_inside: overstayMinutes })} over limit`;
+    }
+
+    window.forceExit = async function forceExit(stickerId, button) {
+      if (!confirm("Force exit this vehicle?")) return;
+      if (button) {
+        button.disabled = true;
+        button.textContent = "...";
+      }
+      try {
+        const resp = await fetch("/api/force-exit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sticker_id: stickerId })
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+          alert(data.message || "Unable to force exit this vehicle.");
+          if (button) {
+            button.disabled = false;
+            button.textContent = "Force Exit";
+          }
+          return;
         }
-        if (searchInput) searchInput.addEventListener("input", applySearch);
-
-        function toPHT(dateStr) {
-          return new Date(dateStr).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+        refreshOverview();
+      } catch (error) {
+        alert("Unable to force exit this vehicle right now.");
+        if (button) {
+          button.disabled = false;
+          button.textContent = "Force Exit";
         }
+      }
+    };
 
-        const insideBody = document.getElementById("insideVehiclesBody");
-        const insideCount = document.getElementById("currentlyInsideCount");
-        const lastUpdatedEl = document.getElementById("insideLastUpdated");
-        const refreshBtn = document.getElementById("refreshInsideBtn");
-        const parkingSlotsMetaEl = document.getElementById("parkingSlotsMeta");
-        const parkingSlotsListEl = document.getElementById("parkingSlotsList");
-        const parkingSlotSearchEl = document.getElementById("parkingSlotSearch");
-        const availableSlotsStripEl = document.getElementById("availableSlotsStrip");
-        const slotFilterButtons = Array.from(document.querySelectorAll(".slot-filter-btn[data-slot-filter]"));
-        const slotInspectorTitleEl = document.getElementById("slotInspectorTitle");
-        const slotInspectorStatusEl = document.getElementById("slotInspectorStatus");
-        const slotInspectorSubtitleEl = document.getElementById("slotInspectorSubtitle");
-        const slotInspectorDetailsEl = document.getElementById("slotInspectorDetails");
-        const slotInspectorHistoryEl = document.getElementById("slotInspectorHistory");
-        const openSlotHistoryBtnEl = document.getElementById("openSlotHistoryBtn");
-        const slotHistoryModal = document.getElementById("slotHistoryModal");
-        const slotHistoryTitle = document.getElementById("slotHistoryTitle");
-        const slotHistoryMeta = document.getElementById("slotHistoryMeta");
-        const slotHistoryList = document.getElementById("slotHistoryList");
-        const overstayCountEl = document.getElementById("overstayAlertCount");
-        const overstayListEl = document.getElementById("overstayAlertList");
-        const overstayLimitMetaEl = document.getElementById("overstayLimitMeta");
-        const overstayNoticeEl = document.getElementById("overstayNotice");
-        const overstayLimitHours = Number(<%- JSON.stringify(safeOverstayLimitHours) %>) || 4;
-        const overstayLimitLabel = Number.isInteger(overstayLimitHours)
-          ? `${overstayLimitHours}`
-          : overstayLimitHours.toFixed(1).replace(/\.0$/, "");
-        const seenOverstayIds = new Set(
-          <%- JSON.stringify(safeOverstayAlerts.map((item) => String(item.sticker_id || "")).filter(Boolean)) %>
-        );
-        const initialParkingSlots = <%- JSON.stringify(safeParkingSlots) %>;
-        const initialParkingSlotSummary = <%- JSON.stringify(safeParkingSlotSummary) %>;
-        let activeSlotFilter = "all";
-        let slotSearchQuery = "";
-        let latestParkingSlots = Array.isArray(initialParkingSlots) ? initialParkingSlots : [];
-        let latestParkingSlotSummary = (initialParkingSlotSummary && typeof initialParkingSlotSummary === "object")
-          ? initialParkingSlotSummary
-          : { total: latestParkingSlots.length, available: 0, occupied: 0, disabled: 0 };
-        let selectedSlotCode = String(<%- JSON.stringify(initialSelectedSlotCode) %> || "").trim().toUpperCase();
-        let selectedSlotHistoryRows = [];
-        let slotInspectorLoading = false;
-        let slotInspectorError = "";
-        let slotHistoryRequestId = 0;
-        const slotHistoryCache = new Map();
-        let overstayNoticeTimer = null;
-        if (slotHistoryModal && slotHistoryModal.parentElement !== document.body) {
-          document.body.appendChild(slotHistoryModal);
-        }
-
-        window.forceExit = async function(stickerId, btn) {
-          if (!confirm("Force exit this vehicle?")) return;
-          btn.disabled = true;
-          btn.textContent = "...";
-          try {
-            const res = await fetch("/api/force-exit", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ sticker_id: stickerId })
-            });
-            const data = await res.json();
-            if (data.ok) refreshDashboard();
-            else { alert(data.message); btn.disabled = false; btn.textContent = "Force Exit"; }
-          } catch (e) { alert("Error"); btn.disabled = false; btn.textContent = "Force Exit"; }
-        };
-
-        function getDurationLabel(item) {
-          if (item && item.duration_label) return item.duration_label;
-          const minutes = Math.max(0, Number(item?.minutes_inside) || 0);
-          const days = Math.floor(minutes / 1440);
-          const hours = Math.floor((minutes % 1440) / 60);
-          const mins = minutes % 60;
-          const parts = [];
-          if (days > 0) parts.push(`${days}d`);
-          if (hours > 0 || days > 0) parts.push(`${hours}h`);
-          parts.push(`${mins}m`);
-          return parts.join(" ");
-        }
-
-        function getOverstayText(item) {
-          if (!item || !item.is_overstay) return "";
-          if (item.overstay_label) return item.overstay_label;
-          const overstayMinutes = Math.max(0, Number(item.overstay_minutes) || 0);
-          if (!overstayMinutes) return "Over limit";
-          return `+${getDurationLabel({ minutes_inside: overstayMinutes })} over limit`;
-        }
-
-        function renderInsideRow(item) {
-          const duration = getDurationLabel(item);
-          const overstayLabel = getOverstayText(item);
-          const statusChip = item.is_overstay
-            ? `<span class="badge badge-overstay">OVERSTAY</span>`
-            : `<span class="badge badge-inside">INSIDE</span>`;
-          return `<tr class="${item.is_overstay ? "inside-row-overstay" : ""}">
+    function renderInsideRow(item) {
+      const duration = getDurationLabel(item);
+      const overstayLabel = getOverstayText(item);
+      const statusChip = item.is_overstay
+        ? `<span class="badge badge-overstay">OVERSTAY</span>`
+        : `<span class="badge badge-inside">INSIDE</span>`;
+      return `<tr class="${item.is_overstay ? "inside-row-overstay" : ""}">
         <td><strong>${item.student_number || "-"}</strong></td>
         <td>${item.full_name || "-"}</td>
         <td><span class="badge badge-soft badge-plate">${item.plate_number || "-"}</span></td>
@@ -536,640 +287,130 @@
         <td>${statusChip}${overstayLabel ? `<div class="table-alert-sub">${overstayLabel}</div>` : ""}</td>
         <td style="text-align:right;"><button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button></td>
       </tr>`;
-        }
+    }
 
-        function renderInsideCard(item) {
-          const duration = getDurationLabel(item);
-          const overstayLabel = getOverstayText(item);
-          return `<div class="mobile-data-card ${item.is_overstay ? "overstay-card" : ""}" data-sticker-id="${item.sticker_id}">
-            <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div>${item.is_overstay ? `<span class="badge badge-overstay">OVERSTAY</span>` : `<span class="badge badge-inside">INSIDE</span>`}</div>
-            <div class="card-body">
-              <div class="card-item">Plate: <strong>${item.plate_number || "-"}</strong></div>
-              <div class="card-item">Slot: <strong>${item.parking_slot || "-"}</strong></div>
-              <div class="card-item">Gate: <strong>${item.entry_gate || "-"}</strong></div>
-              <div class="card-item">In: <strong>${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</strong></div>
-              <div class="card-item">Duration: <strong>${duration}</strong></div>
-              ${overstayLabel ? `<div class="card-item overstay-card-alert"><strong>Alert:</strong> ${overstayLabel}</div>` : ""}
-            </div>
-            <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit Vehicle</button></div>
-          </div>`;
-        }
-
-        function renderOverstayAlertItem(item) {
-          return `<div class="overstay-alert-item" data-sticker-id="${item.sticker_id || ""}">
-            <div class="overstay-alert-main">
-              <p class="overstay-alert-title">
-                <strong>${item.full_name || "Unknown Student"}</strong>
-                <span>${item.plate_number || "-"}</span>
-                <span>${item.parking_slot || "-"}</span>
-              </p>
-              <p class="helper-text">Entered ${item.entered_at ? toPHT(item.entered_at) : "-"} | Stayed <strong>${getDurationLabel(item)}</strong>${item.is_overstay ? ` (${getOverstayText(item)})` : ""}</p>
-            </div>
-            <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button>
-          </div>`;
-        }
-
-        function renderEmptyOverstayAlerts() {
-          return `<div class="overstay-empty">No active overstay alerts.</div>`;
-        }
-
-        function showOverstayNotice(message) {
-          if (!overstayNoticeEl) return;
-          overstayNoticeEl.textContent = message;
-          overstayNoticeEl.style.display = "flex";
-          if (overstayNoticeTimer) clearTimeout(overstayNoticeTimer);
-          overstayNoticeTimer = setTimeout(() => {
-            overstayNoticeEl.style.display = "none";
-          }, 6500);
-        }
-
-        function syncOverstayAlerts(overstayRows) {
-          if (overstayListEl) {
-            overstayListEl.innerHTML = overstayRows.length
-              ? overstayRows.map(renderOverstayAlertItem).join("")
-              : renderEmptyOverstayAlerts();
-          }
-
-          const currentIds = new Set();
-          const newlyOverstayed = [];
-          overstayRows.forEach((row) => {
-            const key = String(row.sticker_id || "");
-            if (!key) return;
-            currentIds.add(key);
-            if (!seenOverstayIds.has(key)) newlyOverstayed.push(row);
-          });
-          seenOverstayIds.clear();
-          currentIds.forEach((id) => seenOverstayIds.add(id));
-
-          if (newlyOverstayed.length > 0) {
-            const lead = newlyOverstayed[0];
-            const names = newlyOverstayed.length === 1
-              ? (lead.full_name || "A student")
-              : `${newlyOverstayed.length} vehicles`;
-            const message = `Overstay alert: ${names} exceeded the ${overstayLimitLabel}-hour limit.`;
-            showOverstayNotice(message);
-            if ("Notification" in window && Notification.permission === "granted") {
-              try {
-                new Notification("NAAP Parking Overstay Alert", { body: message });
-              } catch (err) {
-                console.warn("Browser notification failed:", err);
-              }
-            }
-          }
-        }
-
-        function renderEmptyInside() {
-          return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles inside.</p></div>`;
-        }
-        function computeParkingSlotSummary(slots) {
-          const source = Array.isArray(slots) ? slots : [];
-          const summary = {
-            total: source.length,
-            available: 0,
-            occupied: 0,
-            disabled: 0
-          };
-
-          source.forEach((slot) => {
-            const occupancy = slot?.occupancy || "available";
-            if (occupancy === "available") summary.available += 1;
-            else if (occupancy === "occupied") summary.occupied += 1;
-            else summary.disabled += 1;
-          });
-
-          return summary;
-        }
-
-        function normalizeParkingSlotSummary(summary, slots) {
-          const fallback = computeParkingSlotSummary(slots);
-          return {
-            total: Number.isFinite(Number(summary?.total)) ? Number(summary.total) : fallback.total,
-            available: Number.isFinite(Number(summary?.available)) ? Number(summary.available) : fallback.available,
-            occupied: Number.isFinite(Number(summary?.occupied)) ? Number(summary.occupied) : fallback.occupied,
-            disabled: Number.isFinite(Number(summary?.disabled)) ? Number(summary.disabled) : fallback.disabled
-          };
-        }
-
-        function normalizeSlotCode(value) {
-          return String(value || "").trim().toUpperCase();
-        }
-
-        function getSelectedSlot() {
-          const code = normalizeSlotCode(selectedSlotCode);
-          if (!code) return null;
-          return latestParkingSlots.find((slot) => normalizeSlotCode(slot.slot_code) === code) || null;
-        }
-
-        function renderParkingSlotCard(slot) {
-          const occupancy = slot.occupancy || "available";
-          const code = slot.slot_code || "-";
-          const isSelected = normalizeSlotCode(code) === normalizeSlotCode(selectedSlotCode);
-          const tileMeta = occupancy === "occupied"
-            ? (slot.occupied_by_plate || "Occupied")
-            : occupancy === "available"
-            ? "Available"
-            : "Unavailable";
-
-          return `<button
-            type="button"
-            class="parking-slot-tile ${occupancy} ${isSelected ? "selected" : ""}"
-            data-slot-code="${code}"
-            aria-pressed="${isSelected ? "true" : "false"}"
-            aria-label="Parking slot ${code} ${occupancy}">
-            <span class="tile-code">${code}</span>
-            <span class="tile-meta">${tileMeta}</span>
-          </button>`;
-        }
-
-        function renderEmptyParkingSlots(message = "No parking slots configured.") {
-          return `<div class="empty-state" style="padding:1.25rem 1rem;"><p>${message}</p></div>`;
-        }
-
-        function getSlotFilterCount(filterKey, summary) {
-          if (filterKey === "available") return summary.available || 0;
-          if (filterKey === "occupied") return summary.occupied || 0;
-          if (filterKey === "disabled") return summary.disabled || 0;
-          return summary.total || 0;
-        }
-
-        function updateSlotFilterButtons(summary) {
-          if (!slotFilterButtons.length) return;
-          const labels = {
-            all: "All",
-            available: "Available",
-            occupied: "Occupied",
-            disabled: "Disabled"
-          };
-          slotFilterButtons.forEach((button) => {
-            const key = button.dataset.slotFilter || "all";
-            const count = getSlotFilterCount(key, summary);
-            button.textContent = `${labels[key] || "All"} (${count})`;
-            const isActive = key === activeSlotFilter;
-            button.classList.toggle("is-active", isActive);
-            button.setAttribute("aria-pressed", isActive ? "true" : "false");
-          });
-        }
-
-        function renderAvailableSlotsStrip(slots, summary) {
-          if (!availableSlotsStripEl) return;
-          const availableSlots = (slots || [])
-            .filter((slot) => (slot.occupancy || "available") === "available")
-            .sort((a, b) => String(a.slot_code || "").localeCompare(String(b.slot_code || "")));
-
-          if (!availableSlots.length) {
-            availableSlotsStripEl.innerHTML = '<span class="available-slots-empty">No available slots right now.</span>';
-            return;
-          }
-
-          const visible = availableSlots.slice(0, 16);
-          availableSlotsStripEl.innerHTML = `
-            <span class="available-slots-label">Available now (${summary.available || availableSlots.length}):</span>
-            ${visible.map((slot) => `<button type="button" class="available-slot-pill" data-slot-pill="${slot.slot_code || ""}">${slot.slot_code || "-"}</button>`).join("")}
-            ${availableSlots.length > visible.length ? `<span class="available-slots-more">+${availableSlots.length - visible.length} more</span>` : ""}
-          `;
-        }
-
-        function focusSlotTileByCode(slotCode) {
-          if (!slotCode || !parkingSlotsListEl) return;
-          const code = normalizeSlotCode(slotCode);
-          const tiles = Array.from(parkingSlotsListEl.querySelectorAll(".parking-slot-tile"));
-          const target = tiles.find((tile) => normalizeSlotCode(tile.dataset.slotCode) === code);
-          if (!target) return;
-          target.scrollIntoView({ behavior: "smooth", block: "center" });
-          target.classList.add("slot-focus-pulse");
-          window.setTimeout(() => target.classList.remove("slot-focus-pulse"), 1200);
-        }
-
-        function applyParkingSlotFilters(slots) {
-          const source = Array.isArray(slots) ? slots : [];
-          const query = String(slotSearchQuery || "").trim().toLowerCase();
-          return source.filter((slot) => {
-            const occupancy = slot.occupancy || "available";
-            if (activeSlotFilter !== "all" && occupancy !== activeSlotFilter) return false;
-            if (!query) return true;
-            const searchable = [
-              slot.slot_code || "",
-              slot.zone || "",
-              slot.occupied_by_plate || "",
-              slot.occupied_by_name || ""
-            ].join(" ").toLowerCase();
-            return searchable.includes(query);
-          });
-        }
-
-        function groupSlotsByZone(slots) {
-          return (slots || []).reduce((acc, slot) => {
-            const zone = slot.zone || "General";
-            if (!acc[zone]) acc[zone] = [];
-            acc[zone].push(slot);
-            return acc;
-          }, {});
-        }
-
-        function renderSlotInspectorHistoryItem(item) {
-          const parkedAt = item.parked_at || item.scanned_at;
-          const stateClass = item.is_ongoing ? "inside" : "exited";
-          const stateLabel = item.is_ongoing ? "INSIDE" : "EXITED";
-          return `<article class="parking-inspector-history-item ${stateClass}">
-            <div class="parking-inspector-history-top">
-              <strong>${item.full_name || "Unknown Student"}</strong>
-              <span class="parking-inspector-mini-badge ${stateClass}">${stateLabel}</span>
-            </div>
-            <p>${item.plate_number || "-"} | ${item.student_number || "-"}</p>
-            <p>${parkedAt ? toPHT(parkedAt) : "-"} | ${item.duration_label || "-"}</p>
-          </article>`;
-        }
-
-        function renderSlotInspector() {
-          if (!slotInspectorTitleEl || !slotInspectorStatusEl || !slotInspectorSubtitleEl || !slotInspectorDetailsEl || !slotInspectorHistoryEl) return;
-
-          const slot = getSelectedSlot();
-          if (!slot) {
-            slotInspectorTitleEl.textContent = "Not selected";
-            slotInspectorStatusEl.textContent = "--";
-            slotInspectorStatusEl.className = "parking-inspector-badge";
-            slotInspectorSubtitleEl.textContent = "Select a slot to review assignment details and recent parking activity.";
-            slotInspectorDetailsEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>No slot selected.</p></div>';
-            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>Select a slot to load recent history.</p></div>';
-            if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = true;
-            return;
-          }
-
-          const occupancy = slot.occupancy || "available";
-          const statusText = occupancy.toUpperCase();
-          slotInspectorTitleEl.textContent = slot.slot_code || "-";
-          slotInspectorStatusEl.textContent = statusText;
-          slotInspectorStatusEl.className = `parking-inspector-badge ${occupancy}`;
-          slotInspectorSubtitleEl.textContent = occupancy === "available"
-            ? "This slot is open and ready for a new entry assignment."
-            : occupancy === "occupied"
-            ? "This slot is currently occupied. Review current assignment and activity."
-            : "This slot is currently disabled and cannot be assigned.";
-
-          slotInspectorDetailsEl.innerHTML = `
-            <div class="parking-inspector-detail"><span>Zone</span><strong>${slot.zone || "General"}</strong></div>
-            <div class="parking-inspector-detail"><span>Status</span><strong>${statusText}</strong></div>
-            <div class="parking-inspector-detail"><span>Plate</span><strong>${slot.occupied_by_plate || "-"}</strong></div>
-            <div class="parking-inspector-detail"><span>Student</span><strong>${slot.occupied_by_name || "-"}</strong></div>
-          `;
-
-          if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = false;
-          if (slotInspectorLoading) {
-            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>Loading recent history...</p></div>';
-            return;
-          }
-          if (slotInspectorError) {
-            slotInspectorHistoryEl.innerHTML = `<div class="flash flash-error" style="margin:0;">${slotInspectorError}</div>`;
-            return;
-          }
-          if (!selectedSlotHistoryRows.length) {
-            slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>No recent activity for this slot.</p></div>';
-            return;
-          }
-          slotInspectorHistoryEl.innerHTML = selectedSlotHistoryRows.slice(0, 5).map(renderSlotInspectorHistoryItem).join("");
-        }
-
-        async function loadSelectedSlotHistory(slotCode, force = false) {
-          const normalizedCode = normalizeSlotCode(slotCode);
-          if (!normalizedCode) return;
-
-          if (!force && slotHistoryCache.has(normalizedCode)) {
-            selectedSlotHistoryRows = slotHistoryCache.get(normalizedCode) || [];
-            slotInspectorError = "";
-            slotInspectorLoading = false;
-            renderSlotInspector();
-            return;
-          }
-
-          slotInspectorLoading = true;
-          slotInspectorError = "";
-          renderSlotInspector();
-          const requestId = ++slotHistoryRequestId;
-
-          try {
-            const resp = await fetch(`/api/parking-slot-history?slot_code=${encodeURIComponent(normalizedCode)}`, {
-              credentials: "same-origin"
-            });
-            const data = await resp.json();
-            if (!data.ok) {
-              throw new Error(data.message || "Unable to load slot history.");
-            }
-            const rows = Array.isArray(data.rows) ? data.rows : [];
-            slotHistoryCache.set(normalizedCode, rows);
-            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
-            selectedSlotHistoryRows = rows;
-            slotInspectorError = "";
-          } catch (error) {
-            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
-            selectedSlotHistoryRows = [];
-            slotInspectorError = error.message || "Unable to load slot history.";
-          } finally {
-            if (requestId !== slotHistoryRequestId || normalizeSlotCode(selectedSlotCode) !== normalizedCode) return;
-            slotInspectorLoading = false;
-            renderSlotInspector();
-          }
-        }
-
-        function renderParkingSlotsSection() {
-          const summary = normalizeParkingSlotSummary(latestParkingSlotSummary, latestParkingSlots);
-          updateSlotFilterButtons(summary);
-          renderAvailableSlotsStrip(latestParkingSlots, summary);
-
-          const previousSelected = normalizeSlotCode(selectedSlotCode);
-          const selectedStillExists = latestParkingSlots.some((slot) => normalizeSlotCode(slot.slot_code) === previousSelected);
-          if (!selectedStillExists) {
-            const fallback = latestParkingSlots.find((slot) => (slot.occupancy || "available") === "available") || latestParkingSlots[0] || null;
-            selectedSlotCode = normalizeSlotCode(fallback?.slot_code || "");
-            selectedSlotHistoryRows = [];
-            slotInspectorError = "";
-          }
-          const selectedChanged = normalizeSlotCode(selectedSlotCode) !== previousSelected;
-
-          const filteredSlots = applyParkingSlotFilters(latestParkingSlots);
-          if (parkingSlotsMetaEl) {
-            parkingSlotsMetaEl.textContent = `${summary.available} available | ${summary.occupied} occupied | ${summary.disabled} disabled | ${summary.total} total | Showing ${filteredSlots.length}`;
-          }
-          if (parkingSlotsListEl) {
-            const emptyMessage = latestParkingSlots.length
-              ? "No slots match the selected filter."
-              : "No parking slots configured.";
-            if (!filteredSlots.length) {
-              parkingSlotsListEl.innerHTML = renderEmptyParkingSlots(emptyMessage);
-            } else {
-              const grouped = groupSlotsByZone(filteredSlots);
-              const zoneNames = Object.keys(grouped).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
-              parkingSlotsListEl.innerHTML = zoneNames.map((zoneName) => {
-                const zoneSlots = grouped[zoneName]
-                  .slice()
-                  .sort((a, b) => String(a.slot_code || "").localeCompare(String(b.slot_code || ""), undefined, { numeric: true }));
-                const zoneAvailable = zoneSlots.filter((slot) => (slot.occupancy || "available") === "available").length;
-                return `
-                  <section class="parking-zone-section">
-                    <div class="parking-zone-header">
-                      <h4>${zoneName}</h4>
-                      <span>${zoneAvailable}/${zoneSlots.length} available</span>
-                    </div>
-                    <div class="parking-zone-grid">
-                      ${zoneSlots.map(renderParkingSlotCard).join("")}
-                    </div>
-                  </section>
-                `;
-              }).join("");
-            }
-          }
-          attachParkingSlotHandlers();
-          renderSlotInspector();
-
-          const selectedCode = normalizeSlotCode(selectedSlotCode);
-          if (selectedCode && (selectedChanged || !slotHistoryCache.has(selectedCode))) {
-            loadSelectedSlotHistory(selectedCode);
-          }
-        }
-
-        const movementTbody = table ? table.querySelector("tbody") : null;
-        const movementCards = document.getElementById("movementCards");
-        const latestUpdates = document.querySelector(".updates-list");
-
-        function renderMovementRow(scan) {
-          const result = (scan.result || "INVALID").toLowerCase();
-          const action = (scan.action || " ").toLowerCase();
-          return `<tr class="movement-row">
-        <td>${toPHT(scan.scanned_at)}</td>
-        <td><strong>${scan.student_number || "-"}</strong><br><small>${scan.full_name || ""}</small></td>
-        <td>${scan.plate_number || "-"}</td>
-        <td>${scan.sticker_code || "-"}</td>
-        <td><span class="badge badge-${result}">${scan.result || "-"}</span></td>
-        <td><span class="badge badge-${action}">${scan.action || "-"}</span></td>
-        <td>${scan.gate_name || "-"}</td>
-      </tr>`;
-        }
-
-        function renderMovementCard(scan) {
-          const result = (scan.result || "INVALID").toLowerCase();
-          const action = (scan.action || " ").toLowerCase();
-          return `<div class="mobile-data-card" data-searchable="${scan.full_name} ${scan.plate_number} ${scan.student_number}">
-            <div class="card-header"><div class="card-title text-truncate" style="max-width:60%;">${scan.full_name || "Guest"}</div><span class="badge badge-${action}">${scan.action || "VERIFY"}</span></div>
-            <div class="card-body">
-              <div class="card-item">🚗 <strong>Plate:</strong> ${scan.plate_number || "-"}</div>
-              <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-${result}">${scan.result}</span></div>
-              <div class="card-item">📅 <strong>Time:</strong> ${new Date(scan.scanned_at).toLocaleTimeString()}</div>
-            </div>
-          </div>`;
-        }
-        function renderEmptySlotHistory(message) {
-          return `<div class="empty-state" style="padding:1rem;"><p>${message}</p></div>`;
-        }
-
-        function renderSlotHistoryCard(item) {
-          const parkedAt = item.parked_at || item.scanned_at;
-          const exitedAtText = item.exited_at ? toPHT(item.exited_at) : "Still parked";
-          const durationText = item.duration_label || "-";
-          const statusChip = item.is_ongoing
-            ? `<span class="badge badge-inside">ONGOING</span>`
-            : `<span class="badge badge-soft">COMPLETED</span>`;
-          return `<div class="slot-history-card">
-            <div class="slot-history-card-head">
-              <strong>${item.full_name || "Unknown Student"}</strong>
-              <span class="badge badge-soft">${item.parking_slot || "-"}</span>
-            </div>
-            <div>${statusChip}</div>
-            <div class="slot-history-card-meta">Student No: <strong>${item.student_number || "-"}</strong></div>
-            <div class="slot-history-card-meta">Plate: <strong>${item.plate_number || "-"}</strong></div>
-            <div class="slot-history-card-meta">Entry Gate: <strong>${item.entry_gate || item.gate || "-"}</strong></div>
-            <div class="slot-history-card-meta">Parked At: <strong>${parkedAt ? toPHT(parkedAt) : "-"}</strong></div>
-            <div class="slot-history-card-meta">Exited At: <strong>${exitedAtText}</strong></div>
-            <div class="slot-history-card-meta">Duration: <strong>${durationText}</strong></div>
-          </div>`;
-        }
-
-        function closeSlotHistoryModal() {
-          if (!slotHistoryModal) return;
-          slotHistoryModal.classList.remove("open");
-          slotHistoryModal.setAttribute("aria-hidden", "true");
-          document.body.classList.remove("modal-open");
-        }
-
-        async function openSlotHistoryModal(slotCode) {
-          if (!slotCode || !slotHistoryModal) return;
-          slotHistoryModal.classList.add("open");
-          slotHistoryModal.setAttribute("aria-hidden", "false");
-          document.body.classList.add("modal-open");
-          if (slotHistoryTitle) slotHistoryTitle.textContent = `Slot ${slotCode} History`;
-          if (slotHistoryMeta) slotHistoryMeta.textContent = "Loading slot history...";
-          if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory("Loading slot history...");
-
-          try {
-            const resp = await fetch(`/api/parking-slot-history?slot_code=${encodeURIComponent(slotCode)}`);
-            const data = await resp.json();
-            if (!data.ok) throw new Error(data.message || "Failed to load slot history.");
-            const rows = Array.isArray(data.rows) ? data.rows : [];
-            if (slotHistoryList) {
-              slotHistoryList.innerHTML = rows.length
-                ? rows.map(renderSlotHistoryCard).join("")
-                : renderEmptySlotHistory(`No parking history found for slot ${slotCode}.`);
-            }
-            if (slotHistoryMeta) {
-              slotHistoryMeta.textContent = `${rows.length} parking entr${rows.length === 1 ? "y" : "ies"} found for slot ${slotCode}`;
-            }
-          } catch (error) {
-            if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory(error.message || "Unable to load slot history.");
-            if (slotHistoryMeta) slotHistoryMeta.textContent = error.message || "Unable to load slot history.";
-          }
-        }
-
-        function attachParkingSlotHandlers() {
-          const tiles = Array.from(document.querySelectorAll(".parking-slot-tile"));
-          tiles.forEach((tile) => {
-            const slotCode = normalizeSlotCode(tile.dataset.slotCode);
-            tile.addEventListener("click", () => {
-              if (!slotCode) return;
-              const changed = slotCode !== normalizeSlotCode(selectedSlotCode);
-              selectedSlotCode = slotCode;
-              if (changed) {
-                selectedSlotHistoryRows = [];
-                slotInspectorError = "";
-              }
-              renderParkingSlotsSection();
-            });
-          });
-        }
-        function renderUpdateItem(scan) {
-          const result = (scan.result || "invalid").toLowerCase();
-          const action = (scan.action || "verify").toLowerCase();
-          return `<div class="update-item">
-        <span class="update-dot ${result} ${action}"></span>
-        <div><p><strong>${scan.full_name || "Unknown Student"}</strong> <span class="update-action ${action}">${scan.action || "VERIFY"}</span></p>
-          <p class="helper-text">${scan.gate_name || "Main Gate"} — ${toPHT(scan.scanned_at)}</p></div>
+    function renderInsideCard(item) {
+      const duration = getDurationLabel(item);
+      const overstayLabel = getOverstayText(item);
+      return `<div class="mobile-data-card ${item.is_overstay ? "overstay-card" : ""}" data-sticker-id="${item.sticker_id}">
+        <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div>${item.is_overstay ? `<span class="badge badge-overstay">OVERSTAY</span>` : `<span class="badge badge-inside">INSIDE</span>`}</div>
+        <div class="card-body">
+          <div class="card-item">Plate: <strong>${item.plate_number || "-"}</strong></div>
+          <div class="card-item">Slot: <strong>${item.parking_slot || "-"}</strong></div>
+          <div class="card-item">Gate: <strong>${item.entry_gate || "-"}</strong></div>
+          <div class="card-item">In: <strong>${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</strong></div>
+          <div class="card-item">Duration: <strong>${duration}</strong></div>
+          ${overstayLabel ? `<div class="card-item overstay-card-alert"><strong>Alert:</strong> ${overstayLabel}</div>` : ""}
+        </div>
+        <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit Vehicle</button></div>
       </div>`;
+    }
+
+    function renderOverstayAlert(item) {
+      return `<div class="overstay-alert-item" data-sticker-id="${item.sticker_id || ""}">
+        <div class="overstay-alert-main">
+          <p class="overstay-alert-title">
+            <strong>${item.full_name || "Unknown Student"}</strong>
+            <span>${item.plate_number || "-"}</span>
+            <span>${item.parking_slot || "-"}</span>
+          </p>
+          <p class="helper-text">Entered ${item.entered_at ? toPht(item.entered_at) : "-"} | Stayed <strong>${getDurationLabel(item)}</strong>${item.is_overstay ? ` (${getOverstayText(item)})` : ""}</p>
+        </div>
+        <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button>
+      </div>`;
+    }
+
+    function renderEmptyInside() {
+      return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles currently inside campus.</p></div>`;
+    }
+
+    function showOverstayNotice(message) {
+      if (!overstayNoticeEl) return;
+      overstayNoticeEl.textContent = message;
+      overstayNoticeEl.style.display = "flex";
+      if (overstayNoticeTimer) clearTimeout(overstayNoticeTimer);
+      overstayNoticeTimer = setTimeout(() => {
+        overstayNoticeEl.style.display = "none";
+      }, 6500);
+    }
+
+    function syncOverstayAlerts(rows) {
+      if (overstayListEl) {
+        overstayListEl.innerHTML = rows.length
+          ? rows.map(renderOverstayAlert).join("")
+          : `<div class="overstay-empty">No active overstay alerts.</div>`;
+      }
+
+      const currentIds = new Set();
+      const newlyOverstayed = [];
+      rows.forEach((row) => {
+        const key = String(row.sticker_id || "");
+        if (!key) return;
+        currentIds.add(key);
+        if (!seenOverstayIds.has(key)) newlyOverstayed.push(row);
+      });
+      seenOverstayIds.clear();
+      currentIds.forEach((id) => seenOverstayIds.add(id));
+
+      if (newlyOverstayed.length > 0) {
+        const lead = newlyOverstayed[0];
+        const names = newlyOverstayed.length === 1
+          ? (lead.full_name || "A student")
+          : `${newlyOverstayed.length} vehicles`;
+        const message = `Overstay alert: ${names} exceeded the ${overstayLimitLabel}-hour limit.`;
+        showOverstayNotice(message);
+      }
+    }
+
+    async function refreshOverview() {
+      try {
+        const resp = await fetch("/api/dashboard-stats", { credentials: "same-origin" });
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        const metrics = data.metrics || {};
+        if (metricStudents) metricStudents.textContent = metrics.students ?? "-";
+        if (metricVehicles) metricVehicles.textContent = metrics.vehicles ?? "-";
+        if (metricInside) metricInside.textContent = metrics.currentlyInside ?? "-";
+
+        const vehicles = Array.isArray(data.insideVehicles) ? data.insideVehicles : [];
+        const overstayRows = Array.isArray(data.overstayAlerts)
+          ? data.overstayAlerts
+          : vehicles.filter((item) => item.is_overstay);
+        if (metricOverstay) {
+          metricOverstay.textContent = typeof metrics.overstayAlerts === "number"
+            ? metrics.overstayAlerts
+            : overstayRows.length;
         }
 
-        const statIds = {
-          students: document.querySelectorAll('.hero-card p')[0],
-          vehicles: document.querySelectorAll('.hero-card p')[1],
-          activeStickers: document.querySelectorAll('.hero-card p')[2],
-          currentlyInside: insideCount,
-          overstayAlerts: overstayCountEl
-        };
-
-        async function refreshDashboard() {
-          try {
-            const resp = await fetch("/api/dashboard-stats");
-            const data = await resp.json();
-            if (!data.ok) return;
-
-            const m = data.metrics || {};
-            if (statIds.students) statIds.students.textContent = m.students ?? "-";
-            if (statIds.vehicles) statIds.vehicles.textContent = m.vehicles ?? "-";
-            if (statIds.activeStickers) statIds.activeStickers.textContent = m.activeStickers ?? "-";
-            if (insideCount) insideCount.textContent = m.currentlyInside ?? "-";
-            const vehicles = data.insideVehicles || [];
-            const overstayRows = Array.isArray(data.overstayAlerts)
-              ? data.overstayAlerts
-              : vehicles.filter((item) => item.is_overstay);
-            const limitLabelFromApi = data.overstayLimitLabel || overstayLimitLabel;
-            if (statIds.overstayAlerts) {
-              statIds.overstayAlerts.textContent = typeof m.overstayAlerts === "number"
-                ? m.overstayAlerts
-                : overstayRows.length;
-            }
-            syncOverstayAlerts(overstayRows);
-            if (overstayLimitMetaEl) {
-              overstayLimitMetaEl.textContent = `Limit: ${limitLabelFromApi} hour(s)`;
-            }
-            const insideCardsList = document.getElementById("insideVehiclesCards");
-            if (insideBody) {
-              insideBody.innerHTML = vehicles.length
-                ? vehicles.map(renderInsideRow).join("")
-                : `<tr id="insideEmptyRow"><td colspan="9">${renderEmptyInside()}</td></tr>`;
-            }
-            if (insideCardsList) {
-               insideCardsList.innerHTML = vehicles.length
-                ? vehicles.map(renderInsideCard).join("")
-                : renderEmptyInside();
-            }
-
-            const parkingSlots = Array.isArray(data.parkingSlots) ? data.parkingSlots : [];
-            latestParkingSlots = parkingSlots;
-            latestParkingSlotSummary = normalizeParkingSlotSummary(data.parkingSlotSummary || {}, parkingSlots);
-            renderParkingSlotsSection();
-
-            const logs = data.movementLogs || [];
-            if (movementTbody) {
-              movementTbody.innerHTML = logs.length
-                ? logs.map(renderMovementRow).join("")
-                : `<tr id="movementEmptyRow"><td colspan="7"><div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records yet.</p></div></td></tr>`;
-            }
-            if (movementCards) {
-               movementCards.innerHTML = logs.length
-                ? logs.map(renderMovementCard).join("")
-                : `<div class="empty-state"><div class="empty-state-icon">📋</div><p>No scan records.</p></div>`;
-            }
-            applySearch();
-
-            if (latestUpdates) {
-              latestUpdates.innerHTML = logs.length
-                ? logs.slice(0, 8).map(renderUpdateItem).join("")
-                : `<div class="empty-state"><div class="empty-state-icon">🔔</div><p>No updates yet.</p></div>`;
-            }
-
-            if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-          } catch (err) { console.error(err); }
+        if (insideBody) {
+          insideBody.innerHTML = vehicles.length
+            ? vehicles.map(renderInsideRow).join("")
+            : `<tr id="insideEmptyRow"><td colspan="9">${renderEmptyInside()}</td></tr>`;
+        }
+        if (insideCards) {
+          insideCards.innerHTML = vehicles.length
+            ? vehicles.map(renderInsideCard).join("")
+            : renderEmptyInside();
         }
 
-        slotFilterButtons.forEach((button) => {
-          button.addEventListener("click", () => {
-            const nextFilter = button.dataset.slotFilter || "all";
-            if (nextFilter === activeSlotFilter) return;
-            activeSlotFilter = nextFilter;
-            renderParkingSlotsSection();
-          });
-        });
-        if (parkingSlotSearchEl) {
-          parkingSlotSearchEl.addEventListener("input", () => {
-            slotSearchQuery = parkingSlotSearchEl.value || "";
-            renderParkingSlotsSection();
-          });
+        syncOverstayAlerts(overstayRows);
+        if (overstayLimitMetaEl) {
+          const label = data.overstayLimitLabel || overstayLimitLabel;
+          overstayLimitMetaEl.textContent = `Limit: ${label} hour(s)`;
         }
-        if (availableSlotsStripEl) {
-          availableSlotsStripEl.addEventListener("click", (event) => {
-            const source = event.target instanceof Element ? event.target : null;
-            if (!source) return;
-            const trigger = source.closest("[data-slot-pill]");
-            if (!trigger) return;
-            const slotCode = trigger.dataset.slotPill || "";
-            if (!slotCode) return;
-            activeSlotFilter = "all";
-            slotSearchQuery = slotCode;
-            selectedSlotCode = normalizeSlotCode(slotCode);
-            selectedSlotHistoryRows = [];
-            slotInspectorError = "";
-            if (parkingSlotSearchEl) parkingSlotSearchEl.value = slotCode;
-            renderParkingSlotsSection();
-            focusSlotTileByCode(slotCode);
-          });
+        if (lastUpdatedEl) {
+          lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         }
-        if (openSlotHistoryBtnEl) {
-          openSlotHistoryBtnEl.addEventListener("click", () => {
-            const slotCode = normalizeSlotCode(selectedSlotCode);
-            if (!slotCode) return;
-            openSlotHistoryModal(slotCode);
-          });
-        }
+      } catch (error) {
+        console.error("Admin overview refresh failed:", error);
+      }
+    }
 
-        latestParkingSlotSummary = normalizeParkingSlotSummary(latestParkingSlotSummary, latestParkingSlots);
-        renderParkingSlotsSection();
-        refreshDashboard();
-        setInterval(refreshDashboard, 20000);
-        if (refreshBtn) refreshBtn.addEventListener("click", refreshDashboard);
-        if (slotHistoryModal) {
-          slotHistoryModal.querySelectorAll("[data-close-slot-history]").forEach((el) => {
-            el.addEventListener("click", closeSlotHistoryModal);
-          });
-        }
-        document.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") closeSlotHistoryModal();
-        });
-      })();
-    </script>
-    <%- include("partials/footer") %>
+    refreshOverview();
+    if (refreshBtn) refreshBtn.addEventListener("click", refreshOverview);
+    setInterval(refreshOverview, 20000);
+  })();
+</script>
 
+<%- include("partials/footer") %>

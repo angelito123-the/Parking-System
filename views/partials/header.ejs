@@ -57,6 +57,9 @@
   const pageTitleMap = {
     "/": "Dashboard",
     "/admin": "Admin Dashboard",
+    "/admin/slots": "Available Slots",
+    "/admin/updates": "Latest Updates",
+    "/admin/records": "Gate Records",
     "/guard": "Guard Dashboard",
     "/admin/users": "User Management",
     "/students": "Students & Vehicles",
@@ -69,6 +72,9 @@
   const navLinksByRole = {
     admin: [
       { href: "/admin", label: "Dashboard", active: ["/", "/admin"] },
+      { href: "/admin/slots", label: "Available Slots", active: ["/admin/slots"] },
+      { href: "/admin/updates", label: "Latest Updates", active: ["/admin/updates"] },
+      { href: "/admin/records", label: "Gate Records", active: ["/admin/records"] },
       { href: "/admin/users", label: "Users", active: ["/admin/users"] },
       { href: "/students", label: "Students & Vehicles", active: ["/students", "/vehicles"] },
       { href: "/stickers", label: "Stickers", active: ["/stickers"] },

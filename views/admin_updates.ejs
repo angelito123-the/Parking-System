@@ -1,0 +1,216 @@
+<%- include("partials/header") %>
+<%
+  const safeInsideVehicles = Array.isArray(insideVehicles) ? insideVehicles : [];
+  const safeOverstayAlerts = Array.isArray(overstayAlerts) ? overstayAlerts : [];
+  const safeMovementLogs = Array.isArray(movementLogs) ? movementLogs : [];
+  const safeOverstayLimitLabel = typeof overstayLimitLabel === "string" && overstayLimitLabel
+    ? overstayLimitLabel
+    : "4";
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayRows = safeMovementLogs.filter((row) => {
+    if (!row?.scanned_at) return false;
+    return new Date(row.scanned_at).toISOString().slice(0, 10) === todayKey;
+  });
+  const todayEntries = todayRows.filter((row) => row.action === "ENTRY").length;
+  const todayExits = todayRows.filter((row) => row.action === "EXIT").length;
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Latest Updates</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Today Entries</h3>
+      <p id="updatesMetricEntries"><%= todayEntries %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Today Exits</h3>
+      <p id="updatesMetricExits"><%= todayExits %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+      <h3>Currently Inside</h3>
+      <p id="updatesMetricInside"><%= safeInsideVehicles.length %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+      <h3>Overstay Alerts</h3>
+      <p id="updatesMetricOverstay"><%= safeOverstayAlerts.length %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Live Activity Feed</h2>
+      <p>Latest gate events captured across manual and phone camera scans.</p>
+    </div>
+    <div class="refresh-row" style="margin-bottom: 0.8rem;">
+      <span id="updatesLastUpdated" class="helper-text">Last updated: --</span>
+      <button type="button" id="updatesRefreshBtn" class="refresh-btn btn-sm">Refresh</button>
+    </div>
+    <div id="updatesList" class="updates-list updates-list-pro">
+      <% if (!safeMovementLogs.length) { %>
+        <div class="empty-state">
+          <div class="empty-state-icon">🔔</div>
+          <p>No updates yet.</p>
+        </div>
+      <% } %>
+      <% safeMovementLogs.slice(0, 14).forEach((scan) => { %>
+        <div class="update-item">
+          <span class="update-dot <%= String(scan.result || 'invalid').toLowerCase() %> <%= String(scan.action || 'verify').toLowerCase() %>"></span>
+          <div>
+            <p>
+              <strong><%= scan.full_name || "Unknown Student" %></strong>
+              <span class="update-action <%= String(scan.action || 'verify').toLowerCase() %>"><%= scan.action || "VERIFY" %></span>
+            </p>
+            <p class="helper-text">
+              <%= scan.gate_name || scan.gate || "Main Gate" %> • <%= new Date(scan.scanned_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %>
+            </p>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Overstay Watch</h2>
+      <p>Vehicles parked beyond <%= safeOverstayLimitLabel %> hour(s).</p>
+    </div>
+    <div id="updatesOverstayList" class="updates-overstay-list">
+      <% if (!safeOverstayAlerts.length) { %>
+        <div class="empty-state">
+          <div class="empty-state-icon">🛡️</div>
+          <p>No active overstay alerts.</p>
+        </div>
+      <% } %>
+      <% safeOverstayAlerts.forEach((item) => { %>
+        <article class="updates-overstay-card">
+          <div class="updates-overstay-card-top">
+            <strong><%= item.full_name || "Unknown Student" %></strong>
+            <span class="badge badge-overstay">Overstay</span>
+          </div>
+          <p><strong>Plate:</strong> <%= item.plate_number || "-" %> • <strong>Slot:</strong> <%= item.parking_slot || "-" %></p>
+          <p><strong>Entered:</strong> <%= new Date(item.entered_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></p>
+          <p><strong>Duration:</strong> <%= item.duration_label || "-" %> <% if (item.overstay_label) { %>(<%= item.overstay_label %>)<% } %></p>
+        </article>
+      <% }) %>
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const updatesMetricEntries = document.getElementById("updatesMetricEntries");
+    const updatesMetricExits = document.getElementById("updatesMetricExits");
+    const updatesMetricInside = document.getElementById("updatesMetricInside");
+    const updatesMetricOverstay = document.getElementById("updatesMetricOverstay");
+    const updatesList = document.getElementById("updatesList");
+    const overstayList = document.getElementById("updatesOverstayList");
+    const refreshBtn = document.getElementById("updatesRefreshBtn");
+    const lastUpdatedEl = document.getElementById("updatesLastUpdated");
+
+    function toPht(value) {
+      return new Date(value).toLocaleString("en-US", { timeZone: "Asia/Manila" });
+    }
+
+    function getDurationLabel(item) {
+      if (item && item.duration_label) return item.duration_label;
+      const minutes = Math.max(0, Number(item?.minutes_inside) || 0);
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+    }
+
+    function getOverstayText(item) {
+      if (!item || !item.is_overstay) return "";
+      if (item.overstay_label) return item.overstay_label;
+      const overstayMinutes = Math.max(0, Number(item.overstay_minutes) || 0);
+      if (!overstayMinutes) return "Over limit";
+      const hours = Math.floor(overstayMinutes / 60);
+      const mins = overstayMinutes % 60;
+      return hours > 0 ? `+${hours}h ${mins}m over limit` : `+${mins}m over limit`;
+    }
+
+    function renderUpdateItem(scan) {
+      const result = String(scan.result || "invalid").toLowerCase();
+      const action = String(scan.action || "verify").toLowerCase();
+      return `<div class="update-item">
+        <span class="update-dot ${result} ${action}"></span>
+        <div>
+          <p><strong>${scan.full_name || "Unknown Student"}</strong> <span class="update-action ${action}">${scan.action || "VERIFY"}</span></p>
+          <p class="helper-text">${scan.gate_name || scan.gate || "Main Gate"} • ${toPht(scan.scanned_at)}</p>
+        </div>
+      </div>`;
+    }
+
+    function renderOverstayCard(item) {
+      return `<article class="updates-overstay-card">
+        <div class="updates-overstay-card-top">
+          <strong>${item.full_name || "Unknown Student"}</strong>
+          <span class="badge badge-overstay">Overstay</span>
+        </div>
+        <p><strong>Plate:</strong> ${item.plate_number || "-"} • <strong>Slot:</strong> ${item.parking_slot || "-"}</p>
+        <p><strong>Entered:</strong> ${item.entered_at ? toPht(item.entered_at) : "-"}</p>
+        <p><strong>Duration:</strong> ${getDurationLabel(item)} ${item.is_overstay ? `(${getOverstayText(item)})` : ""}</p>
+      </article>`;
+    }
+
+    function renderEmptyState(icon, message) {
+      return `<div class="empty-state"><div class="empty-state-icon">${icon}</div><p>${message}</p></div>`;
+    }
+
+    function updateTodayMetrics(logs) {
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const todayRows = logs.filter((row) => {
+        if (!row?.scanned_at) return false;
+        return new Date(row.scanned_at).toISOString().slice(0, 10) === todayKey;
+      });
+      const entries = todayRows.filter((row) => row.action === "ENTRY").length;
+      const exits = todayRows.filter((row) => row.action === "EXIT").length;
+      if (updatesMetricEntries) updatesMetricEntries.textContent = entries;
+      if (updatesMetricExits) updatesMetricExits.textContent = exits;
+    }
+
+    async function refreshUpdates() {
+      try {
+        const resp = await fetch("/api/dashboard-stats", { credentials: "same-origin" });
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        const movementLogs = Array.isArray(data.movementLogs) ? data.movementLogs : [];
+        const insideRows = Array.isArray(data.insideVehicles) ? data.insideVehicles : [];
+        const overstayRows = Array.isArray(data.overstayAlerts) ? data.overstayAlerts : insideRows.filter((item) => item.is_overstay);
+
+        updateTodayMetrics(movementLogs);
+        if (updatesMetricInside) updatesMetricInside.textContent = insideRows.length;
+        if (updatesMetricOverstay) updatesMetricOverstay.textContent = overstayRows.length;
+
+        if (updatesList) {
+          updatesList.innerHTML = movementLogs.length
+            ? movementLogs.slice(0, 14).map(renderUpdateItem).join("")
+            : renderEmptyState("🔔", "No updates yet.");
+        }
+        if (overstayList) {
+          overstayList.innerHTML = overstayRows.length
+            ? overstayRows.map(renderOverstayCard).join("")
+            : renderEmptyState("🛡️", "No active overstay alerts.");
+        }
+
+        if (lastUpdatedEl) {
+          lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        }
+      } catch (error) {
+        console.error("Failed to refresh updates page:", error);
+      }
+    }
+
+    refreshUpdates();
+    if (refreshBtn) refreshBtn.addEventListener("click", refreshUpdates);
+    setInterval(refreshUpdates, 20000);
+  })();
+</script>
+
+<%- include("partials/footer") %>

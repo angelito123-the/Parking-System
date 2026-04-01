@@ -903,6 +903,32 @@ async function getOverstayAlertCount(db = pool) {
   return Number(countRow?.total || 0);
 }
 
+async function getRecentMovementLogs(db = pool, limit = 80) {
+  const safeLimit = Math.max(10, Math.min(500, Number(limit) || 80));
+  const [rows] = await db.query(
+    `SELECT
+       sl.scanned_at,
+       sl.result,
+       sl.action,
+       sl.gate,
+       sl.gate AS gate_name,
+       ps.slot_code AS parking_slot,
+       s.sticker_code,
+       st.full_name,
+       st.student_number,
+       v.plate_number
+     FROM scan_logs sl
+     LEFT JOIN stickers s ON s.id = sl.sticker_id
+     LEFT JOIN vehicles v ON v.id = s.vehicle_id
+     LEFT JOIN students st ON st.id = v.student_id
+     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+     ORDER BY sl.scanned_at DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows;
+}
+
 async function getDashboardData() {
   const [[studentsCount]] = await pool.query("SELECT COUNT(*) AS total FROM students");
   const [[vehiclesCount]] = await pool.query("SELECT COUNT(*) AS total FROM vehicles");
@@ -940,25 +966,7 @@ async function getDashboardData() {
      ) movement
      WHERE movement.action = 'ENTRY'`
   );
-  const [movementLogs] = await pool.query(
-    `SELECT
-       sl.scanned_at,
-       sl.result,
-       sl.action,
-       sl.gate,
-       ps.slot_code AS parking_slot,
-       s.sticker_code,
-       st.full_name,
-       st.student_number,
-       v.plate_number
-     FROM scan_logs sl
-     LEFT JOIN stickers s ON s.id = sl.sticker_id
-     LEFT JOIN vehicles v ON v.id = s.vehicle_id
-     LEFT JOIN students st ON st.id = v.student_id
-     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
-     ORDER BY sl.scanned_at DESC
-     LIMIT 50`
-  );
+  const movementLogs = await getRecentMovementLogs(pool, 80);
   const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
   const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
   const overstayAlertCount = await getOverstayAlertCount(pool);
@@ -1521,6 +1529,53 @@ app.get("/admin", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   }
 });
 
+app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const overview = await getParkingSlotOverview();
+    res.render("admin_slots", {
+      parkingSlots: overview.slots,
+      parkingSlotSummary: overview.summary
+    });
+  } catch (error) {
+    console.error("Admin slots page error:", error);
+    res.status(500).send("An error occurred loading available slots.");
+  }
+});
+
+app.get("/admin/updates", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const insideVehicles = await getInsideVehiclesWithOverstay(pool, 30);
+    const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
+    const movementLogs = await getRecentMovementLogs(pool, 80);
+    res.render("admin_updates", {
+      insideVehicles,
+      overstayAlerts,
+      movementLogs,
+      overstayLimitHours: OVERSTAY_LIMIT_HOURS,
+      overstayLimitLabel: formatHoursLabel(OVERSTAY_LIMIT_HOURS)
+    });
+  } catch (error) {
+    console.error("Admin updates page error:", error);
+    res.status(500).send("An error occurred loading latest updates.");
+  }
+});
+
+app.get("/admin/records", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const movementLogs = await getRecentMovementLogs(pool, 220);
+    const summary = {
+      total: movementLogs.length,
+      valid: movementLogs.filter((row) => row.result === "VALID").length,
+      entries: movementLogs.filter((row) => row.action === "ENTRY").length,
+      exits: movementLogs.filter((row) => row.action === "EXIT").length
+    };
+    res.render("admin_records", { movementLogs, summary });
+  } catch (error) {
+    console.error("Admin records page error:", error);
+    res.status(500).send("An error occurred loading gate records.");
+  }
+});
+
 app.get("/guard", requireRole(USER_ROLES.GUARD, USER_ROLES.ADMIN), async (req, res) => {
   try {
     const data = await getGuardDashboardData();
@@ -1706,6 +1761,27 @@ app.get("/api/dashboard-stats", requireRole(USER_ROLES.ADMIN), async (req, res) 
   } catch (error) {
     console.error("Dashboard stats API error:", error);
     res.status(500).json({ ok: false, message: "Failed to fetch dashboard stats." });
+  }
+});
+
+app.get("/api/admin-records", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const movementLogs = await getRecentMovementLogs(pool, 220);
+    const summary = {
+      total: movementLogs.length,
+      valid: movementLogs.filter((row) => row.result === "VALID").length,
+      entries: movementLogs.filter((row) => row.action === "ENTRY").length,
+      exits: movementLogs.filter((row) => row.action === "EXIT").length
+    };
+    res.json({ ok: true, movementLogs, summary });
+  } catch (error) {
+    console.error("Admin records API error:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Failed to fetch gate records.",
+      movementLogs: [],
+      summary: { total: 0, valid: 0, entries: 0, exits: 0 }
+    });
   }
 });
 

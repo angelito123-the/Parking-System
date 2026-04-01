@@ -1,0 +1,273 @@
+<%- include("partials/header") %>
+<%
+  const safeMovementLogs = Array.isArray(movementLogs) ? movementLogs : [];
+  const safeSummary = typeof summary === "object" && summary
+    ? summary
+    : {
+      total: safeMovementLogs.length,
+      valid: safeMovementLogs.filter((row) => row.result === "VALID").length,
+      entries: safeMovementLogs.filter((row) => row.action === "ENTRY").length,
+      exits: safeMovementLogs.filter((row) => row.action === "EXIT").length
+    };
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Student Gate Exit and Records</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Total Records</h3>
+      <p id="recordsMetricTotal"><%= safeSummary.total %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(110, 231, 183, 0.4);">
+      <h3>Valid Records</h3>
+      <p id="recordsMetricValid"><%= safeSummary.valid %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+      <h3>Entries</h3>
+      <p id="recordsMetricEntries"><%= safeSummary.entries %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(245, 158, 11, 0.22); border-color: rgba(252, 211, 77, 0.45);">
+      <h3>Exits</h3>
+      <p id="recordsMetricExits"><%= safeSummary.exits %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.2rem;">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Gate Movement Records</h2>
+      <p>Search by student, plate, sticker, gate, or action.</p>
+    </div>
+
+    <div class="table-tools">
+      <label for="movementSearch" class="sr-only">Search movement records</label>
+      <input id="movementSearch" type="search" placeholder="Search by student number, name, plate, sticker, gate, or status..." />
+      <div class="table-tools-right">
+        <p id="movementSearchCount" class="helper-text">Showing <%= safeMovementLogs.length %> records</p>
+        <button type="button" id="recordsRefreshBtn" class="btn-sm">Refresh</button>
+      </div>
+    </div>
+
+    <div class="table-wrap desktop-only-table ops-table-shell">
+      <table id="movementTable">
+        <thead>
+          <tr>
+            <th>Date/Time</th>
+            <th>Student</th>
+            <th>Plate</th>
+            <th>Sticker</th>
+            <th>Slot</th>
+            <th>Gate</th>
+            <th>Result</th>
+            <th>Movement</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeMovementLogs.length) { %>
+            <tr id="movementEmptyRow" style="box-shadow: none;">
+              <td colspan="8" style="background: transparent; border: none;">
+                <div class="empty-state">
+                  <div class="empty-state-icon">📋</div>
+                  <p>No scan records yet.</p>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeMovementLogs.forEach((scan) => { %>
+            <tr class="movement-row">
+              <td><%= new Date(scan.scanned_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
+              <td>
+                <strong><%= scan.student_number || "-" %></strong><br />
+                <small><%= scan.full_name || "" %></small>
+              </td>
+              <td><%= scan.plate_number || "-" %></td>
+              <td><%= scan.sticker_code || "-" %></td>
+              <td><%= scan.parking_slot || "-" %></td>
+              <td><%= scan.gate_name || scan.gate || "-" %></td>
+              <td><span class="badge badge-<%= String(scan.result || "INVALID").toLowerCase() %>"><%= scan.result || "-" %></span></td>
+              <td><span class="badge badge-<%= String(scan.action || "").toLowerCase() %>"><%= scan.action || "-" %></span></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mobile-data-list" id="movementCards">
+      <% if (!safeMovementLogs.length) { %>
+        <div class="empty-state">
+          <div class="empty-state-icon">📋</div>
+          <p>No scan records yet.</p>
+        </div>
+      <% } %>
+      <% safeMovementLogs.forEach((scan) => { %>
+        <div class="mobile-data-card" data-searchable="<%= [scan.full_name || '', scan.plate_number || '', scan.student_number || '', scan.sticker_code || '', scan.gate_name || scan.gate || '', scan.action || '', scan.result || ''].join(' ').toLowerCase() %>">
+          <div class="card-header">
+            <div class="card-title text-truncate" style="max-width: 62%;"><%= scan.full_name || "Unknown Student" %></div>
+            <span class="badge badge-<%= String(scan.action || '').toLowerCase() %>"><%= scan.action || "-" %></span>
+          </div>
+          <div class="card-body">
+            <div class="card-item">Student: <strong><%= scan.student_number || "-" %></strong></div>
+            <div class="card-item">Plate: <strong><%= scan.plate_number || "-" %></strong></div>
+            <div class="card-item">Sticker: <strong><%= scan.sticker_code || "-" %></strong></div>
+            <div class="card-item">Slot/Gate: <strong><%= scan.parking_slot || "-" %> • <%= scan.gate_name || scan.gate || "-" %></strong></div>
+            <div class="card-item">Status: <span class="badge badge-<%= String(scan.result || "INVALID").toLowerCase() %>"><%= scan.result || "-" %></span></div>
+            <div class="card-item">Time: <strong><%= new Date(scan.scanned_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></strong></div>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const searchInput = document.getElementById("movementSearch");
+    const countLabel = document.getElementById("movementSearchCount");
+    const table = document.getElementById("movementTable");
+    const refreshBtn = document.getElementById("recordsRefreshBtn");
+    const movementCards = document.getElementById("movementCards");
+    const metricTotal = document.getElementById("recordsMetricTotal");
+    const metricValid = document.getElementById("recordsMetricValid");
+    const metricEntries = document.getElementById("recordsMetricEntries");
+    const metricExits = document.getElementById("recordsMetricExits");
+    const initialMovementLogs = <%- JSON.stringify(safeMovementLogs) %>;
+    let rowsCache = Array.isArray(initialMovementLogs) ? initialMovementLogs : [];
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function toPht(value) {
+      return new Date(value).toLocaleString("en-US", { timeZone: "Asia/Manila" });
+    }
+
+    function renderRow(scan) {
+      const result = String(scan.result || "INVALID").toLowerCase();
+      const action = String(scan.action || "").toLowerCase();
+      return `<tr class="movement-row">
+        <td>${toPht(scan.scanned_at)}</td>
+        <td><strong>${escapeHtml(scan.student_number || "-")}</strong><br /><small>${escapeHtml(scan.full_name || "")}</small></td>
+        <td>${escapeHtml(scan.plate_number || "-")}</td>
+        <td>${escapeHtml(scan.sticker_code || "-")}</td>
+        <td>${escapeHtml(scan.parking_slot || "-")}</td>
+        <td>${escapeHtml(scan.gate_name || scan.gate || "-")}</td>
+        <td><span class="badge badge-${result}">${escapeHtml(scan.result || "-")}</span></td>
+        <td><span class="badge badge-${action}">${escapeHtml(scan.action || "-")}</span></td>
+      </tr>`;
+    }
+
+    function renderCard(scan) {
+      const result = String(scan.result || "INVALID").toLowerCase();
+      const action = String(scan.action || "").toLowerCase();
+      const searchable = [scan.full_name || "", scan.plate_number || "", scan.student_number || "", scan.sticker_code || "", scan.gate_name || scan.gate || "", scan.action || "", scan.result || ""]
+        .join(" ")
+        .toLowerCase();
+      return `<div class="mobile-data-card" data-searchable="${escapeHtml(searchable)}">
+        <div class="card-header">
+          <div class="card-title text-truncate" style="max-width:62%;">${escapeHtml(scan.full_name || "Unknown Student")}</div>
+          <span class="badge badge-${action}">${escapeHtml(scan.action || "-")}</span>
+        </div>
+        <div class="card-body">
+          <div class="card-item">Student: <strong>${escapeHtml(scan.student_number || "-")}</strong></div>
+          <div class="card-item">Plate: <strong>${escapeHtml(scan.plate_number || "-")}</strong></div>
+          <div class="card-item">Sticker: <strong>${escapeHtml(scan.sticker_code || "-")}</strong></div>
+          <div class="card-item">Slot/Gate: <strong>${escapeHtml(scan.parking_slot || "-")} • ${escapeHtml(scan.gate_name || scan.gate || "-")}</strong></div>
+          <div class="card-item">Status: <span class="badge badge-${result}">${escapeHtml(scan.result || "-")}</span></div>
+          <div class="card-item">Time: <strong>${toPht(scan.scanned_at)}</strong></div>
+        </div>
+      </div>`;
+    }
+
+    function renderEmptyState(icon, message) {
+      return `<div class="empty-state"><div class="empty-state-icon">${icon}</div><p>${message}</p></div>`;
+    }
+
+    function renderTable(logs) {
+      if (!table) return;
+      const tbody = table.querySelector("tbody");
+      if (!tbody) return;
+      if (!logs.length) {
+        tbody.innerHTML = `<tr id="movementEmptyRow"><td colspan="8">${renderEmptyState("📋", "No scan records yet.")}</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = logs.map(renderRow).join("");
+    }
+
+    function renderCards(logs) {
+      if (!movementCards) return;
+      if (!logs.length) {
+        movementCards.innerHTML = renderEmptyState("📋", "No scan records yet.");
+        return;
+      }
+      movementCards.innerHTML = logs.map(renderCard).join("");
+    }
+
+    function applySearch() {
+      const query = String(searchInput?.value || "").trim().toLowerCase();
+      const tableRows = table
+        ? Array.from(table.querySelectorAll("tbody tr")).filter((row) => row.id !== "movementEmptyRow")
+        : [];
+      let visibleTableRows = 0;
+      tableRows.forEach((row) => {
+        const match = !query || row.textContent.toLowerCase().includes(query);
+        row.style.display = match ? "" : "none";
+        if (match) visibleTableRows += 1;
+      });
+
+      const cardRows = movementCards ? Array.from(movementCards.querySelectorAll(".mobile-data-card")) : [];
+      let visibleCards = 0;
+      cardRows.forEach((card) => {
+        const searchable = String(card.dataset.searchable || "").toLowerCase();
+        const match = !query || searchable.includes(query);
+        card.style.display = match ? "flex" : "none";
+        if (match) visibleCards += 1;
+      });
+
+      if (countLabel) {
+        const total = tableRows.length || cardRows.length;
+        countLabel.textContent = query ? `Found ${visibleTableRows || visibleCards} records` : `Showing ${total} records`;
+      }
+    }
+
+    function applySummary(summary) {
+      if (metricTotal) metricTotal.textContent = Number(summary?.total || 0);
+      if (metricValid) metricValid.textContent = Number(summary?.valid || 0);
+      if (metricEntries) metricEntries.textContent = Number(summary?.entries || 0);
+      if (metricExits) metricExits.textContent = Number(summary?.exits || 0);
+    }
+
+    async function refreshRecords() {
+      try {
+        const resp = await fetch("/api/admin-records", { credentials: "same-origin" });
+        const data = await resp.json();
+        if (!data.ok) return;
+        const movementLogs = Array.isArray(data.movementLogs) ? data.movementLogs : [];
+        rowsCache = movementLogs;
+        renderTable(movementLogs);
+        renderCards(movementLogs);
+        applySummary(data.summary || {});
+        applySearch();
+      } catch (error) {
+        console.error("Failed to refresh records page:", error);
+      }
+    }
+
+    renderTable(rowsCache);
+    renderCards(rowsCache);
+    applySearch();
+    if (searchInput) searchInput.addEventListener("input", applySearch);
+    if (refreshBtn) refreshBtn.addEventListener("click", refreshRecords);
+    setInterval(refreshRecords, 25000);
+  })();
+</script>
+
+<%- include("partials/footer") %>
