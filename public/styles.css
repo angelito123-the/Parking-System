@@ -2615,6 +2615,35 @@ body.is-ready .container>*:nth-child(4) {
   white-space: nowrap;
 }
 
+.remote-queue-live-alert {
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  background: color-mix(in oklab, var(--blue-soft) 58%, var(--surface) 42%);
+  color: var(--blue-text);
+  border-radius: 10px;
+  padding: 0.46rem 0.62rem;
+  margin-bottom: 0.72rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.remote-queue-live-alert.tone-success {
+  border-color: var(--green-border);
+  background: color-mix(in oklab, var(--green-soft) 64%, var(--surface) 36%);
+  color: var(--green-text);
+}
+
+.remote-queue-live-alert.tone-warning {
+  border-color: var(--orange-border);
+  background: color-mix(in oklab, var(--orange-soft) 60%, var(--surface) 40%);
+  color: var(--orange-text);
+}
+
+.remote-queue-live-alert.tone-error {
+  border-color: var(--red-border);
+  background: color-mix(in oklab, var(--red-soft) 60%, var(--surface) 40%);
+  color: var(--red-text);
+}
+
 .remote-queue-list {
   display: grid;
   gap: 0.65rem;
@@ -2687,8 +2716,120 @@ body.is-ready .container>*:nth-child(4) {
   color: var(--red-text);
 }
 
+.scan-info-popup .slot-history-backdrop {
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.scan-info-popup-card {
+  width: min(460px, calc(100vw - 1.25rem));
+  padding: 1rem 1rem 0.9rem;
+  display: grid;
+  gap: 0.48rem;
+}
+
+.scan-info-popup-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+}
+
+.scan-info-popup-kicker {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding-right: 2rem;
+}
+
+.scan-info-popup-card h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  color: var(--text);
+  font-family: "Plus Jakarta Sans", sans-serif;
+}
+
+.scan-info-popup-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.scan-info-popup-meta {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.24rem;
+}
+
+.scan-info-meta-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--surface-soft) 88%, #ffffff 12%);
+  padding: 0.42rem 0.52rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.scan-info-meta-row span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+
+.scan-info-meta-row strong {
+  color: var(--text);
+  font-size: 0.84rem;
+  text-align: right;
+}
+
+.scan-info-popup-card.tone-success {
+  border-color: var(--green-border);
+  background: color-mix(in oklab, var(--green-soft) 62%, var(--surface) 38%);
+}
+
+.scan-info-popup-card.tone-success .scan-info-popup-kicker {
+  color: var(--green-text);
+}
+
+.scan-info-popup-card.tone-warning {
+  border-color: var(--orange-border);
+  background: color-mix(in oklab, var(--orange-soft) 58%, var(--surface) 42%);
+}
+
+.scan-info-popup-card.tone-warning .scan-info-popup-kicker {
+  color: var(--orange-text);
+}
+
+.scan-info-popup-card.tone-error {
+  border-color: var(--red-border);
+  background: color-mix(in oklab, var(--red-soft) 58%, var(--surface) 42%);
+}
+
+.scan-info-popup-card.tone-error .scan-info-popup-kicker {
+  color: var(--red-text);
+}
+
+.scan-info-popup-card.tone-info {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: color-mix(in oklab, var(--blue-soft) 45%, var(--surface) 55%);
+}
+
+.scan-info-popup-card.tone-info .scan-info-popup-kicker {
+  color: var(--blue-text);
+}
+
 [data-theme="dark"] .remote-queue-card {
   background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="dark"] .remote-queue-live-alert {
+  border-color: rgba(147, 197, 253, 0.42);
+  background: rgba(30, 64, 175, 0.22);
+  color: #bfdbfe;
 }
 
 [data-theme="dark"] .btn-sm.danger {

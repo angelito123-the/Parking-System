@@ -36,7 +36,7 @@
       <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
       <span id="chipMlState" class="auto-chip state-idle">ML Detect: Warmup</span>
       <span id="chipRiskState" class="auto-chip state-idle">Risk: Unchecked</span>
-      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/2</span>
+      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/1</span>
       <span id="chipCooldownState" class="auto-chip state-idle">Cooldown: Ready</span>
     </div>
 
@@ -118,6 +118,17 @@
   </section>
 </div>
 
+<div id="scanInfoPopup" class="slot-history-modal scan-info-popup" aria-hidden="true">
+  <div class="slot-history-backdrop" data-scan-popup-close></div>
+  <article id="scanInfoPopupCard" class="slot-history-dialog scan-info-popup-card tone-info" role="dialog" aria-modal="true" aria-labelledby="scanInfoPopupTitle">
+    <button type="button" id="scanInfoPopupClose" class="slot-history-close scan-info-popup-close" aria-label="Close">x</button>
+    <p id="scanInfoPopupKicker" class="scan-info-popup-kicker">Scan detected</p>
+    <h3 id="scanInfoPopupTitle">Vehicle Scan Result</h3>
+    <p id="scanInfoPopupMessage" class="scan-info-popup-message">Waiting for data...</p>
+    <div id="scanInfoPopupMeta" class="scan-info-popup-meta"></div>
+  </article>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="/js/qr-behavior-classifier.js"></script>
 <script src="/js/ml-qr-detector.js"></script>
@@ -160,6 +171,13 @@
 
     const sessionEventEmpty = document.getElementById("sessionEventEmpty");
     const sessionEventList = document.getElementById("sessionEventList");
+    const scanInfoPopup = document.getElementById("scanInfoPopup");
+    const scanInfoPopupCard = document.getElementById("scanInfoPopupCard");
+    const scanInfoPopupClose = document.getElementById("scanInfoPopupClose");
+    const scanInfoPopupKicker = document.getElementById("scanInfoPopupKicker");
+    const scanInfoPopupTitle = document.getElementById("scanInfoPopupTitle");
+    const scanInfoPopupMessage = document.getElementById("scanInfoPopupMessage");
+    const scanInfoPopupMeta = document.getElementById("scanInfoPopupMeta");
 
     if (deferEntryConfirmation && entryConfirmPanel) {
       entryConfirmPanel.style.display = "none";
@@ -195,6 +213,7 @@
     let stableCandidateToken = "";
     let stableCandidateHits = 0;
     let stableCandidateFirstSeenMs = 0;
+    let scanInfoPopupTimer = null;
 
     const localCooldownUntilMs = new Map();
     const sessionEvents = [];
@@ -351,6 +370,67 @@
       resultTitle.textContent = title;
       resultMessage.textContent = message;
       resultMeta.innerHTML = detailsHtml || "";
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function popupMetaRow(label, value) {
+      const cleanValue = String(value == null ? "" : value).trim();
+      if (!cleanValue) return "";
+      return `
+        <div class="scan-info-meta-row">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(cleanValue)}</strong>
+        </div>
+      `;
+    }
+
+    function closeScanInfoPopup() {
+      if (!scanInfoPopup) return;
+      if (scanInfoPopupTimer) {
+        clearTimeout(scanInfoPopupTimer);
+        scanInfoPopupTimer = null;
+      }
+      scanInfoPopup.classList.remove("open");
+      scanInfoPopup.setAttribute("aria-hidden", "true");
+    }
+
+    function showScanInfoPopup(options = {}) {
+      if (!scanInfoPopup || !scanInfoPopupCard) return;
+      const tone = String(options.tone || "info");
+      const title = String(options.title || "Scan Result");
+      const message = String(options.message || "");
+      const kicker = String(options.kicker || "Scan detected");
+      const metaHtml = String(options.metaHtml || "");
+      const autoHideMs = Math.max(1200, Number(options.autoHideMs) || 4500);
+      const persist = options.persist === true;
+
+      scanInfoPopupCard.classList.remove("tone-info", "tone-success", "tone-warning", "tone-error");
+      scanInfoPopupCard.classList.add(`tone-${tone}`);
+      scanInfoPopupKicker.textContent = kicker;
+      scanInfoPopupTitle.textContent = title;
+      scanInfoPopupMessage.textContent = message;
+      scanInfoPopupMeta.innerHTML = metaHtml;
+      scanInfoPopup.classList.add("open");
+      scanInfoPopup.setAttribute("aria-hidden", "false");
+
+      if (scanInfoPopupTimer) {
+        clearTimeout(scanInfoPopupTimer);
+        scanInfoPopupTimer = null;
+      }
+
+      if (!persist) {
+        scanInfoPopupTimer = window.setTimeout(() => {
+          closeScanInfoPopup();
+        }, autoHideMs);
+      }
     }
 
     function formatTime(date) {
@@ -766,6 +846,19 @@
             `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
           );
           pushSessionEvent("DUPLICATE", "warning", "Duplicate blocked", `Cooldown active (${waitSeconds}s)`);
+          showScanInfoPopup({
+            tone: "warning",
+            kicker: "Duplicate",
+            title: "Duplicate scan ignored",
+            message: data.message || `Please wait ${waitSeconds} seconds before scanning again.`,
+            metaHtml: `
+              ${popupMetaRow("Student", data.sticker?.full_name || "-")}
+              ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${popupMetaRow("Cooldown", `${waitSeconds}s`)}
+              ${popupMetaRow("Gate", gateSelect.value)}
+            `,
+            autoHideMs: 3200
+          });
           playTone("warn");
           await resumeScanner(900);
           return;
@@ -782,6 +875,18 @@
             `${data.sticker ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>` : ""}${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
           );
           pushSessionEvent("VERIFY", "error", `Scan rejected (${statusLabel})`, data.message || "Unauthorized sticker");
+          showScanInfoPopup({
+            tone: "error",
+            kicker: "Unauthorized",
+            title: `Scan rejected (${statusLabel})`,
+            message: data.message || "QR sticker is not valid.",
+            metaHtml: `
+              ${popupMetaRow("Student", data.sticker?.full_name || "-")}
+              ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${popupMetaRow("Gate", gateSelect.value)}
+            `,
+            autoHideMs: 4200
+          });
           playTone("warn");
           await resumeScanner(1100);
           return;
@@ -803,6 +908,18 @@
             `
           );
           pushSessionEvent("EXIT", "ok", "Exit saved", `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`);
+          showScanInfoPopup({
+            tone: "success",
+            kicker: "Exit recorded",
+            title: "Vehicle exit saved",
+            message: data.message || "Vehicle exit logged successfully.",
+            metaHtml: `
+              ${popupMetaRow("Student", data.sticker?.full_name || "-")}
+              ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${popupMetaRow("Released Slot", data.released_slot || "N/A")}
+              ${popupMetaRow("Gate", gateSelect.value)}
+            `
+          });
           playTone("ok");
           await resumeScanner(1200);
           return;
@@ -831,6 +948,18 @@
             "Entry queued for laptop guard",
             `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`
           );
+          showScanInfoPopup({
+            tone: "success",
+            kicker: "Entry queued",
+            title: "Vehicle detected",
+            message: data.message || "Waiting for laptop guard slot assignment.",
+            metaHtml: `
+              ${popupMetaRow("Student", data.sticker?.full_name || "-")}
+              ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${popupMetaRow("Queue ID", data.pending_entry_id || "-")}
+              ${popupMetaRow("Gate", gateSelect.value)}
+            `
+          });
           playTone("ok");
           await resumeScanner(850);
           return;
@@ -861,6 +990,18 @@
           );
           setChip(chipAutoState, "Awaiting Guard", "warning");
           pushSessionEvent("ENTRY", "warning", "Entry pending confirmation", `${pendingSticker?.plate_number || "Unknown plate"} waiting for slot assignment`);
+          showScanInfoPopup({
+            tone: "warning",
+            kicker: "Guard action needed",
+            title: "Confirm parking assignment",
+            message: data.message || "Select a parking slot before saving ENTRY.",
+            metaHtml: `
+              ${popupMetaRow("Student", pendingSticker?.full_name || "-")}
+              ${popupMetaRow("Plate", pendingSticker?.plate_number || "-")}
+              ${popupMetaRow("Vehicle", pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-")}
+            `,
+            persist: true
+          });
           playTone("ok");
           return;
         }
@@ -868,12 +1009,28 @@
         hideEntryPanel();
         setResultState("warning", "Scan completed", data.message || "No action was recorded.", `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`);
         pushSessionEvent("VERIFY", "warning", "No movement saved", data.message || "Review scanner result");
+        showScanInfoPopup({
+          tone: "warning",
+          kicker: "Review",
+          title: "Scan completed",
+          message: data.message || "No action was recorded for this QR.",
+          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          autoHideMs: 3200
+        });
         await resumeScanner(900);
       } catch (error) {
         hideEntryPanel();
         setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.", `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`);
         setCameraStatus(error.message || "Scan failed", "error");
         pushSessionEvent("ERROR", "error", "Scan processing error", error.message || "Unknown scanner error");
+        showScanInfoPopup({
+          tone: "error",
+          kicker: "Scan error",
+          title: "Unable to process QR",
+          message: error.message || "Unable to process this scan right now.",
+          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          autoHideMs: 4200
+        });
         playTone("warn");
         await resumeScanner(1200);
       } finally {
@@ -1080,6 +1237,16 @@
       await resumeScanner(500);
     });
 
+    scanInfoPopupClose?.addEventListener("click", closeScanInfoPopup);
+    scanInfoPopup?.querySelectorAll("[data-scan-popup-close]").forEach((node) => {
+      node.addEventListener("click", closeScanInfoPopup);
+    });
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && scanInfoPopup?.classList.contains("open")) {
+        closeScanInfoPopup();
+      }
+    });
+
     confirmEntryBtn.addEventListener("click", async () => {
       if (!pendingToken) {
         entryConfirmHint.textContent = "No pending entry to confirm.";
@@ -1132,6 +1299,18 @@
             ${renderRiskMeta(lastRiskAssessment)}
           `
         );
+        showScanInfoPopup({
+          tone: "success",
+          kicker: "Entry recorded",
+          title: "Vehicle entry saved",
+          message: data.message || "Entry logged successfully.",
+          metaHtml: `
+            ${popupMetaRow("Student", data.sticker?.full_name || "-")}
+            ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
+            ${popupMetaRow("Assigned Slot", data.parking_slot || "-")}
+            ${popupMetaRow("Gate", gateSelect.value)}
+          `
+        });
 
         setChip(chipAutoState, "Auto-Scan Active", "live");
         pushSessionEvent("ENTRY", "ok", "Entry saved", `${data.sticker?.plate_number || "Unknown plate"} assigned to ${data.parking_slot || "N/A"}`);
@@ -1142,6 +1321,14 @@
         confirmEntryBtn.disabled = false;
         cancelEntryBtn.disabled = false;
         pushSessionEvent("ENTRY", "error", "Entry save failed", error.message || "Unknown error");
+        showScanInfoPopup({
+          tone: "error",
+          kicker: "Entry failed",
+          title: "Unable to save entry",
+          message: error.message || "Failed to save entry.",
+          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          autoHideMs: 4200
+        });
         playTone("warn");
 
         try {

@@ -55,6 +55,7 @@
       <p id="remoteQueueStatus" class="helper-text">Waiting for phone scans...</p>
       <button type="button" id="remoteQueueRefreshBtn" class="btn-sm">Refresh List</button>
     </div>
+    <div id="remoteQueueLiveAlert" class="remote-queue-live-alert" hidden></div>
     <div id="remoteQueueEmpty" class="empty-state" style="padding:1rem;">
       <p>No pending entry requests from phone camera.</p>
     </div>
@@ -177,6 +178,7 @@
     const remoteQueueList = document.getElementById("remoteQueueList");
     const remoteQueueEmpty = document.getElementById("remoteQueueEmpty");
     const remoteQueueRefreshBtn = document.getElementById("remoteQueueRefreshBtn");
+    const remoteQueueLiveAlert = document.getElementById("remoteQueueLiveAlert");
     const remoteEntryModal = document.getElementById("remoteEntryModal");
     const remoteEntryCloseBtn = document.getElementById("remoteEntryCloseBtn");
     const remoteEntryMeta = document.getElementById("remoteEntryMeta");
@@ -196,6 +198,9 @@
     let activeRemoteEntryId = null;
     let remoteSlots = [];
     let latestRemoteEntryId = 0;
+    let didInitialRemoteLoad = false;
+    let lastAutoOpenedEntryId = 0;
+    let remoteQueueAlertTimer = null;
 
     // --- Audio Feedback ---
     function playBeep(type) {
@@ -240,6 +245,20 @@
         hour: "2-digit",
         minute: "2-digit"
       }).format(dt);
+    }
+
+    function showRemoteQueueLiveAlert(message, tone = "info", autoHideMs = 5200) {
+      if (!remoteQueueLiveAlert) return;
+      remoteQueueLiveAlert.textContent = message;
+      remoteQueueLiveAlert.className = `remote-queue-live-alert tone-${tone}`;
+      remoteQueueLiveAlert.hidden = false;
+
+      if (remoteQueueAlertTimer) {
+        clearTimeout(remoteQueueAlertTimer);
+      }
+      remoteQueueAlertTimer = window.setTimeout(() => {
+        remoteQueueLiveAlert.hidden = true;
+      }, Math.max(1600, Number(autoHideMs) || 5200));
     }
 
     function closeRemoteEntryModal() {
@@ -325,11 +344,23 @@
         }
 
         remotePendingEntries = Array.isArray(data.rows) ? data.rows : [];
-        const newestId = remotePendingEntries.length ? Number(remotePendingEntries[0].id) : 0;
-        if (latestRemoteEntryId > 0 && newestId > latestRemoteEntryId) {
+        const newestEntry = remotePendingEntries.length ? remotePendingEntries[0] : null;
+        const newestId = newestEntry ? Number(newestEntry.id) : 0;
+        const hasNewEntry = didInitialRemoteLoad && newestId > latestRemoteEntryId;
+        if (hasNewEntry) {
           playBeep("success");
+          showRemoteQueueLiveAlert(
+            `New phone scan: ${newestEntry.full_name || "Unknown student"} (${newestEntry.plate_number || "-"})`,
+            "success",
+            6200
+          );
+          if (!remoteEntryModal?.classList.contains("open") && newestId !== lastAutoOpenedEntryId) {
+            lastAutoOpenedEntryId = newestId;
+            await openRemoteEntryModal(newestId);
+          }
         }
         latestRemoteEntryId = Math.max(latestRemoteEntryId, newestId);
+        didInitialRemoteLoad = true;
 
         if (!remotePendingEntries.length) {
           remoteQueueEmpty.style.display = "";
