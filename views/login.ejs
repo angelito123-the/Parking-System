@@ -47,6 +47,15 @@
       box-shadow:
         0 24px 60px rgba(15, 35, 70, 0.18),
         0 10px 24px rgba(15, 35, 70, 0.1);
+      animation: loginEnter 420ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+      transform-origin: center;
+      transition: transform 180ms ease, opacity 180ms ease, filter 180ms ease;
+    }
+
+    .login-card.is-submitting {
+      transform: translateY(-2px) scale(0.995);
+      opacity: 0.96;
+      filter: saturate(0.92);
     }
 
     .login-header {
@@ -127,6 +136,7 @@
       display: flex;
       align-items: flex-start;
       gap: 0.5rem;
+      animation: loginErrorIn 240ms ease-out both;
     }
 
     .form-group {
@@ -196,6 +206,8 @@
     }
 
     .login-btn {
+      position: relative;
+      overflow: hidden;
       width: 100%;
       padding: 0.92rem;
       background: linear-gradient(140deg, #0a3b73 0%, #0e4b92 100%);
@@ -222,6 +234,29 @@
       box-shadow: 0 8px 14px rgba(10, 58, 115, 0.24);
     }
 
+    .login-btn.ui-tap-pop {
+      animation: tapPop 170ms cubic-bezier(0.22, 0.82, 0.33, 1);
+    }
+
+    .login-btn.is-loading {
+      pointer-events: none;
+      opacity: 0.96;
+      filter: saturate(0.96);
+    }
+
+    .login-btn.is-loading::after {
+      content: "";
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-left: 0.55rem;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.45);
+      border-top-color: #ffffff;
+      vertical-align: -2px;
+      animation: btnSpin 700ms linear infinite;
+    }
+
     .login-footer {
       text-align: center;
       padding: 0.95rem;
@@ -236,6 +271,51 @@
       color: #5f738d;
       font-size: 0.76rem;
       text-align: center;
+    }
+
+    @keyframes loginEnter {
+      from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes loginErrorIn {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes tapPop {
+      0% { transform: scale(1); }
+      45% { transform: scale(0.97); }
+      100% { transform: scale(1); }
+    }
+
+    @keyframes btnSpin {
+      to { transform: rotate(360deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .login-card,
+      .login-error,
+      .login-btn.ui-tap-pop,
+      .login-btn.is-loading::after {
+        animation: none !important;
+      }
+      .login-card,
+      .login-btn {
+        transition: none !important;
+      }
     }
 
     @media (max-width: 520px) {
@@ -332,6 +412,43 @@
       NAAP Parking System &mdash; Authorized Personnel Only
     </div>
   </div>
+
+  <script>
+    (() => {
+      const form = document.querySelector('form[action="/login"]');
+      const submitBtn = form ? form.querySelector('.login-btn') : null;
+      const loginCard = document.querySelector('.login-card');
+      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!form || !submitBtn) return;
+
+      submitBtn.addEventListener('pointerdown', () => {
+        if (prefersReducedMotion) return;
+        submitBtn.classList.remove('ui-tap-pop');
+        void submitBtn.offsetWidth;
+        submitBtn.classList.add('ui-tap-pop');
+      });
+
+      submitBtn.addEventListener('animationend', () => {
+        submitBtn.classList.remove('ui-tap-pop');
+      });
+
+      form.addEventListener('submit', (event) => {
+        if (form.dataset.submitting === '1') {
+          event.preventDefault();
+          return;
+        }
+        form.dataset.submitting = '1';
+        submitBtn.disabled = true;
+        submitBtn.classList.add('is-loading');
+        submitBtn.setAttribute('aria-busy', 'true');
+        submitBtn.textContent = 'Signing In';
+        if (!prefersReducedMotion && loginCard) {
+          loginCard.classList.add('is-submitting');
+        }
+      });
+    })();
+  </script>
 
 </body>
 </html>
