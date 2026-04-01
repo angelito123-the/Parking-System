@@ -301,6 +301,11 @@
     let selectedSlotId = null;
     let slotOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
     let healthOnlineWindowSeconds = 18;
+    let liveEventSource = null;
+    let liveReconnectTimer = null;
+    let fallbackPollTimer = null;
+    let queueRefreshTimer = null;
+    let isLiveConnected = false;
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -416,6 +421,131 @@
         }
         applyHealthState({ primary: null, total_devices: 0, online_devices: 0 });
       }
+    }
+
+    function safeParseJson(raw) {
+      try {
+        return JSON.parse(raw);
+      } catch (_error) {
+        return null;
+      }
+    }
+
+    function scheduleQueueRefresh(delayMs = 120) {
+      if (queueRefreshTimer) return;
+      queueRefreshTimer = window.setTimeout(async () => {
+        queueRefreshTimer = null;
+        await fetchPendingEntries({ silent: true });
+      }, Math.max(40, Number(delayMs) || 120));
+    }
+
+    function stopFallbackPolling() {
+      if (fallbackPollTimer) {
+        clearInterval(fallbackPollTimer);
+        fallbackPollTimer = null;
+      }
+    }
+
+    function startFallbackPolling() {
+      if (fallbackPollTimer) return;
+      fallbackPollTimer = window.setInterval(() => {
+        if (isLiveConnected) return;
+        fetchPendingEntries({ silent: true });
+        fetchQueueHealth({ silent: true });
+      }, 10000);
+    }
+
+    function scheduleLiveReconnect() {
+      if (liveReconnectTimer) return;
+      liveReconnectTimer = window.setTimeout(() => {
+        liveReconnectTimer = null;
+        connectLiveEvents();
+      }, 2500);
+    }
+
+    function closeLiveEvents() {
+      if (liveReconnectTimer) {
+        clearTimeout(liveReconnectTimer);
+        liveReconnectTimer = null;
+      }
+      if (liveEventSource) {
+        try {
+          liveEventSource.close();
+        } catch (_error) {
+          // ignore close race
+        }
+        liveEventSource = null;
+      }
+      isLiveConnected = false;
+    }
+
+    function connectLiveEvents() {
+      if (typeof window.EventSource !== "function") {
+        startFallbackPolling();
+        if (queueStatus) queueStatus.textContent = "Live updates are not supported in this browser.";
+        return;
+      }
+
+      if (liveReconnectTimer) {
+        clearTimeout(liveReconnectTimer);
+        liveReconnectTimer = null;
+      }
+      if (liveEventSource) {
+        try {
+          liveEventSource.close();
+        } catch (_error) {
+          // ignore reconnect race
+        }
+        liveEventSource = null;
+      }
+
+      const source = new EventSource("/api/auto-scan/events");
+      liveEventSource = source;
+
+      source.addEventListener("open", () => {
+        isLiveConnected = true;
+        stopFallbackPolling();
+      });
+
+      source.addEventListener("connected", () => {
+        scheduleQueueRefresh(70);
+      });
+
+      source.addEventListener("queue-health", (event) => {
+        const payload = safeParseJson(event.data);
+        if (!payload || typeof payload !== "object") return;
+        healthOnlineWindowSeconds = Math.max(5, Number(payload.online_window_seconds) || healthOnlineWindowSeconds);
+        applyHealthState(payload);
+      });
+
+      source.addEventListener("pending-entry-created", () => {
+        scheduleQueueRefresh(60);
+      });
+
+      source.addEventListener("pending-entry-updated", () => {
+        scheduleQueueRefresh(80);
+      });
+
+      source.addEventListener("pending-entry-sync", () => {
+        scheduleQueueRefresh(100);
+      });
+
+      source.addEventListener("error", () => {
+        if (liveEventSource !== source) return;
+        const wasConnected = isLiveConnected;
+        isLiveConnected = false;
+        try {
+          source.close();
+        } catch (_error) {
+          // ignore close race
+        }
+        liveEventSource = null;
+        startFallbackPolling();
+        if (wasConnected) {
+          showLiveAlert("Live updates disconnected. Reconnecting...", "warning", 3200);
+        }
+        scheduleLiveReconnect();
+      });
     }
 
     function showLiveAlert(message, tone = "success", autoHideMs = 6200) {
@@ -758,15 +888,26 @@
         closeGuardEntryModal();
       }
     });
+    window.addEventListener("beforeunload", () => {
+      closeLiveEvents();
+      stopFallbackPolling();
+      if (queueRefreshTimer) {
+        clearTimeout(queueRefreshTimer);
+        queueRefreshTimer = null;
+      }
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      if (!isLiveConnected) {
+        fetchPendingEntries({ silent: true });
+        fetchQueueHealth({ silent: true });
+        connectLiveEvents();
+      }
+    });
 
     fetchPendingEntries({ silent: false });
     fetchQueueHealth({ silent: false });
-    setInterval(() => {
-      fetchPendingEntries({ silent: true });
-    }, 3000);
-    setInterval(() => {
-      fetchQueueHealth({ silent: true });
-    }, 4000);
+    connectLiveEvents();
   })();
 </script>
 

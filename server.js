@@ -31,6 +31,12 @@ const AUTO_SCAN_ONLINE_WINDOW_SECONDS = Math.max(
     ? Number(process.env.AUTO_SCAN_ONLINE_WINDOW_SECONDS)
     : 18
 );
+const AUTO_SCAN_SSE_KEEPALIVE_SECONDS = Math.max(
+  10,
+  Number.isFinite(Number(process.env.AUTO_SCAN_SSE_KEEPALIVE_SECONDS))
+    ? Number(process.env.AUTO_SCAN_SSE_KEEPALIVE_SECONDS)
+    : 20
+);
 const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "8mb";
 const rawOverstayLimitHours = Number(process.env.OVERSTAY_LIMIT_HOURS);
 const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
@@ -45,6 +51,8 @@ const USER_ROLES = Object.freeze({
   GUARD: "guard"
 });
 const VALID_ROLES = new Set(Object.values(USER_ROLES));
+const autoScanSseClients = new Map();
+let autoScanSseClientCounter = 0;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -430,6 +438,60 @@ async function listAutoScanHealthRows(limit = 12, db = pool) {
     [safeLimit]
   );
   return rows.map((row) => mapAutoScanHealthRow(row));
+}
+
+async function getAutoScanHealthSnapshot(limit = 12, db = pool) {
+  const rows = await listAutoScanHealthRows(limit, db);
+  const primary = rows.length > 0 ? rows[0] : null;
+  const onlineDevices = rows.filter((row) => row.is_online).length;
+  return {
+    rows,
+    primary,
+    total_devices: rows.length,
+    online_devices: onlineDevices,
+    offline_devices: Math.max(0, rows.length - onlineDevices),
+    online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
+    heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
+    server_time: new Date().toISOString()
+  };
+}
+
+function writeSseEvent(res, eventName, payload = {}) {
+  if (!res || res.writableEnded) return;
+  res.write(`event: ${eventName}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function removeAutoScanSseClient(clientId) {
+  const existing = autoScanSseClients.get(clientId);
+  if (existing?.heartbeatTimer) {
+    clearInterval(existing.heartbeatTimer);
+  }
+  autoScanSseClients.delete(clientId);
+}
+
+function broadcastAutoScanSse(eventName, payload = {}) {
+  if (!autoScanSseClients.size) return;
+  for (const [clientId, client] of autoScanSseClients.entries()) {
+    try {
+      writeSseEvent(client.res, eventName, payload);
+    } catch (_error) {
+      removeAutoScanSseClient(clientId);
+    }
+  }
+}
+
+async function broadcastAutoScanHealth(reason = "heartbeat") {
+  if (!autoScanSseClients.size) return;
+  try {
+    const snapshot = await getAutoScanHealthSnapshot(5);
+    broadcastAutoScanSse("queue-health", {
+      ...snapshot,
+      reason
+    });
+  } catch (error) {
+    console.warn("SSE queue-health broadcast warning:", error.message);
+  }
 }
 
 function getDuplicateScanInfo(lastMovement) {
@@ -2132,6 +2194,64 @@ app.get("/scanner/auto", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, 
   });
 });
 
+// API: live SSE stream for guard queue + phone heartbeat updates
+app.get("/api/auto-scan/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  const clientId = `${Date.now()}-${++autoScanSseClientCounter}`;
+  const heartbeatTimer = setInterval(() => {
+    writeSseEvent(res, "ping", { ts: new Date().toISOString() });
+  }, AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000);
+
+  autoScanSseClients.set(clientId, {
+    id: clientId,
+    username: req.authUser?.username || "guard",
+    role: req.authUser?.role || "guard",
+    res,
+    heartbeatTimer
+  });
+
+  writeSseEvent(res, "connected", {
+    ok: true,
+    client_id: clientId,
+    keepalive_seconds: AUTO_SCAN_SSE_KEEPALIVE_SECONDS,
+    server_time: new Date().toISOString()
+  });
+
+  try {
+    const snapshot = await getAutoScanHealthSnapshot(5);
+    writeSseEvent(res, "queue-health", {
+      ...snapshot,
+      reason: "initial-sync"
+    });
+  } catch (error) {
+    writeSseEvent(res, "queue-health", {
+      rows: [],
+      primary: null,
+      total_devices: 0,
+      online_devices: 0,
+      offline_devices: 0,
+      online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
+      heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
+      server_time: new Date().toISOString(),
+      reason: "initial-sync-error",
+      message: error.message || "Unable to load health snapshot."
+    });
+  }
+
+  const closeHandler = () => {
+    removeAutoScanSseClient(clientId);
+  };
+  req.on("close", closeHandler);
+  req.on("aborted", closeHandler);
+});
+
 // API: phone scanner heartbeat for guard queue health
 app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const gate = normalizeGateId(req.body.gate || req.body.gate_id || "Main Gate");
@@ -2143,21 +2263,20 @@ app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
     || String(req.body.mark_scan_received || "") === "1";
 
   try {
-    const heartbeat = await upsertAutoScanHeartbeat({
+    await upsertAutoScanHeartbeat({
       deviceId,
       gateId: gate,
       actorName: getAuthActorName(req),
       markScanReceived
     });
+    const snapshot = await getAutoScanHealthSnapshot(5);
     res.json({
       ok: true,
       device_id: deviceId,
       gate_id: gate,
-      heartbeat,
-      online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
-      heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
-      server_time: new Date().toISOString()
+      ...snapshot
     });
+    broadcastAutoScanHealth(markScanReceived ? "scan-heartbeat" : "heartbeat");
   } catch (error) {
     console.error("Auto scan heartbeat error:", error);
     res.status(500).json({ ok: false, message: "Failed to update scanner heartbeat." });
@@ -2168,19 +2287,10 @@ app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
 app.get("/api/auto-scan/health", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const limit = Number(req.query.limit) || 12;
   try {
-    const rows = await listAutoScanHealthRows(limit);
-    const primary = rows.length ? rows[0] : null;
-    const onlineDevices = rows.filter((row) => row.is_online).length;
+    const snapshot = await getAutoScanHealthSnapshot(limit);
     res.json({
       ok: true,
-      rows,
-      primary,
-      total_devices: rows.length,
-      online_devices: onlineDevices,
-      offline_devices: Math.max(0, rows.length - onlineDevices),
-      online_window_seconds: AUTO_SCAN_ONLINE_WINDOW_SECONDS,
-      heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
-      server_time: new Date().toISOString()
+      ...snapshot
     });
   } catch (error) {
     console.error("Auto scan health fetch error:", error);
@@ -2221,6 +2331,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
         actorName: guardName,
         markScanReceived: true
       });
+      broadcastAutoScanHealth("scan-detected");
     } catch (heartbeatError) {
       console.warn("Auto scan detect heartbeat warning:", heartbeatError.message);
     }
@@ -2336,6 +2447,13 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
           });
 
           await connection.commit();
+          broadcastAutoScanSse("pending-entry-created", {
+            pending_entry_id: queuedEntry?.id || null,
+            pending_entry: queuedEntry || null,
+            gate_id: gate,
+            device_id: deviceId,
+            server_time: new Date().toISOString()
+          });
           return res.json({
             ok: true,
             result: "VALID",
@@ -2399,6 +2517,12 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
 
       await releaseParkingSlot(connection, sticker.id);
       await connection.commit();
+      broadcastAutoScanSse("pending-entry-sync", {
+        reason: "exit-recorded",
+        gate_id: gate,
+        device_id: deviceId,
+        server_time: new Date().toISOString()
+      });
 
       return res.json({
         ok: true,
@@ -2622,6 +2746,12 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
         [guardName, entryId]
       );
       await connection.commit();
+      broadcastAutoScanSse("pending-entry-updated", {
+        pending_entry_id: entryId,
+        status: "REJECTED",
+        reason: "missing-token-data",
+        server_time: new Date().toISOString()
+      });
       return res.status(400).json({ ok: false, message: "Pending entry data is incomplete." });
     }
 
@@ -2638,6 +2768,12 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
         [guardName, verification.message || "Sticker is not valid anymore.", entryId]
       );
       await connection.commit();
+      broadcastAutoScanSse("pending-entry-updated", {
+        pending_entry_id: entryId,
+        status: "REJECTED",
+        reason: "sticker-invalid",
+        server_time: new Date().toISOString()
+      });
       return res.status(400).json({ ok: false, message: verification.message || "Sticker is no longer valid." });
     }
 
@@ -2656,6 +2792,12 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
         [guardName, entryId]
       );
       await connection.commit();
+      broadcastAutoScanSse("pending-entry-updated", {
+        pending_entry_id: entryId,
+        status: "REJECTED",
+        reason: "already-inside",
+        server_time: new Date().toISOString()
+      });
       return res.status(409).json({
         ok: false,
         message: "Vehicle is already marked as inside. Record EXIT first."
@@ -2700,6 +2842,19 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
     );
 
     await connection.commit();
+    broadcastAutoScanSse("pending-entry-updated", {
+      pending_entry_id: entryId,
+      status: "CONFIRMED",
+      reason: "confirmed-by-guard",
+      gate_id: finalGate,
+      slot_id: assignedSlot.id,
+      slot_code: assignedSlot.slot_code,
+      server_time: new Date().toISOString()
+    });
+    broadcastAutoScanSse("pending-entry-sync", {
+      reason: "entry-confirmed",
+      server_time: new Date().toISOString()
+    });
     return res.json({
       ok: true,
       movement_saved: true,
@@ -2762,6 +2917,12 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADM
       [guardName, reason || "Cancelled by guard monitor.", entryId]
     );
     await connection.commit();
+    broadcastAutoScanSse("pending-entry-updated", {
+      pending_entry_id: entryId,
+      status: "CANCELLED",
+      reason: "cancelled-by-guard",
+      server_time: new Date().toISOString()
+    });
     return res.json({ ok: true, cancelled: true, pending_entry_id: entryId });
   } catch (error) {
     await connection.rollback();
