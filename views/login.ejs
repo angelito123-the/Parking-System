@@ -11,157 +11,257 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --navy: #003366;
-      --navy-dark: #001f42;
-      --blue-soft: #e0f2fe;
-      --line: #e2e8f0;
-      --muted: #64748b;
-      --text: #1e293b;
-      --red: #991b1b;
-      --red-bg: #fee2e2;
+      --navy: #0a3a73;
+      --navy-dark: #062852;
+      --navy-soft: #d9e9ff;
+      --line: #dbe5f3;
+      --muted: #5f738d;
+      --text: #0f2035;
+      --surface: #f7fbff;
+      --red: #9f1239;
+      --red-bg: #ffe4eb;
     }
 
     body {
       font-family: "Manrope", sans-serif;
-      background: #f1f5f9;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 700px at 12% -8%, rgba(37, 99, 235, 0.2), transparent 60%),
+        radial-gradient(900px 520px at 100% 0%, rgba(6, 182, 212, 0.14), transparent 55%),
+        linear-gradient(180deg, #eff5fc 0%, #e7eef7 45%, #edf3f9 100%);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem;
+      padding: 1rem;
     }
 
     .login-card {
       background: #fff;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 22px;
       width: 100%;
-      max-width: 400px;
+      max-width: 460px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(0, 51, 102, 0.08);
+      box-shadow:
+        0 24px 60px rgba(15, 35, 70, 0.18),
+        0 10px 24px rgba(15, 35, 70, 0.1);
     }
 
     .login-header {
-      background: var(--navy);
+      background:
+        radial-gradient(circle at 85% 10%, rgba(125, 211, 252, 0.28), transparent 40%),
+        linear-gradient(140deg, var(--navy-dark) 0%, var(--navy) 55%, #0e4b92 100%);
       color: #fff;
-      padding: 2rem 2rem 1.75rem;
+      padding: 2rem 2.1rem 1.9rem;
       text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .login-header::after {
+      content: "";
+      position: absolute;
+      right: -42px;
+      bottom: -42px;
+      width: 170px;
+      height: 170px;
+      border-radius: 50%;
+      background: rgba(191, 219, 254, 0.12);
+      pointer-events: none;
     }
 
     .login-logo {
-      width: 56px;
-      height: 56px;
+      width: 62px;
+      height: 62px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.12);
-      border: 2px solid rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.14);
+      border: 2px solid rgba(219, 234, 254, 0.45);
       display: flex;
       align-items: center;
       justify-content: center;
       font-family: "Outfit", sans-serif;
-      font-size: 1.4rem;
+      font-size: 1.6rem;
       font-weight: 700;
-      margin: 0 auto 1rem;
+      margin: 0 auto 0.95rem;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
     }
 
     .login-school {
-      font-size: 0.68rem;
+      font-size: 0.69rem;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: #94a3b8;
-      margin-bottom: 0.35rem;
+      color: rgba(191, 219, 254, 0.88);
+      margin-bottom: 0.38rem;
     }
 
     .login-title {
       font-family: "Outfit", sans-serif;
-      font-size: 1.3rem;
+      font-size: 1.68rem;
+      line-height: 1.15;
       font-weight: 700;
+      letter-spacing: 0.01em;
     }
 
     .login-subtitle {
-      font-size: 0.8rem;
-      color: #94a3b8;
-      margin-top: 0.25rem;
+      font-size: 0.86rem;
+      color: rgba(219, 234, 254, 0.88);
+      margin-top: 0.3rem;
     }
 
     .login-body {
-      padding: 1.75rem 2rem 2rem;
+      padding: 1.7rem 2rem 1.85rem;
+      background: linear-gradient(180deg, #ffffff 0%, var(--surface) 100%);
     }
 
     .login-error {
       background: var(--red-bg);
       color: var(--red);
-      border: 1px solid #fecaca;
-      border-radius: 6px;
-      padding: 0.75rem 1rem;
+      border: 1px solid #fda4af;
+      border-radius: 12px;
+      padding: 0.8rem 0.95rem;
       font-size: 0.875rem;
-      font-weight: 600;
-      margin-bottom: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 0.5rem;
     }
 
     .form-group {
-      margin-bottom: 1.1rem;
+      margin-bottom: 0.95rem;
     }
 
     label {
       display: block;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 700;
-      color: var(--text);
-      margin-bottom: 0.4rem;
+      color: #15273f;
+      margin-bottom: 0.42rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .input-wrap {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      align-items: center;
+      border: 1px solid #c8d5e7;
+      border-radius: 12px;
+      background: #fff;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+    }
+
+    .input-wrap:focus-within {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .input-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #5d738e;
+      border-right: 1px solid #d9e3f0;
+      height: 100%;
+    }
+
+    .input-icon svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     input[type="text"],
     input[type="password"] {
       width: 100%;
-      padding: 0.75rem 0.875rem;
+      padding: 0.84rem 0.88rem;
       font-family: inherit;
-      font-size: 0.95rem;
-      border: 1px solid var(--line);
-      border-radius: 6px;
+      font-size: 0.96rem;
+      border: none;
+      border-radius: 12px;
       color: var(--text);
       background: #fff;
-      transition: border-color 0.15s, box-shadow 0.15s;
       outline: none;
     }
 
-    input:focus {
-      border-color: var(--navy);
-      box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.1);
+    input::placeholder {
+      color: #8aa0b9;
     }
 
     .login-btn {
       width: 100%;
-      padding: 0.85rem;
-      background: var(--navy);
+      padding: 0.92rem;
+      background: linear-gradient(140deg, #0a3b73 0%, #0e4b92 100%);
       color: #fff;
       font-family: inherit;
-      font-size: 1rem;
+      font-size: 1.02rem;
       font-weight: 700;
       border: none;
-      border-radius: 6px;
+      border-radius: 12px;
       cursor: pointer;
-      margin-top: 0.5rem;
-      transition: background 0.15s;
+      margin-top: 0.55rem;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+      box-shadow: 0 10px 22px rgba(10, 58, 115, 0.28);
     }
 
     .login-btn:hover {
-      background: var(--navy-dark);
+      filter: brightness(1.04);
+      transform: translateY(-1px);
+      box-shadow: 0 14px 26px rgba(10, 58, 115, 0.34);
     }
 
     .login-btn:active {
-      transform: scale(0.99);
+      transform: translateY(0);
+      box-shadow: 0 8px 14px rgba(10, 58, 115, 0.24);
     }
 
     .login-footer {
       text-align: center;
-      padding: 1rem;
+      padding: 0.95rem;
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size: 0.74rem;
       border-top: 1px solid var(--line);
+      background: #f7fbff;
+    }
+
+    .login-note {
+      margin: 0.8rem 0 0;
+      color: #5f738d;
+      font-size: 0.76rem;
+      text-align: center;
+    }
+
+    @media (max-width: 520px) {
+      body {
+        padding: 0.8rem;
+      }
+
+      .login-card {
+        border-radius: 18px;
+      }
+
+      .login-header {
+        padding: 1.65rem 1.2rem 1.55rem;
+      }
+
+      .login-body {
+        padding: 1.2rem 1.2rem 1.35rem;
+      }
+
+      .login-title {
+        font-size: 1.46rem;
+      }
+
+      .login-school {
+        font-size: 0.62rem;
+      }
     }
   </style>
 </head>
@@ -185,29 +285,47 @@
       <form method="post" action="/login">
         <div class="form-group">
           <label for="username">Username</label>
-          <input
-            type="text"
-            id="username"
-            name="username"
-            required
-            autocomplete="username"
-            placeholder="Enter your username"
-            value="<%= locals.usernameVal || '' %>"
-          />
+          <div class="input-wrap">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M20 21a8 8 0 0 0-16 0"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </span>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              required
+              autocomplete="username"
+              placeholder="Enter your username"
+              value="<%= locals.usernameVal || '' %>"
+            />
+          </div>
         </div>
         <div class="form-group">
           <label for="password">Password</label>
-          <input
-            type="password"
-            id="password"
-            name="password"
-            required
-            autocomplete="current-password"
-            placeholder="Enter your password"
-          />
+          <div class="input-wrap">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="11" width="16" height="9" rx="2"></rect>
+                <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+              </svg>
+            </span>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            />
+          </div>
         </div>
         <button type="submit" class="login-btn">Sign In</button>
       </form>
+
+      <p class="login-note">For authorized Admin and Guard accounts only.</p>
     </div>
 
     <div class="login-footer">
