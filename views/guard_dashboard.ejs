@@ -56,8 +56,13 @@
         <h3>Confirm Entry and Assign Slot</h3>
         <p>Review pending scans and approve parking slot assignment.</p>
       </a>
-      <a href="/guard" class="quick-link-card workflow-card">
+      <a href="/visitor-passes" class="quick-link-card workflow-card">
         <span class="workflow-step">Step 3</span>
+        <h3>Approve Visitor Passes</h3>
+        <p>Handle visitor, parent, supplier, delivery, and temporary permit requests.</p>
+      </a>
+      <a href="/guard" class="quick-link-card workflow-card">
+        <span class="workflow-step">Step 4</span>
         <h3>Monitor Queue and Alerts</h3>
         <p>Track phone status, queue health, and overstay notifications.</p>
       </a>
@@ -134,6 +139,34 @@
       <div class="empty-state" style="padding:1rem;">
         <p>Loading alerts...</p>
       </div>
+    </div>
+  </section>
+
+  <section class="panel visitor-summary-panel">
+    <div class="section-head">
+      <h2>Visitor Pass Overview</h2>
+      <p>Summary of temporary permit operations and visitor movement status.</p>
+    </div>
+    <div class="alert-summary-grid">
+      <article class="alert-summary-card tone-info">
+        <p class="alert-summary-label">Active Passes</p>
+        <p id="guardVisitorActive" class="alert-summary-value"><%= safeMetrics.visitorActivePasses || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-warning">
+        <p class="alert-summary-label">Pending Visitor Approvals</p>
+        <p id="guardVisitorPending" class="alert-summary-value"><%= safeMetrics.visitorPendingApprovals || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-danger">
+        <p class="alert-summary-label">Expired Passes</p>
+        <p id="guardVisitorExpired" class="alert-summary-value"><%= safeMetrics.visitorExpiredPasses || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-strong">
+        <p class="alert-summary-label">Visitor Vehicles Inside</p>
+        <p id="guardVisitorInside" class="alert-summary-value"><%= safeMetrics.visitorCurrentlyInside || 0 %></p>
+      </article>
+    </div>
+    <div class="alert-summary-footer">
+      <a href="/visitor-passes" class="btn-sm">Open Visitor Passes</a>
     </div>
   </section>
 
@@ -223,24 +256,26 @@
   <section class="panel">
     <div class="section-head">
       <h2>Visitor Logs</h2>
-      <p>Latest valid gate movements.</p>
+      <p>Latest visitor gate scans including denied and expired attempts.</p>
     </div>
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Date/Time</th>
-            <th>Student</th>
+            <th>Visitor</th>
             <th>Plate</th>
+            <th>Pass</th>
             <th>Slot</th>
             <th>Gate</th>
+            <th>Result</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
           <% if (!safeVisitorLogs.length) { %>
             <tr>
-              <td colspan="6">
+              <td colspan="8">
                 <div class="empty-state"><p>No logs available yet.</p></div>
               </td>
             </tr>
@@ -249,12 +284,14 @@
             <tr>
               <td><%= new Date(log.scanned_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
               <td>
-                <strong><%= log.full_name || "-" %></strong><br />
-                <small><%= log.student_number || "-" %></small>
+                <strong><%= log.visitor_name || "-" %></strong><br />
+                <small><%= log.visitor_type || "-" %></small>
               </td>
               <td><%= log.plate_number || "-" %></td>
+              <td><%= log.pass_code || "-" %></td>
               <td><%= log.parking_slot || "-" %></td>
-              <td><%= log.gate || "-" %></td>
+              <td><%= log.gate_id || log.gate || "-" %></td>
+              <td><span class="badge badge-<%= String(log.result || 'invalid').toLowerCase() %>"><%= log.result || "-" %></span></td>
               <td>
                 <span class="badge badge-<%= String(log.action || '').toLowerCase() %>"><%= log.action || "-" %></span>
               </td>
@@ -320,6 +357,10 @@
     const guardMetricPending = document.getElementById("guardMetricPending");
     const guardMetricFullZones = document.getElementById("guardMetricFullZones");
     const guardMetricSuspicious = document.getElementById("guardMetricSuspicious");
+    const guardVisitorActive = document.getElementById("guardVisitorActive");
+    const guardVisitorPending = document.getElementById("guardVisitorPending");
+    const guardVisitorExpired = document.getElementById("guardVisitorExpired");
+    const guardVisitorInside = document.getElementById("guardVisitorInside");
 
     const guardEntryModal = document.getElementById("guardEntryModal");
     const guardEntryCloseBtn = document.getElementById("guardEntryCloseBtn");
@@ -528,6 +569,24 @@
         if (guardMetricPending) guardMetricPending.textContent = summary.pending_active ?? "0";
         if (guardMetricFullZones) guardMetricFullZones.textContent = summary.full_zone_active ?? "0";
         if (guardMetricSuspicious) guardMetricSuspicious.textContent = summary.suspicious_active ?? "0";
+      } catch (_error) {
+        // non-fatal
+      }
+    }
+
+    async function fetchVisitorPassSummary() {
+      try {
+        const response = await fetch("/api/visitor-passes/summary", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({ ok: false }));
+        if (!response.ok || !data.ok) return;
+        const summary = data.summary || {};
+        if (guardVisitorActive) guardVisitorActive.textContent = summary.active_passes ?? "0";
+        if (guardVisitorPending) guardVisitorPending.textContent = summary.pending_approvals ?? "0";
+        if (guardVisitorExpired) guardVisitorExpired.textContent = summary.expired_passes ?? "0";
+        if (guardVisitorInside) guardVisitorInside.textContent = summary.current_inside ?? "0";
       } catch (_error) {
         // non-fatal
       }
@@ -1058,10 +1117,12 @@
       fetchQueueHealth({ silent: false });
       fetchGuardAlerts({ silent: false });
       fetchGuardAlertSummary();
+      fetchVisitorPassSummary();
     });
     guardAlertsRefreshBtn?.addEventListener("click", () => {
       fetchGuardAlerts({ silent: false });
       fetchGuardAlertSummary();
+      fetchVisitorPassSummary();
     });
     guardEntryCloseBtn?.addEventListener("click", closeGuardEntryModal);
     guardEntryConfirmBtn?.addEventListener("click", confirmEntry);
@@ -1103,11 +1164,13 @@
     fetchQueueHealth({ silent: false });
     fetchGuardAlerts({ silent: false });
     fetchGuardAlertSummary();
+    fetchVisitorPassSummary();
     connectLiveEvents();
     connectNotificationEvents();
     setInterval(() => {
       fetchGuardAlerts({ silent: true });
       fetchGuardAlertSummary();
+      fetchVisitorPassSummary();
     }, 20000);
   })();
 </script>

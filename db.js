@@ -37,6 +37,7 @@ async function ensureDatabaseSchema() {
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
   await ensureAutoScanHeartbeatMigrations();
+  await ensureVisitorPassMigrations();
   await ensureAlertMigrations();
   await ensureUserMigrations();
   await ensureAnnouncementMigrations();
@@ -408,6 +409,97 @@ async function ensureAutoScanHeartbeatMigrations() {
   `);
 }
 
+async function ensureVisitorPassMigrations() {
+  await pool.query("SET FOREIGN_KEY_CHECKS = 0");
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS visitor_passes (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        pass_code VARCHAR(40) NOT NULL UNIQUE,
+        qr_token VARCHAR(120) NOT NULL UNIQUE,
+        visitor_type ENUM('visitor', 'parent', 'supplier', 'delivery', 'service', 'temporary') NOT NULL DEFAULT 'visitor',
+        visitor_name VARCHAR(150) NOT NULL,
+        organization VARCHAR(150) NULL,
+        contact_number VARCHAR(60) NULL,
+        plate_number VARCHAR(30) NULL,
+        vehicle_type VARCHAR(80) NULL,
+        purpose VARCHAR(255) NULL,
+        requested_by VARCHAR(120) NULL,
+        approval_status ENUM('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+        approved_by VARCHAR(120) NULL,
+        approved_at TIMESTAMP NULL DEFAULT NULL,
+        approval_note VARCHAR(255) NULL,
+        pass_state ENUM('PENDING', 'ACTIVE', 'INSIDE', 'EXITED', 'EXPIRED', 'REVOKED') NOT NULL DEFAULT 'PENDING',
+        valid_from DATETIME NOT NULL,
+        valid_until DATETIME NOT NULL,
+        assigned_zone VARCHAR(80) NULL,
+        assigned_slot_id INT NULL,
+        last_entry_at DATETIME NULL,
+        last_exit_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_visitor_pass_status (approval_status, pass_state),
+        INDEX idx_visitor_pass_valid_until (valid_until),
+        INDEX idx_visitor_pass_plate (plate_number),
+        CONSTRAINT fk_visitor_pass_slot FOREIGN KEY (assigned_slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS visitor_scan_logs (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        visitor_pass_id INT NOT NULL,
+        scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        result VARCHAR(20) NOT NULL,
+        action ENUM('ENTRY', 'EXIT', 'VERIFY', 'DENIED') NOT NULL DEFAULT 'VERIFY',
+        gate VARCHAR(80) NULL,
+        gate_id VARCHAR(80) NULL,
+        slot_id INT NULL,
+        qr_value VARCHAR(120) NULL,
+        assigned_by_guard VARCHAR(120) NULL,
+        scan_source VARCHAR(40) NOT NULL DEFAULT 'manual',
+        snapshot_path VARCHAR(255) NULL,
+        status VARCHAR(40) NULL,
+        reason VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_visitor_scan_pass_time (visitor_pass_id, scanned_at),
+        INDEX idx_visitor_scan_result_time (result, scanned_at),
+        CONSTRAINT fk_visitor_scan_pass FOREIGN KEY (visitor_pass_id) REFERENCES visitor_passes(id) ON DELETE CASCADE,
+        CONSTRAINT fk_visitor_scan_slot FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL
+      )
+    `);
+
+    if (!(await columnExists("parking_slots", "current_visitor_pass_id"))) {
+      await pool.query("ALTER TABLE parking_slots ADD COLUMN current_visitor_pass_id INT NULL AFTER current_sticker_id");
+    }
+
+    await pool.query(`
+      INSERT IGNORE INTO parking_slots (slot_code, zone) VALUES
+        ('V-01', 'Visitor Zone'),
+        ('V-02', 'Visitor Zone'),
+        ('V-03', 'Visitor Zone'),
+        ('V-04', 'Visitor Zone'),
+        ('V-05', 'Visitor Zone'),
+        ('V-06', 'Visitor Zone')
+    `);
+  } finally {
+    await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+  }
+
+  if (!(await constraintExists("parking_slots", "fk_parking_slot_visitor_pass"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE parking_slots ADD CONSTRAINT fk_parking_slot_visitor_pass FOREIGN KEY (current_visitor_pass_id) REFERENCES visitor_passes(id) ON DELETE SET NULL"
+      );
+    } catch (error) {
+      if (error.errno !== 1826 && error.errno !== 1061) {
+        console.warn("parking_slots fk_parking_slot_visitor_pass warning (non-fatal):", error.message);
+      }
+    }
+  }
+}
+
 async function ensureAlertMigrations() {
   await pool.query("SET FOREIGN_KEY_CHECKS = 0");
   try {
@@ -421,6 +513,7 @@ async function ensureAlertMigrations() {
         audience_role ENUM('admin', 'guard', 'student', 'staff', 'all') NOT NULL DEFAULT 'staff',
         related_user_id INT NULL,
         related_vehicle_id INT NULL,
+        related_visitor_pass_id INT NULL,
         related_qr_id VARCHAR(120) NULL,
         related_zone_id VARCHAR(80) NULL,
         related_gate_id VARCHAR(80) NULL,
@@ -444,6 +537,7 @@ async function ensureAlertMigrations() {
         INDEX idx_alert_dedupe_status (dedupe_key, status),
         CONSTRAINT fk_alert_user FOREIGN KEY (related_user_id) REFERENCES users(id) ON DELETE SET NULL,
         CONSTRAINT fk_alert_vehicle FOREIGN KEY (related_vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+        CONSTRAINT fk_alert_visitor_pass FOREIGN KEY (related_visitor_pass_id) REFERENCES visitor_passes(id) ON DELETE SET NULL,
         CONSTRAINT fk_alert_scan_log FOREIGN KEY (related_scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL,
         CONSTRAINT fk_alert_pending_entry FOREIGN KEY (related_pending_entry_id) REFERENCES auto_scan_queue(id) ON DELETE SET NULL
       )
@@ -478,9 +572,22 @@ async function ensureAlertMigrations() {
     await addAlertColumnIfMissing("metadata_json", "JSON NULL AFTER dedupe_key");
     await addAlertColumnIfMissing("related_scan_log_id", "INT NULL AFTER related_gate_id");
     await addAlertColumnIfMissing("related_pending_entry_id", "INT NULL AFTER related_scan_log_id");
+    await addAlertColumnIfMissing("related_visitor_pass_id", "INT NULL AFTER related_vehicle_id");
   } catch (error) {
     if (error.errno !== 1060) {
       throw error;
+    }
+  }
+
+  if (!(await constraintExists("alerts", "fk_alert_visitor_pass"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE alerts ADD CONSTRAINT fk_alert_visitor_pass FOREIGN KEY (related_visitor_pass_id) REFERENCES visitor_passes(id) ON DELETE SET NULL"
+      );
+    } catch (error) {
+      if (error.errno !== 1826 && error.errno !== 1061) {
+        console.warn("alerts fk_alert_visitor_pass warning (non-fatal):", error.message);
+      }
     }
   }
 }

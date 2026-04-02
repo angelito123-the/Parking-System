@@ -1,0 +1,446 @@
+<%- include("partials/header") %>
+<%
+  const safeSummary = typeof summary === "object" && summary
+    ? summary
+    : { active_passes: 0, pending_approvals: 0, expired_passes: 0, current_inside: 0 };
+  const safePendingApprovals = Array.isArray(pendingApprovals) ? pendingApprovals : [];
+  const safePasses = Array.isArray(passes) ? passes : [];
+  const safeLogs = Array.isArray(logs) ? logs : [];
+  const safeCurrentInside = Array.isArray(currentInside) ? currentInside : [];
+  const safeFilters = typeof filters === "object" && filters
+    ? filters
+    : { q: "", approval_status: "ALL", pass_state: "ALL", type: "all", from: "", to: "", limit: 80 };
+  const safeFlash = flash && typeof flash === "object" ? flash : null;
+  const visitorTypeOptions = [
+    { value: "visitor", label: "Visitor" },
+    { value: "parent", label: "Parent / Guardian" },
+    { value: "supplier", label: "Supplier" },
+    { value: "delivery", label: "Delivery Rider" },
+    { value: "service", label: "Service Vehicle" },
+    { value: "temporary", label: "Temporary Permit" }
+  ];
+  function toPht(value) {
+    const dt = new Date(value);
+    return Number.isNaN(dt.getTime())
+      ? "-"
+      : dt.toLocaleString("en-US", { timeZone: "Asia/Manila" });
+  }
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Visitor and Temporary Parking Passes</h1>
+  </div>
+  <div class="hero-cards visitor-hero-cards">
+    <div class="hero-card">
+      <h3>Active Passes</h3>
+      <p><%= safeSummary.active_passes || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(30, 64, 175, 0.2); border-color: rgba(147, 197, 253, 0.45);">
+      <h3>Pending Approvals</h3>
+      <p><%= safeSummary.pending_approvals || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(245, 158, 11, 0.2); border-color: rgba(252, 211, 77, 0.45);">
+      <h3>Expired Passes</h3>
+      <p><%= safeSummary.expired_passes || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(110, 231, 183, 0.45);">
+      <h3>Currently Inside</h3>
+      <p><%= safeSummary.current_inside || 0 %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper visitor-module-shell">
+  <% if (safeFlash) { %>
+    <div class="flash <%= safeFlash.type === "success" ? "flash-success" : "flash-error" %>">
+      <%= safeFlash.message %>
+    </div>
+  <% } %>
+
+  <section class="panel visitor-registration-panel">
+    <div class="section-head">
+      <h2>Register Visitor / Temporary Pass</h2>
+      <p>Create a pass request, then approve it to allow gate access. Overstay limit: <%= visitorOverstayLimitLabel || "4h" %>.</p>
+    </div>
+
+    <form method="POST" action="/visitor-passes/register" class="visitor-form-grid" id="visitorRegisterForm">
+      <label>
+        <span>Visitor Type</span>
+        <select name="visitor_type" required>
+          <% visitorTypeOptions.forEach((opt) => { %>
+            <option value="<%= opt.value %>"><%= opt.label %></option>
+          <% }) %>
+        </select>
+      </label>
+
+      <label>
+        <span>Full Name</span>
+        <input type="text" name="visitor_name" placeholder="e.g. Juan Dela Cruz" required maxlength="150" />
+      </label>
+
+      <label>
+        <span>Organization</span>
+        <input type="text" name="organization" placeholder="Company, parent name, or supplier" maxlength="150" />
+      </label>
+
+      <label>
+        <span>Contact Number</span>
+        <input type="text" name="contact_number" placeholder="0917..." maxlength="60" />
+      </label>
+
+      <label>
+        <span>Plate Number</span>
+        <input type="text" name="plate_number" placeholder="ABC 1234" maxlength="30" />
+      </label>
+
+      <label>
+        <span>Vehicle Type</span>
+        <input type="text" name="vehicle_type" placeholder="Sedan, Van, Motorcycle" maxlength="80" />
+      </label>
+
+      <label class="visitor-form-wide">
+        <span>Purpose</span>
+        <input type="text" name="purpose" placeholder="Delivery, parent pickup, maintenance visit" maxlength="255" />
+      </label>
+
+      <label>
+        <span>Visitor Zone</span>
+        <input type="text" name="assigned_zone" value="Visitor Zone" maxlength="80" />
+      </label>
+
+      <label>
+        <span>Valid From</span>
+        <input type="datetime-local" name="valid_from" id="visitorValidFrom" required />
+      </label>
+
+      <label>
+        <span>Valid Until</span>
+        <input type="datetime-local" name="valid_until" id="visitorValidUntil" required />
+      </label>
+
+      <div class="visitor-form-actions">
+        <button type="submit" class="btn-sm">Submit Pass Request</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Pending Approval Queue</h2>
+      <p>Review and approve/reject visitor pass requests before they can enter.</p>
+    </div>
+
+    <% if (!safePendingApprovals.length) { %>
+      <div class="empty-state"><p>No pending approvals right now.</p></div>
+    <% } else { %>
+      <div class="visitor-pending-list">
+        <% safePendingApprovals.forEach((item) => { %>
+          <article class="visitor-pending-card">
+            <div class="visitor-pending-main">
+              <p class="visitor-pending-title">
+                <strong><%= item.visitor_name || "Unknown Visitor" %></strong>
+                <span class="badge badge-warning">PENDING</span>
+              </p>
+              <p class="helper-text"><%= item.pass_code || "-" %> | <%= item.visitor_type || "visitor" %> | Plate: <%= item.plate_number || "-" %></p>
+              <p class="helper-text">Purpose: <%= item.purpose || "-" %></p>
+              <p class="helper-text">Validity: <%= toPht(item.valid_from) %> to <%= toPht(item.valid_until) %></p>
+            </div>
+            <div class="visitor-pending-actions">
+              <a class="btn-sm" href="/visitor-passes/<%= item.id %>/qr" target="_blank" rel="noopener">View QR</a>
+              <form method="POST" action="/visitor-passes/<%= item.id %>/approve" class="inline-form">
+                <button type="submit" class="btn-sm">Approve</button>
+              </form>
+              <form method="POST" action="/visitor-passes/<%= item.id %>/reject" class="inline-form js-note-form" data-note-label="Rejection note">
+                <input type="hidden" name="approval_note" value="" />
+                <button type="submit" class="btn-sm danger">Reject</button>
+              </form>
+              <form method="POST" action="/visitor-passes/<%= item.id %>/cancel" class="inline-form js-note-form" data-note-label="Cancel note">
+                <input type="hidden" name="approval_note" value="" />
+                <button type="submit" class="btn-sm danger">Cancel</button>
+              </form>
+            </div>
+          </article>
+        <% }) %>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Current Visitor Vehicles Inside</h2>
+      <p>Track active visitor occupancy and overstay risk in real time.</p>
+    </div>
+
+    <% if (!safeCurrentInside.length) { %>
+      <div class="empty-state"><p>No visitor vehicles currently inside campus.</p></div>
+    <% } else { %>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Pass</th>
+              <th>Visitor</th>
+              <th>Plate</th>
+              <th>Slot</th>
+              <th>Zone</th>
+              <th>Duration</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% safeCurrentInside.forEach((row) => { %>
+              <tr>
+                <td><strong><%= row.pass_code || "-" %></strong></td>
+                <td><%= row.visitor_name || "-" %></td>
+                <td><%= row.plate_number || "-" %></td>
+                <td><%= row.parking_slot || "-" %></td>
+                <td><%= row.assigned_zone || "Visitor Zone" %></td>
+                <td><%= row.duration_label || "-" %></td>
+                <td>
+                  <% if (row.is_overstay) { %>
+                    <span class="badge badge-overstay">Overstay</span>
+                  <% } else { %>
+                    <span class="badge badge-inside">Inside</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Pass Directory and Search</h2>
+      <p>Find active, pending, expired, denied, and temporary passes with filter controls.</p>
+    </div>
+
+    <form method="GET" action="/visitor-passes" class="visitor-filter-grid" id="visitorFilterForm">
+      <label>
+        <span>Search</span>
+        <input type="text" name="q" value="<%= safeFilters.q || "" %>" placeholder="Pass code, name, plate, organization, purpose" />
+      </label>
+      <label>
+        <span>Type</span>
+        <select name="type">
+          <option value="all" <%= safeFilters.type === "all" ? "selected" : "" %>>All</option>
+          <% visitorTypeOptions.forEach((opt) => { %>
+            <option value="<%= opt.value %>" <%= safeFilters.type === opt.value ? "selected" : "" %>><%= opt.label %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>
+        <span>Approval</span>
+        <select name="approval_status">
+          <option value="ALL" <%= safeFilters.approval_status === "ALL" ? "selected" : "" %>>All</option>
+          <option value="PENDING" <%= safeFilters.approval_status === "PENDING" ? "selected" : "" %>>Pending</option>
+          <option value="APPROVED" <%= safeFilters.approval_status === "APPROVED" ? "selected" : "" %>>Approved</option>
+          <option value="REJECTED" <%= safeFilters.approval_status === "REJECTED" ? "selected" : "" %>>Rejected</option>
+          <option value="CANCELLED" <%= safeFilters.approval_status === "CANCELLED" ? "selected" : "" %>>Cancelled</option>
+        </select>
+      </label>
+      <label>
+        <span>State</span>
+        <select name="pass_state">
+          <option value="ALL" <%= safeFilters.pass_state === "ALL" ? "selected" : "" %>>All</option>
+          <option value="PENDING" <%= safeFilters.pass_state === "PENDING" ? "selected" : "" %>>Pending</option>
+          <option value="ACTIVE" <%= safeFilters.pass_state === "ACTIVE" ? "selected" : "" %>>Active</option>
+          <option value="INSIDE" <%= safeFilters.pass_state === "INSIDE" ? "selected" : "" %>>Inside</option>
+          <option value="EXITED" <%= safeFilters.pass_state === "EXITED" ? "selected" : "" %>>Exited</option>
+          <option value="EXPIRED" <%= safeFilters.pass_state === "EXPIRED" ? "selected" : "" %>>Expired</option>
+          <option value="REVOKED" <%= safeFilters.pass_state === "REVOKED" ? "selected" : "" %>>Revoked</option>
+        </select>
+      </label>
+      <label>
+        <span>From</span>
+        <input type="date" name="from" value="<%= safeFilters.from || "" %>" />
+      </label>
+      <label>
+        <span>To</span>
+        <input type="date" name="to" value="<%= safeFilters.to || "" %>" />
+      </label>
+      <div class="visitor-filter-actions">
+        <button type="submit" class="btn-sm">Apply Filters</button>
+        <a href="/visitor-passes" class="btn-sm danger">Reset</a>
+      </div>
+    </form>
+
+    <div class="table-wrap" style="margin-top:0.8rem;">
+      <table>
+        <thead>
+          <tr>
+            <th>Pass</th>
+            <th>Visitor</th>
+            <th>Plate</th>
+            <th>Type</th>
+            <th>Approval</th>
+            <th>State</th>
+            <th>Validity</th>
+            <th>Current Slot</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safePasses.length) { %>
+            <tr>
+              <td colspan="9">
+                <div class="empty-state"><p>No visitor passes found for this filter.</p></div>
+              </td>
+            </tr>
+          <% } %>
+          <% safePasses.forEach((row) => { %>
+            <tr>
+              <td>
+                <strong><%= row.pass_code || "-" %></strong><br />
+                <small><%= row.requested_by || "system" %></small>
+              </td>
+              <td>
+                <strong><%= row.visitor_name || "-" %></strong><br />
+                <small><%= row.organization || "-" %></small>
+              </td>
+              <td><%= row.plate_number || "-" %></td>
+              <td><%= row.visitor_type || "visitor" %></td>
+              <td>
+                <span class="badge badge-soft"><%= row.approval_status || "-" %></span>
+              </td>
+              <td>
+                <span class="badge badge-soft"><%= row.pass_state || "-" %></span>
+              </td>
+              <td>
+                <%= toPht(row.valid_from) %><br />
+                <small>to <%= toPht(row.valid_until) %></small>
+              </td>
+              <td>
+                <%= row.current_slot || "-" %><br />
+                <small><%= row.assigned_zone || "Visitor Zone" %></small>
+              </td>
+              <td>
+                <div class="visitor-table-actions">
+                  <a class="btn-sm" href="/visitor-passes/<%= row.id %>/qr" target="_blank" rel="noopener">QR</a>
+                  <a class="btn-sm" href="/scanner?q=<%= encodeURIComponent(row.pass_code || "") %>">Gate Console</a>
+                  <% if (row.approval_status === "PENDING") { %>
+                    <form method="POST" action="/visitor-passes/<%= row.id %>/approve" class="inline-form">
+                      <button type="submit" class="btn-sm">Approve</button>
+                    </form>
+                    <form method="POST" action="/visitor-passes/<%= row.id %>/reject" class="inline-form js-note-form" data-note-label="Rejection note">
+                      <input type="hidden" name="approval_note" value="" />
+                      <button type="submit" class="btn-sm danger">Reject</button>
+                    </form>
+                  <% } else if (row.approval_status === "APPROVED" && row.pass_state !== "EXPIRED" && row.pass_state !== "REVOKED") { %>
+                    <form method="POST" action="/visitor-passes/<%= row.id %>/cancel" class="inline-form js-note-form" data-note-label="Cancel note">
+                      <input type="hidden" name="approval_note" value="" />
+                      <button type="submit" class="btn-sm danger">Cancel</button>
+                    </form>
+                  <% } %>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Visitor Entry and Exit Logs</h2>
+      <p>Audit visitor gate movement history, denied scans, and expiration-related rejections.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date/Time</th>
+            <th>Pass</th>
+            <th>Visitor</th>
+            <th>Plate</th>
+            <th>Gate</th>
+            <th>Slot</th>
+            <th>Result</th>
+            <th>Action</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!safeLogs.length) { %>
+            <tr>
+              <td colspan="9">
+                <div class="empty-state"><p>No visitor logs found for this filter.</p></div>
+              </td>
+            </tr>
+          <% } %>
+          <% safeLogs.forEach((log) => { %>
+            <tr>
+              <td><%= toPht(log.scanned_at) %></td>
+              <td><strong><%= log.pass_code || "-" %></strong></td>
+              <td><%= log.visitor_name || "-" %></td>
+              <td><%= log.plate_number || "-" %></td>
+              <td><%= log.gate_id || log.gate || "-" %></td>
+              <td><%= log.parking_slot || "-" %></td>
+              <td><span class="badge badge-<%= String(log.result || "invalid").toLowerCase() %>"><%= log.result || "-" %></span></td>
+              <td><span class="badge badge-<%= String(log.action || "verify").toLowerCase() %>"><%= log.action || "-" %></span></td>
+              <td><%= log.reason || "-" %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const validFrom = document.getElementById("visitorValidFrom");
+    const validUntil = document.getElementById("visitorValidUntil");
+    const noteForms = Array.from(document.querySelectorAll(".js-note-form"));
+
+    function formatDateTimeLocal(date) {
+      const dt = new Date(date);
+      const year = dt.getFullYear();
+      const month = String(dt.getMonth() + 1).padStart(2, "0");
+      const day = String(dt.getDate()).padStart(2, "0");
+      const hour = String(dt.getHours()).padStart(2, "0");
+      const minute = String(dt.getMinutes()).padStart(2, "0");
+      return `${year}-${month}-${day}T${hour}:${minute}`;
+    }
+
+    if (validFrom && !validFrom.value) {
+      const now = new Date();
+      validFrom.value = formatDateTimeLocal(now);
+    }
+    if (validUntil && !validUntil.value) {
+      const until = new Date();
+      until.setHours(until.getHours() + 4);
+      validUntil.value = formatDateTimeLocal(until);
+    }
+
+    noteForms.forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        const input = form.querySelector('input[name="approval_note"]');
+        if (!input) return;
+        const label = String(form.dataset.noteLabel || "Note");
+        const actionText = form.action.includes("reject") ? "reject" : "cancel";
+        const note = window.prompt(`${label} (optional):`, "") || "";
+        input.value = note.trim();
+        if (!window.confirm(`Confirm ${actionText} this visitor pass?`)) {
+          event.preventDefault();
+        }
+      });
+    });
+
+    document.querySelectorAll('form[action*="/approve"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        if (!window.confirm("Approve this visitor pass request?")) {
+          event.preventDefault();
+        }
+      });
+    });
+  })();
+</script>
+
+<%- include("partials/footer") %>

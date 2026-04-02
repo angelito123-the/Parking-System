@@ -51,12 +51,36 @@ const USER_ROLES = Object.freeze({
   GUARD: "guard"
 });
 const VALID_ROLES = new Set(Object.values(USER_ROLES));
+const VISITOR_TYPES = Object.freeze({
+  VISITOR: "visitor",
+  PARENT: "parent",
+  SUPPLIER: "supplier",
+  DELIVERY: "delivery",
+  SERVICE: "service",
+  TEMPORARY: "temporary"
+});
+const VALID_VISITOR_TYPES = new Set(Object.values(VISITOR_TYPES));
+const VISITOR_APPROVAL_STATUS = Object.freeze({
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  CANCELLED: "CANCELLED"
+});
+const VISITOR_PASS_STATE = Object.freeze({
+  PENDING: "PENDING",
+  ACTIVE: "ACTIVE",
+  INSIDE: "INSIDE",
+  EXITED: "EXITED",
+  EXPIRED: "EXPIRED",
+  REVOKED: "REVOKED"
+});
 const ALERT_TYPES = Object.freeze({
   INVALID_QR_ATTEMPT: "INVALID_QR_ATTEMPT",
   FULL_PARKING_ZONE: "FULL_PARKING_ZONE",
   LOW_SLOT_WARNING: "LOW_SLOT_WARNING",
   PENDING_ENTRY_APPROVAL: "PENDING_ENTRY_APPROVAL",
-  SUSPICIOUS_SCAN_BEHAVIOR: "SUSPICIOUS_SCAN_BEHAVIOR"
+  SUSPICIOUS_SCAN_BEHAVIOR: "SUSPICIOUS_SCAN_BEHAVIOR",
+  VISITOR_OVERSTAY: "VISITOR_OVERSTAY"
 });
 const ALERT_SEVERITIES = Object.freeze({
   LOW: "low",
@@ -93,6 +117,13 @@ const SUSPICIOUS_REPEAT_QR_THRESHOLD = Math.max(
     ? Number(process.env.SUSPICIOUS_REPEAT_QR_THRESHOLD)
     : 5
 );
+const VISITOR_OVERSTAY_HOURS = Math.max(
+  1,
+  Number.isFinite(Number(process.env.VISITOR_OVERSTAY_HOURS))
+    ? Number(process.env.VISITOR_OVERSTAY_HOURS)
+    : OVERSTAY_LIMIT_HOURS
+);
+const VISITOR_OVERSTAY_MINUTES = Math.max(1, Math.round(VISITOR_OVERSTAY_HOURS * 60));
 const autoScanSseClients = new Map();
 let autoScanSseClientCounter = 0;
 const notificationSseClients = new Map();
@@ -272,8 +303,32 @@ function createStickerCode() {
   return `NAAP-${year}-${random}`;
 }
 
+function createVisitorPassCode() {
+  const year = new Date().getFullYear();
+  const random = crypto.randomBytes(2).toString("hex").toUpperCase();
+  return `VIS-${year}-${random}`;
+}
+
 function createQrToken() {
   return crypto.randomBytes(24).toString("hex");
+}
+
+function normalizeVisitorType(rawType) {
+  const type = String(rawType || "").trim().toLowerCase();
+  return VALID_VISITOR_TYPES.has(type) ? type : VISITOR_TYPES.VISITOR;
+}
+
+function isVisitorZone(zoneValue) {
+  const zone = String(zoneValue || "").trim();
+  return /^visitor/i.test(zone) || /^v[-\s]?/i.test(zone);
+}
+
+function parseDateTimeInput(rawValue) {
+  const value = String(rawValue || "").trim();
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
 }
 
 function isExpired(expiresAt) {
@@ -653,6 +708,7 @@ function mapAlertRow(row) {
     audience_role: row.audience_role,
     related_user_id: row.related_user_id,
     related_vehicle_id: row.related_vehicle_id,
+    related_visitor_pass_id: row.related_visitor_pass_id || null,
     related_qr_id: row.related_qr_id,
     related_zone_id: row.related_zone_id,
     related_gate_id: row.related_gate_id,
@@ -685,6 +741,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
   const metadataJson = payload.metadata === undefined ? null : safeJsonStringify(payload.metadata);
   const relatedUserId = Number(payload.relatedUserId) || null;
   const relatedVehicleId = Number(payload.relatedVehicleId) || null;
+  const relatedVisitorPassId = Number(payload.relatedVisitorPassId) || null;
   const relatedScanLogId = Number(payload.relatedScanLogId) || null;
   const relatedPendingEntryId = Number(payload.relatedPendingEntryId) || null;
   const relatedQrId = payload.relatedQrId ? String(payload.relatedQrId).slice(0, 120) : null;
@@ -717,6 +774,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
            audience_role = ?,
            related_user_id = ?,
            related_vehicle_id = ?,
+           related_visitor_pass_id = ?,
            related_qr_id = ?,
            related_zone_id = ?,
            related_gate_id = ?,
@@ -737,6 +795,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
           audienceRole,
           relatedUserId,
           relatedVehicleId,
+          relatedVisitorPassId,
           relatedQrId,
           relatedZoneId,
           relatedGateId,
@@ -765,6 +824,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
        audience_role,
        related_user_id,
        related_vehicle_id,
+       related_visitor_pass_id,
        related_qr_id,
        related_zone_id,
        related_gate_id,
@@ -786,6 +846,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
       audienceRole,
       relatedUserId,
       relatedVehicleId,
+      relatedVisitorPassId,
       relatedQrId,
       relatedZoneId,
       relatedGateId,
@@ -1021,10 +1082,22 @@ async function getOperationalAlertMetrics(db = pool) {
      WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
        AND DATE(scanned_at) = CURDATE()`
   );
+  const [[visitorInvalidTodayRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM visitor_scan_logs
+     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED', 'DENIED')
+       AND DATE(scanned_at) = CURDATE()`
+  );
   const [[pendingRow]] = await db.query(
     `SELECT COUNT(*) AS total
      FROM auto_scan_queue
      WHERE status = 'PENDING'`
+  );
+  const [[visitorPendingRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM visitor_passes
+     WHERE approval_status = 'PENDING'
+       AND pass_state <> 'EXPIRED'`
   );
   const [[fullZoneRow]] = await db.query(
     `SELECT COUNT(*) AS total
@@ -1047,13 +1120,22 @@ async function getOperationalAlertMetrics(db = pool) {
        AND status = 'active'`,
     [ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR]
   );
+  const [[visitorOverstayRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM alerts
+     WHERE type = ?
+       AND status = 'active'`,
+    [ALERT_TYPES.VISITOR_OVERSTAY]
+  );
 
   return {
-    invalid_qr_today: Number(invalidTodayRow?.total || 0),
-    pending_approvals: Number(pendingRow?.total || 0),
+    invalid_qr_today: Number(invalidTodayRow?.total || 0) + Number(visitorInvalidTodayRow?.total || 0),
+    pending_approvals: Number(pendingRow?.total || 0) + Number(visitorPendingRow?.total || 0),
     full_parking_zones: Number(fullZoneRow?.total || 0),
     low_slot_warnings: Number(lowZoneRow?.total || 0),
-    suspicious_scans: Number(suspiciousRow?.total || 0)
+    suspicious_scans: Number(suspiciousRow?.total || 0),
+    visitor_overstay_alerts: Number(visitorOverstayRow?.total || 0),
+    visitor_pending_approvals: Number(visitorPendingRow?.total || 0)
   };
 }
 
@@ -1120,6 +1202,113 @@ async function createPendingApprovalAlert(db, pendingEntry, actorName = "system"
 async function resolvePendingApprovalAlert(db, pendingEntryId, resolvedBy = "system") {
   const resolvedRows = await resolvePendingEntryAlert(db, pendingEntryId, resolvedBy);
   return resolvedRows > 0;
+}
+
+async function createVisitorPendingApprovalAlert(db, visitorPass, actorName = "system") {
+  if (!visitorPass?.id) return null;
+  return createOrRefreshAlertWithDb(db, {
+    type: ALERT_TYPES.PENDING_ENTRY_APPROVAL,
+    title: `Visitor pass pending approval: ${visitorPass.visitor_name || "Unknown Visitor"}`,
+    message: `${visitorPass.visitor_name || "Visitor"} (${visitorPass.plate_number || "No plate"}) requested temporary parking access.`,
+    severity: ALERT_SEVERITIES.MEDIUM,
+    audienceRole: "staff",
+    relatedQrId: visitorPass.pass_code || visitorPass.qr_token || null,
+    relatedZoneId: visitorPass.assigned_zone || "Visitor Zone",
+    relatedVisitorPassId: visitorPass.id,
+    dedupeKey: `VISITOR_PENDING_APPROVAL:${visitorPass.id}`,
+    source: "visitor-pass",
+    metadata: {
+      visitor_pass_id: visitorPass.id,
+      visitor_type: visitorPass.visitor_type || "visitor",
+      visitor_name: visitorPass.visitor_name || null,
+      plate_number: visitorPass.plate_number || null,
+      requested_by: visitorPass.requested_by || actorName
+    }
+  });
+}
+
+async function resolveVisitorPendingApprovalAlert(db, visitorPassId, resolvedBy = "system") {
+  if (!Number.isInteger(Number(visitorPassId)) || Number(visitorPassId) <= 0) return 0;
+  return resolveAlertsByDedupeKey(db, `VISITOR_PENDING_APPROVAL:${Number(visitorPassId)}`, resolvedBy);
+}
+
+async function createVisitorAccessAlert(db, payload = {}) {
+  const reason = String(payload.reason || "Visitor pass access denied.").trim();
+  const resultCode = String(payload.result || "INVALID").toUpperCase();
+  const passCode = payload.passCode || payload.qrValue || "unknown-pass";
+  return createOrRefreshAlertWithDb(db, {
+    type: ALERT_TYPES.INVALID_QR_ATTEMPT,
+    title: `Visitor pass ${resultCode}: ${passCode}`,
+    message: reason,
+    severity: payload.severity || ALERT_SEVERITIES.MEDIUM,
+    audienceRole: "staff",
+    relatedQrId: payload.qrValue || null,
+    relatedVehicleId: null,
+    relatedVisitorPassId: payload.relatedVisitorPassId || null,
+    relatedGateId: payload.gate || null,
+    source: payload.source || "visitor-pass",
+    metadata: {
+      result: resultCode,
+      visitor_pass_id: payload.relatedVisitorPassId || null,
+      pass_code: payload.passCode || null,
+      gate: payload.gate || null,
+      actor: payload.actorName || null
+    }
+  });
+}
+
+async function evaluateVisitorOverstayAlerts(db = pool, actorName = "system") {
+  const [insideRows] = await db.query(
+    `SELECT
+       vp.id,
+       vp.pass_code,
+       vp.visitor_name,
+       vp.plate_number,
+       vp.assigned_zone,
+       vp.last_entry_at,
+       TIMESTAMPDIFF(MINUTE, vp.last_entry_at, NOW()) AS minutes_inside
+     FROM visitor_passes vp
+     WHERE vp.pass_state = 'INSIDE'
+       AND vp.last_entry_at IS NOT NULL`
+  );
+
+  const overstayIds = [];
+  for (const row of insideRows) {
+    const minutesInside = Math.max(0, Number(row.minutes_inside || 0));
+    if (minutesInside < VISITOR_OVERSTAY_MINUTES) {
+      await resolveAlertsByDedupeKey(db, `VISITOR_OVERSTAY:${row.id}`, actorName);
+      continue;
+    }
+
+    overstayIds.push(row.id);
+    const overstayMinutes = Math.max(0, minutesInside - VISITOR_OVERSTAY_MINUTES);
+    await createOrRefreshAlertWithDb(db, {
+      type: ALERT_TYPES.VISITOR_OVERSTAY,
+      title: `Visitor overstay: ${row.visitor_name || "Unknown Visitor"}`,
+      message: `${row.visitor_name || "Visitor"} has stayed ${formatDurationMinutes(minutesInside)} in ${row.assigned_zone || "Visitor Zone"} (${formatDurationMinutes(overstayMinutes)} beyond limit).`,
+      severity: overstayMinutes >= 120 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
+      audienceRole: "staff",
+      relatedQrId: row.pass_code || null,
+      relatedZoneId: row.assigned_zone || "Visitor Zone",
+      relatedVisitorPassId: row.id,
+      dedupeKey: `VISITOR_OVERSTAY:${row.id}`,
+      source: "visitor-pass",
+      metadata: {
+        visitor_pass_id: row.id,
+        visitor_name: row.visitor_name || null,
+        plate_number: row.plate_number || null,
+        minutes_inside: minutesInside,
+        overstay_minutes: overstayMinutes,
+        limit_minutes: VISITOR_OVERSTAY_MINUTES,
+        actor: actorName
+      }
+    });
+  }
+
+  return {
+    inside_count: insideRows.length,
+    overstay_count: overstayIds.length
+  };
 }
 
 async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
@@ -1683,6 +1872,290 @@ async function getVerificationState(token) {
   };
 }
 
+async function findVisitorPassByToken(token, db = pool) {
+  const safeToken = normalizeQrTokenInput(token);
+  if (!safeToken) return null;
+  const [rows] = await db.query(
+    `SELECT
+       vp.id,
+       vp.pass_code,
+       vp.qr_token,
+       vp.visitor_type,
+       vp.visitor_name,
+       vp.organization,
+       vp.contact_number,
+       vp.plate_number,
+       vp.vehicle_type,
+       vp.purpose,
+       vp.requested_by,
+       vp.approval_status,
+       vp.approved_by,
+       vp.approved_at,
+       vp.approval_note,
+       vp.pass_state,
+       vp.valid_from,
+       vp.valid_until,
+       vp.assigned_zone,
+       vp.assigned_slot_id,
+       vp.last_entry_at,
+       vp.last_exit_at,
+       vp.created_at,
+       vp.updated_at,
+       ps.slot_code AS current_slot
+     FROM visitor_passes vp
+     LEFT JOIN parking_slots ps
+       ON ps.current_visitor_pass_id = vp.id
+     WHERE vp.qr_token = ?
+        OR vp.pass_code = ?
+     ORDER BY vp.id DESC
+     LIMIT 1`,
+    [safeToken, safeToken]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function expireStaleVisitorPasses(db = pool, actorName = "system-expiry") {
+  const [expiringRows] = await db.query(
+    `SELECT id
+     FROM visitor_passes
+     WHERE pass_state IN ('PENDING', 'ACTIVE', 'INSIDE', 'EXITED')
+       AND valid_until < NOW()`
+  );
+  const expiredIds = expiringRows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (!expiredIds.length) return [];
+
+  const placeholders = expiredIds.map(() => "?").join(", ");
+  await db.query(
+    `UPDATE visitor_passes
+     SET
+       pass_state = 'EXPIRED',
+       assigned_slot_id = NULL,
+       updated_at = NOW()
+     WHERE id IN (${placeholders})`,
+    expiredIds
+  );
+  await db.query(
+    `UPDATE parking_slots
+     SET current_visitor_pass_id = NULL
+     WHERE current_visitor_pass_id IN (${placeholders})`,
+    expiredIds
+  );
+
+  for (const visitorPassId of expiredIds) {
+    await resolveAlertsByDedupeKey(db, `VISITOR_PENDING_APPROVAL:${visitorPassId}`, actorName);
+  }
+  return expiredIds;
+}
+
+async function getVisitorPassVerificationState(token, db = pool) {
+  const safeToken = normalizeQrTokenInput(token);
+  if (!safeToken) {
+    return {
+      ok: false,
+      result: "INVALID",
+      message: "Visitor pass token is required.",
+      visitor_pass: null
+    };
+  }
+
+  await expireStaleVisitorPasses(db, "visitor-verification");
+  const pass = await findVisitorPassByToken(safeToken, db);
+  if (!pass) {
+    return {
+      ok: false,
+      result: "INVALID",
+      message: "Visitor pass not found.",
+      visitor_pass: null
+    };
+  }
+
+  if (pass.approval_status === VISITOR_APPROVAL_STATUS.PENDING) {
+    return {
+      ok: false,
+      result: "INVALID",
+      message: "Visitor pass is pending approval.",
+      visitor_pass: pass
+    };
+  }
+
+  if ([VISITOR_APPROVAL_STATUS.REJECTED, VISITOR_APPROVAL_STATUS.CANCELLED].includes(pass.approval_status)) {
+    return {
+      ok: false,
+      result: "REVOKED",
+      message: "Visitor pass access is denied.",
+      visitor_pass: pass
+    };
+  }
+
+  if (pass.pass_state === VISITOR_PASS_STATE.EXPIRED || (pass.valid_until && new Date(pass.valid_until).getTime() < Date.now())) {
+    return {
+      ok: false,
+      result: "EXPIRED",
+      message: "Visitor pass has expired.",
+      visitor_pass: pass
+    };
+  }
+
+  if (![VISITOR_PASS_STATE.ACTIVE, VISITOR_PASS_STATE.INSIDE, VISITOR_PASS_STATE.EXITED].includes(pass.pass_state)) {
+    return {
+      ok: false,
+      result: "REVOKED",
+      message: "Visitor pass is not active.",
+      visitor_pass: pass
+    };
+  }
+
+  return {
+    ok: true,
+    result: "VALID",
+    message: "Visitor pass verified.",
+    visitor_pass: pass
+  };
+}
+
+async function getCurrentParkingSlotByVisitorPass(visitorPassId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT id, slot_code, zone
+     FROM parking_slots
+     WHERE current_visitor_pass_id = ?
+     LIMIT 1`,
+    [visitorPassId]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function getLastVisitorMovement(visitorPassId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT id, action, scanned_at, slot_id
+     FROM visitor_scan_logs
+     WHERE visitor_pass_id = ?
+       AND result = 'VALID'
+       AND action IN ('ENTRY', 'EXIT')
+     ORDER BY scanned_at DESC, id DESC
+     LIMIT 1`,
+    [visitorPassId]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function insertVisitorScanLogWithDb(db, visitorPassId, result, action, gate, reason, options = {}) {
+  const [insertResult] = await db.query(
+    `INSERT INTO visitor_scan_logs (
+       visitor_pass_id,
+       result,
+       action,
+       gate,
+       gate_id,
+       slot_id,
+       qr_value,
+       assigned_by_guard,
+       scan_source,
+       snapshot_path,
+       status,
+       reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      visitorPassId,
+      String(result || "INVALID").toUpperCase(),
+      String(action || "VERIFY").toUpperCase(),
+      gate || null,
+      options.gateId || gate || null,
+      options.slotId || null,
+      options.qrValue || null,
+      options.assignedByGuard || null,
+      options.scanSource || "manual",
+      options.snapshotPath || null,
+      options.status || normalizeScanStatus(result),
+      reason || null
+    ]
+  );
+  const [rows] = await db.query(
+    "SELECT id, scanned_at, slot_id, status FROM visitor_scan_logs WHERE id = ? LIMIT 1",
+    [insertResult.insertId]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function insertVisitorScanLog(visitorPassId, result, action, gate, reason, options = {}) {
+  return insertVisitorScanLogWithDb(pool, visitorPassId, result, action, gate, reason, options);
+}
+
+async function assignVisitorParkingSlot(db, visitorPassId, slotId) {
+  const [slotRows] = await db.query(
+    `SELECT id, slot_code, zone, status, current_sticker_id, current_visitor_pass_id
+     FROM parking_slots
+     WHERE id = ?
+     FOR UPDATE`,
+    [slotId]
+  );
+
+  if (slotRows.length === 0) {
+    throw new Error("Selected parking slot does not exist.");
+  }
+
+  const slot = slotRows[0];
+  if (!isVisitorZone(slot.zone)) {
+    throw new Error("Visitor vehicles can only be assigned to Visitor Zone slots.");
+  }
+  if (slot.status !== "available") {
+    throw new Error("Selected visitor parking slot is disabled.");
+  }
+  if (slot.current_sticker_id || slot.current_visitor_pass_id) {
+    throw new Error("Selected visitor parking slot is already occupied.");
+  }
+
+  await db.query(
+    `UPDATE parking_slots
+     SET current_visitor_pass_id = NULL
+     WHERE current_visitor_pass_id = ?`,
+    [visitorPassId]
+  );
+  await db.query(
+    `UPDATE parking_slots
+     SET current_visitor_pass_id = ?
+     WHERE id = ?`,
+    [visitorPassId, slotId]
+  );
+  await db.query(
+    `UPDATE visitor_passes
+     SET
+       assigned_slot_id = ?,
+       assigned_zone = ?,
+       updated_at = NOW()
+     WHERE id = ?`,
+    [slot.id, slot.zone || "Visitor Zone", visitorPassId]
+  );
+  return { id: slot.id, slot_code: slot.slot_code, zone: slot.zone };
+}
+
+async function releaseVisitorParkingSlot(db, visitorPassId) {
+  const [rows] = await db.query(
+    `SELECT id, slot_code, zone
+     FROM parking_slots
+     WHERE current_visitor_pass_id = ?
+     FOR UPDATE`,
+    [visitorPassId]
+  );
+  const slot = rows.length > 0 ? rows[0] : null;
+  if (slot) {
+    await db.query(
+      `UPDATE parking_slots
+       SET current_visitor_pass_id = NULL
+       WHERE id = ?`,
+      [slot.id]
+    );
+  }
+  await db.query(
+    `UPDATE visitor_passes
+     SET
+       assigned_slot_id = NULL,
+       updated_at = NOW()
+     WHERE id = ?`,
+    [visitorPassId]
+  );
+  return slot;
+}
+
 async function getInsideVehiclesWithOverstay(db = pool, limit = 20) {
   const [rows] = await db.query(
     `SELECT
@@ -1789,9 +2262,240 @@ async function getRecentMovementLogs(db = pool, limit = 80) {
   return rows;
 }
 
+function buildVisitorFilterState(query = {}) {
+  return {
+    q: String(query.q || "").trim(),
+    approval_status: String(query.approval_status || "all").trim().toUpperCase(),
+    pass_state: String(query.pass_state || "all").trim().toUpperCase(),
+    type: String(query.type || "all").trim().toLowerCase(),
+    from: toDateOnly(query.from),
+    to: toDateOnly(query.to),
+    limit: Math.max(10, Math.min(250, Number(query.limit) || 80))
+  };
+}
+
+async function getVisitorSummaryMetrics(db = pool) {
+  const [[row]] = await db.query(
+    `SELECT
+       SUM(CASE WHEN approval_status = 'APPROVED' AND pass_state IN ('ACTIVE', 'INSIDE', 'EXITED') THEN 1 ELSE 0 END) AS active_passes,
+       SUM(CASE WHEN approval_status = 'PENDING' AND pass_state <> 'EXPIRED' THEN 1 ELSE 0 END) AS pending_approvals,
+       SUM(CASE WHEN pass_state = 'EXPIRED' THEN 1 ELSE 0 END) AS expired_passes,
+       SUM(CASE WHEN pass_state = 'INSIDE' THEN 1 ELSE 0 END) AS current_inside
+     FROM visitor_passes`
+  );
+  return {
+    active_passes: Number(row?.active_passes || 0),
+    pending_approvals: Number(row?.pending_approvals || 0),
+    expired_passes: Number(row?.expired_passes || 0),
+    current_inside: Number(row?.current_inside || 0)
+  };
+}
+
+async function getPendingVisitorPasses(db = pool, limit = 50) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const [rows] = await db.query(
+    `SELECT
+       id,
+       pass_code,
+       visitor_type,
+       visitor_name,
+       organization,
+       contact_number,
+       plate_number,
+       vehicle_type,
+       purpose,
+       requested_by,
+       approval_status,
+       pass_state,
+       valid_from,
+       valid_until,
+       created_at
+     FROM visitor_passes
+     WHERE approval_status = 'PENDING'
+       AND pass_state <> 'EXPIRED'
+     ORDER BY created_at DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows;
+}
+
+async function listVisitorPasses(filters = {}, db = pool) {
+  const safeFilters = buildVisitorFilterState(filters);
+  const where = [];
+  const params = [];
+  if (safeFilters.q) {
+    const like = `%${safeFilters.q}%`;
+    where.push("(vp.pass_code LIKE ? OR vp.visitor_name LIKE ? OR vp.plate_number LIKE ? OR vp.organization LIKE ? OR vp.purpose LIKE ?)");
+    params.push(like, like, like, like, like);
+  }
+  if (safeFilters.approval_status && safeFilters.approval_status !== "ALL") {
+    where.push("vp.approval_status = ?");
+    params.push(safeFilters.approval_status);
+  }
+  if (safeFilters.pass_state && safeFilters.pass_state !== "ALL") {
+    where.push("vp.pass_state = ?");
+    params.push(safeFilters.pass_state);
+  }
+  if (safeFilters.type && safeFilters.type !== "all") {
+    where.push("vp.visitor_type = ?");
+    params.push(safeFilters.type);
+  }
+  if (safeFilters.from) {
+    where.push("DATE(vp.created_at) >= ?");
+    params.push(safeFilters.from);
+  }
+  if (safeFilters.to) {
+    where.push("DATE(vp.created_at) <= ?");
+    params.push(safeFilters.to);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [rows] = await db.query(
+    `SELECT
+       vp.id,
+       vp.pass_code,
+       vp.qr_token,
+       vp.visitor_type,
+       vp.visitor_name,
+       vp.organization,
+       vp.contact_number,
+       vp.plate_number,
+       vp.vehicle_type,
+       vp.purpose,
+       vp.requested_by,
+       vp.approval_status,
+       vp.approved_by,
+       vp.approved_at,
+       vp.approval_note,
+       vp.pass_state,
+       vp.valid_from,
+       vp.valid_until,
+       vp.assigned_zone,
+       vp.assigned_slot_id,
+       vp.last_entry_at,
+       vp.last_exit_at,
+       vp.created_at,
+       vp.updated_at,
+       ps.slot_code AS current_slot
+     FROM visitor_passes vp
+     LEFT JOIN parking_slots ps ON ps.current_visitor_pass_id = vp.id
+     ${whereSql}
+     ORDER BY vp.created_at DESC
+     LIMIT ?`,
+    [...params, safeFilters.limit]
+  );
+  return rows;
+}
+
+async function listVisitorScanLogs(filters = {}, db = pool) {
+  const safeFilters = buildVisitorFilterState(filters);
+  const where = [];
+  const params = [];
+
+  if (safeFilters.q) {
+    const like = `%${safeFilters.q}%`;
+    where.push("(vp.pass_code LIKE ? OR vp.visitor_name LIKE ? OR vp.plate_number LIKE ? OR vsl.gate LIKE ? OR vsl.reason LIKE ?)");
+    params.push(like, like, like, like, like);
+  }
+  if (safeFilters.from) {
+    where.push("DATE(vsl.scanned_at) >= ?");
+    params.push(safeFilters.from);
+  }
+  if (safeFilters.to) {
+    where.push("DATE(vsl.scanned_at) <= ?");
+    params.push(safeFilters.to);
+  }
+  if (safeFilters.type && safeFilters.type !== "all") {
+    where.push("vp.visitor_type = ?");
+    params.push(safeFilters.type);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const [rows] = await db.query(
+    `SELECT
+       vsl.id,
+       vsl.scanned_at,
+       vsl.result,
+       vsl.action,
+       vsl.gate,
+       vsl.gate_id,
+       vsl.qr_value,
+       vsl.scan_source,
+       vsl.status,
+       vsl.reason,
+       vp.id AS visitor_pass_id,
+       vp.pass_code,
+       vp.visitor_name,
+       vp.visitor_type,
+       vp.plate_number,
+       vp.approval_status,
+       vp.pass_state,
+       ps.slot_code AS parking_slot
+     FROM visitor_scan_logs vsl
+     JOIN visitor_passes vp ON vp.id = vsl.visitor_pass_id
+     LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
+     ${whereSql}
+     ORDER BY vsl.scanned_at DESC, vsl.id DESC
+     LIMIT ?`,
+    [...params, safeFilters.limit]
+  );
+  return rows;
+}
+
+async function getCurrentVisitorInsideRows(db = pool, limit = 40) {
+  const safeLimit = Math.max(1, Math.min(120, Number(limit) || 40));
+  const [rows] = await db.query(
+    `SELECT
+       vp.id,
+       vp.pass_code,
+       vp.visitor_name,
+       vp.visitor_type,
+       vp.plate_number,
+       vp.assigned_zone,
+       vp.last_entry_at,
+       vp.valid_until,
+       ps.slot_code AS parking_slot,
+       TIMESTAMPDIFF(MINUTE, vp.last_entry_at, NOW()) AS minutes_inside
+     FROM visitor_passes vp
+     LEFT JOIN parking_slots ps ON ps.current_visitor_pass_id = vp.id
+     WHERE vp.pass_state = 'INSIDE'
+     ORDER BY vp.last_entry_at DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows.map((row) => ({
+    ...row,
+    minutes_inside: Math.max(0, Number(row.minutes_inside || 0)),
+    duration_label: formatDurationMinutes(Math.max(0, Number(row.minutes_inside || 0))),
+    is_overstay: Math.max(0, Number(row.minutes_inside || 0)) > VISITOR_OVERSTAY_MINUTES
+  }));
+}
+
+async function getVisitorModuleData(filters = {}, db = pool) {
+  await expireStaleVisitorPasses(db, "visitor-module");
+  await evaluateVisitorOverstayAlerts(db, "visitor-module");
+  const summary = await getVisitorSummaryMetrics(db);
+  const pendingApprovals = await getPendingVisitorPasses(db, 50);
+  const passes = await listVisitorPasses(filters, db);
+  const logs = await listVisitorScanLogs(filters, db);
+  const currentInside = await getCurrentVisitorInsideRows(db, 50);
+  return {
+    summary,
+    pendingApprovals,
+    passes,
+    logs,
+    currentInside,
+    filters: buildVisitorFilterState(filters)
+  };
+}
+
 async function getDashboardData() {
   await evaluateZoneCapacityAlerts(pool, "admin-dashboard");
+  await evaluateVisitorOverstayAlerts(pool, "admin-dashboard");
+  await expireStaleVisitorPasses(pool, "admin-dashboard");
   const alertMetrics = await getOperationalAlertMetrics(pool);
+  const visitorMetrics = await getVisitorSummaryMetrics(pool);
   const [[studentsCount]] = await pool.query("SELECT COUNT(*) AS total FROM students");
   const [[vehiclesCount]] = await pool.query("SELECT COUNT(*) AS total FROM vehicles");
   const [[stickersCount]] = await pool.query(
@@ -1849,6 +2553,10 @@ async function getDashboardData() {
       lowSlotWarnings: alertMetrics.low_slot_warnings,
       pendingApprovals: alertMetrics.pending_approvals,
       suspiciousScans: alertMetrics.suspicious_scans,
+      visitorActivePasses: visitorMetrics.active_passes,
+      visitorPendingApprovals: visitorMetrics.pending_approvals,
+      visitorExpiredPasses: visitorMetrics.expired_passes,
+      visitorCurrentlyInside: visitorMetrics.current_inside,
       overstayLimitHours: OVERSTAY_LIMIT_HOURS
     },
     movementLogs,
@@ -1946,7 +2654,10 @@ async function getReportsData(filters) {
 
 async function getGuardDashboardData() {
   await evaluateZoneCapacityAlerts(pool, "guard-dashboard");
+  await evaluateVisitorOverstayAlerts(pool, "guard-dashboard");
+  await expireStaleVisitorPasses(pool, "guard-dashboard");
   const alertMetrics = await getOperationalAlertMetrics(pool);
+  const visitorMetrics = await getVisitorSummaryMetrics(pool);
   const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
   const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
   const parkingSlotOverview = await getParkingSlotOverview();
@@ -1979,22 +2690,20 @@ async function getGuardDashboardData() {
 
   const [visitorLogs] = await pool.query(
     `SELECT
-       sl.scanned_at,
-       sl.action,
-       sl.result,
-       sl.gate,
+       vsl.scanned_at,
+       vsl.action,
+       vsl.result,
+       vsl.gate,
+       vsl.gate_id,
        ps.slot_code AS parking_slot,
-       st.full_name,
-       st.student_number,
-       v.plate_number
-     FROM scan_logs sl
-     LEFT JOIN stickers s ON s.id = sl.sticker_id
-     LEFT JOIN vehicles v ON v.id = s.vehicle_id
-     LEFT JOIN students st ON st.id = v.student_id
-     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
-     WHERE sl.result = 'VALID'
-       AND sl.action IN ('ENTRY', 'EXIT')
-     ORDER BY sl.scanned_at DESC
+       vp.pass_code,
+       vp.visitor_name,
+       vp.visitor_type,
+       vp.plate_number
+     FROM visitor_scan_logs vsl
+     JOIN visitor_passes vp ON vp.id = vsl.visitor_pass_id
+     LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
+     ORDER BY vsl.scanned_at DESC, vsl.id DESC
      LIMIT 40`
   );
 
@@ -2008,7 +2717,11 @@ async function getGuardDashboardData() {
       invalidScans: Number(alertMetrics.invalid_qr_today || invalidScans?.total || 0),
       fullParkingZones: Number(alertMetrics.full_parking_zones || 0),
       lowSlotWarnings: Number(alertMetrics.low_slot_warnings || 0),
-      suspiciousScans: Number(alertMetrics.suspicious_scans || 0)
+      suspiciousScans: Number(alertMetrics.suspicious_scans || 0),
+      visitorActivePasses: visitorMetrics.active_passes,
+      visitorPendingApprovals: visitorMetrics.pending_approvals,
+      visitorExpiredPasses: visitorMetrics.expired_passes,
+      visitorCurrentlyInside: visitorMetrics.current_inside
     },
     insideVehicles,
     overstayAlerts,
@@ -2018,18 +2731,34 @@ async function getGuardDashboardData() {
   };
 }
 
-async function getAvailableParkingSlots(db = pool) {
+async function getAvailableParkingSlots(db = pool, options = {}) {
+  const scope = String(options.scope || "all").toLowerCase();
+  const where = [
+    "status = 'available'",
+    "current_sticker_id IS NULL",
+    "current_visitor_pass_id IS NULL"
+  ];
+  const params = [];
+  if (scope === "visitor") {
+    where.push("zone LIKE 'Visitor%'");
+  }
+
   const [rows] = await db.query(
     `SELECT id, slot_code, zone
      FROM parking_slots
-     WHERE status = 'available'
-       AND current_sticker_id IS NULL
-     ORDER BY zone ASC, slot_code ASC`
+     WHERE ${where.join(" AND ")}
+     ORDER BY zone ASC, slot_code ASC`,
+    params
   );
   return rows;
 }
 
-async function getParkingSlotOverview(db = pool) {
+async function getParkingSlotOverview(db = pool, options = {}) {
+  const scope = String(options.scope || "all").toLowerCase();
+  const whereSql = scope === "visitor"
+    ? "WHERE ps.zone LIKE 'Visitor%'"
+    : "";
+
   const [rows] = await db.query(
     `SELECT
        ps.id,
@@ -2037,19 +2766,25 @@ async function getParkingSlotOverview(db = pool) {
        ps.zone,
        ps.status,
        ps.current_sticker_id,
+       ps.current_visitor_pass_id,
        st.full_name AS occupied_by_name,
-       v.plate_number AS occupied_by_plate
+       v.plate_number AS occupied_by_plate,
+       vp.visitor_name AS occupied_by_visitor_name,
+       vp.plate_number AS occupied_by_visitor_plate,
+       vp.pass_code AS occupied_by_visitor_pass_code
      FROM parking_slots ps
      LEFT JOIN stickers s ON s.id = ps.current_sticker_id
      LEFT JOIN vehicles v ON v.id = s.vehicle_id
      LEFT JOIN students st ON st.id = v.student_id
+     LEFT JOIN visitor_passes vp ON vp.id = ps.current_visitor_pass_id
+     ${whereSql}
      ORDER BY ps.zone ASC, ps.slot_code ASC`
   );
 
   const slots = rows.map((row) => {
     const occupancy = row.status !== "available"
       ? "disabled"
-      : row.current_sticker_id
+      : row.current_sticker_id || row.current_visitor_pass_id
       ? "occupied"
       : "available";
     return {
@@ -2059,8 +2794,10 @@ async function getParkingSlotOverview(db = pool) {
       status: row.status,
       occupancy,
       is_selectable: occupancy === "available",
-      occupied_by_name: row.occupied_by_name || null,
-      occupied_by_plate: row.occupied_by_plate || null
+      occupied_by_name: row.occupied_by_name || row.occupied_by_visitor_name || null,
+      occupied_by_plate: row.occupied_by_plate || row.occupied_by_visitor_plate || null,
+      occupied_by_type: row.current_sticker_id ? "student" : row.current_visitor_pass_id ? "visitor" : null,
+      occupied_by_visitor_pass_code: row.occupied_by_visitor_pass_code || null
     };
   });
 
@@ -2091,7 +2828,7 @@ async function getCurrentParkingSlotBySticker(stickerId, db = pool) {
 
 async function assignParkingSlot(db, stickerId, slotId) {
   const [slotRows] = await db.query(
-    `SELECT id, slot_code, zone, status, current_sticker_id
+    `SELECT id, slot_code, zone, status, current_sticker_id, current_visitor_pass_id
      FROM parking_slots
      WHERE id = ?
      FOR UPDATE`,
@@ -2103,11 +2840,11 @@ async function assignParkingSlot(db, stickerId, slotId) {
   }
 
   const slot = slotRows[0];
-  if (slot.status !== "available" || slot.current_sticker_id) {
+  if (slot.status !== "available" || slot.current_sticker_id || slot.current_visitor_pass_id) {
     const [[zoneState]] = await db.query(
       `SELECT
          COUNT(*) AS total_slots,
-         SUM(CASE WHEN status = 'available' AND current_sticker_id IS NULL THEN 1 ELSE 0 END) AS available_slots
+         SUM(CASE WHEN status = 'available' AND current_sticker_id IS NULL AND current_visitor_pass_id IS NULL THEN 1 ELSE 0 END) AS available_slots
        FROM parking_slots
        WHERE zone = ?`,
       [slot.zone || "General"]
@@ -2121,6 +2858,9 @@ async function assignParkingSlot(db, stickerId, slotId) {
     }
     if (slot.current_sticker_id) {
       throw new Error("Selected parking slot is already occupied.");
+    }
+    if (slot.current_visitor_pass_id) {
+      throw new Error("Selected parking slot is occupied by a visitor pass.");
     }
   }
 
@@ -2745,6 +3485,331 @@ app.post("/admin/users/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, r
   } catch (error) {
     console.error("Delete user error:", error);
     return res.redirect("/admin/users?error=invalid");
+  }
+});
+
+app.get("/visitor-passes", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const data = await getVisitorModuleData(req.query, pool);
+    const flash = req.query.success
+      ? { type: "success", message: "Visitor pass request submitted." }
+      : req.query.approved
+        ? { type: "success", message: "Visitor pass approved successfully." }
+        : req.query.rejected
+          ? { type: "success", message: "Visitor pass rejected." }
+          : req.query.cancelled
+            ? { type: "success", message: "Visitor pass request cancelled." }
+            : req.query.error === "invalid"
+              ? { type: "error", message: "Invalid visitor pass details provided." }
+              : req.query.error === "notfound"
+                ? { type: "error", message: "Visitor pass not found." }
+                : req.query.error === "state"
+                  ? { type: "error", message: "This pass cannot be updated in its current state." }
+                  : req.query.error === "save"
+                    ? { type: "error", message: "Unable to save visitor pass request." }
+                    : null;
+    return res.render("visitor_passes", {
+      ...data,
+      flash,
+      visitorOverstayLimitLabel: formatHoursLabel(VISITOR_OVERSTAY_HOURS)
+    });
+  } catch (error) {
+    console.error("Visitor passes page error:", error);
+    return res.status(500).send("An error occurred loading visitor passes.");
+  }
+});
+
+app.post("/visitor-passes/register", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const visitorName = String(req.body.visitor_name || "").trim();
+  const visitorType = normalizeVisitorType(req.body.visitor_type);
+  const organization = String(req.body.organization || "").trim();
+  const contactNumber = String(req.body.contact_number || "").trim();
+  const plateNumber = String(req.body.plate_number || "").trim().toUpperCase();
+  const vehicleType = String(req.body.vehicle_type || "").trim();
+  const purpose = String(req.body.purpose || "").trim();
+  const assignedZone = String(req.body.assigned_zone || "Visitor Zone").trim() || "Visitor Zone";
+  const validFrom = parseDateTimeInput(req.body.valid_from);
+  const validUntil = parseDateTimeInput(req.body.valid_until);
+
+  if (!visitorName || !validFrom || !validUntil || validUntil <= validFrom) {
+    return res.redirect("/visitor-passes?error=invalid");
+  }
+
+  try {
+    let passCode = "";
+    for (let i = 0; i < 6; i += 1) {
+      const candidate = createVisitorPassCode();
+      const [rows] = await pool.query("SELECT id FROM visitor_passes WHERE pass_code = ? LIMIT 1", [candidate]);
+      if (!rows.length) {
+        passCode = candidate;
+        break;
+      }
+    }
+    if (!passCode) {
+      throw new Error("Unable to generate unique visitor pass code.");
+    }
+    const qrToken = createQrToken();
+    const requestedBy = getAuthActorName(req);
+
+    const [insertResult] = await pool.query(
+      `INSERT INTO visitor_passes (
+         pass_code,
+         qr_token,
+         visitor_type,
+         visitor_name,
+         organization,
+         contact_number,
+         plate_number,
+         vehicle_type,
+         purpose,
+         requested_by,
+         approval_status,
+         pass_state,
+         valid_from,
+         valid_until,
+         assigned_zone
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 'PENDING', ?, ?, ?)`,
+      [
+        passCode,
+        qrToken,
+        visitorType,
+        visitorName,
+        organization || null,
+        contactNumber || null,
+        plateNumber || null,
+        vehicleType || null,
+        purpose || null,
+        requestedBy,
+        validFrom,
+        validUntil,
+        assignedZone
+      ]
+    );
+
+    const [rows] = await pool.query("SELECT * FROM visitor_passes WHERE id = ? LIMIT 1", [insertResult.insertId]);
+    const visitorPass = rows.length ? rows[0] : null;
+    if (visitorPass) {
+      await createVisitorPendingApprovalAlert(pool, visitorPass, requestedBy);
+      broadcastNotificationsUpdated("visitor-pass-pending", {
+        visitor_pass_id: visitorPass.id,
+        pass_code: visitorPass.pass_code
+      });
+    }
+    return res.redirect("/visitor-passes?success=1");
+  } catch (error) {
+    console.error("Visitor pass register error:", error);
+    return res.redirect("/visitor-passes?error=save");
+  }
+});
+
+app.post("/visitor-passes/:id/approve", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const visitorPassId = Number(req.params.id);
+  if (!Number.isInteger(visitorPassId) || visitorPassId <= 0) {
+    return res.redirect("/visitor-passes?error=invalid");
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await expireStaleVisitorPasses(connection, getAuthActorName(req) || "visitor-approve");
+
+    const [rows] = await connection.query(
+      "SELECT id, approval_status, pass_state, valid_until FROM visitor_passes WHERE id = ? FOR UPDATE",
+      [visitorPassId]
+    );
+    if (!rows.length) {
+      await connection.rollback();
+      return res.redirect("/visitor-passes?error=notfound");
+    }
+
+    const visitorPass = rows[0];
+    if (![VISITOR_APPROVAL_STATUS.PENDING, VISITOR_APPROVAL_STATUS.APPROVED].includes(visitorPass.approval_status)) {
+      await connection.rollback();
+      return res.redirect("/visitor-passes?error=state");
+    }
+
+    const isExpired = visitorPass.valid_until && new Date(visitorPass.valid_until).getTime() < Date.now();
+    await connection.query(
+      `UPDATE visitor_passes
+       SET
+         approval_status = 'APPROVED',
+         approved_by = ?,
+         approved_at = NOW(),
+         pass_state = ?,
+         updated_at = NOW()
+       WHERE id = ?`,
+      [getAuthActorName(req), isExpired ? VISITOR_PASS_STATE.EXPIRED : VISITOR_PASS_STATE.ACTIVE, visitorPassId]
+    );
+    await resolveVisitorPendingApprovalAlert(connection, visitorPassId, getAuthActorName(req));
+    await connection.commit();
+
+    broadcastNotificationsUpdated("visitor-pass-approved", {
+      visitor_pass_id: visitorPassId
+    });
+    return res.redirect("/visitor-passes?approved=1");
+  } catch (error) {
+    await connection.rollback();
+    console.error("Visitor pass approve error:", error);
+    return res.redirect("/visitor-passes?error=save");
+  } finally {
+    connection.release();
+  }
+});
+
+app.post("/visitor-passes/:id/reject", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const visitorPassId = Number(req.params.id);
+  const approvalNote = String(req.body.approval_note || req.body.reason || "").trim();
+  if (!Number.isInteger(visitorPassId) || visitorPassId <= 0) {
+    return res.redirect("/visitor-passes?error=invalid");
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      "SELECT id, approval_status, pass_state FROM visitor_passes WHERE id = ? FOR UPDATE",
+      [visitorPassId]
+    );
+    if (!rows.length) {
+      await connection.rollback();
+      return res.redirect("/visitor-passes?error=notfound");
+    }
+
+    await connection.query(
+      `UPDATE visitor_passes
+       SET
+         approval_status = 'REJECTED',
+         pass_state = 'REVOKED',
+         approval_note = ?,
+         approved_by = ?,
+         approved_at = NOW(),
+         assigned_slot_id = NULL,
+         updated_at = NOW()
+       WHERE id = ?`,
+      [approvalNote || "Rejected by staff.", getAuthActorName(req), visitorPassId]
+    );
+    await connection.query(
+      "UPDATE parking_slots SET current_visitor_pass_id = NULL WHERE current_visitor_pass_id = ?",
+      [visitorPassId]
+    );
+    await resolveVisitorPendingApprovalAlert(connection, visitorPassId, getAuthActorName(req));
+    await connection.commit();
+
+    broadcastNotificationsUpdated("visitor-pass-rejected", {
+      visitor_pass_id: visitorPassId
+    });
+    return res.redirect("/visitor-passes?rejected=1");
+  } catch (error) {
+    await connection.rollback();
+    console.error("Visitor pass reject error:", error);
+    return res.redirect("/visitor-passes?error=save");
+  } finally {
+    connection.release();
+  }
+});
+
+app.post("/visitor-passes/:id/cancel", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const visitorPassId = Number(req.params.id);
+  if (!Number.isInteger(visitorPassId) || visitorPassId <= 0) {
+    return res.redirect("/visitor-passes?error=invalid");
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      "SELECT id FROM visitor_passes WHERE id = ? FOR UPDATE",
+      [visitorPassId]
+    );
+    if (!rows.length) {
+      await connection.rollback();
+      return res.redirect("/visitor-passes?error=notfound");
+    }
+
+    await connection.query(
+      `UPDATE visitor_passes
+       SET
+         approval_status = 'CANCELLED',
+         pass_state = 'REVOKED',
+         assigned_slot_id = NULL,
+         updated_at = NOW()
+       WHERE id = ?`,
+      [visitorPassId]
+    );
+    await connection.query(
+      "UPDATE parking_slots SET current_visitor_pass_id = NULL WHERE current_visitor_pass_id = ?",
+      [visitorPassId]
+    );
+    await resolveVisitorPendingApprovalAlert(connection, visitorPassId, getAuthActorName(req));
+    await connection.commit();
+    broadcastNotificationsUpdated("visitor-pass-cancelled", {
+      visitor_pass_id: visitorPassId
+    });
+    return res.redirect("/visitor-passes?cancelled=1");
+  } catch (error) {
+    await connection.rollback();
+    console.error("Visitor pass cancel error:", error);
+    return res.redirect("/visitor-passes?error=save");
+  } finally {
+    connection.release();
+  }
+});
+
+app.get("/visitor-passes/:id/qr", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, qr_token, pass_code, approval_status, pass_state FROM visitor_passes WHERE id = ? LIMIT 1",
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).send("Visitor pass not found.");
+
+    const qrPayload = `${APP_BASE_URL}/verify/visitor/${rows[0].qr_token}`;
+    const png = await QRCode.toBuffer(qrPayload, { type: "png", width: 600 });
+    res.type("png");
+    return res.send(png);
+  } catch (error) {
+    console.error("Visitor QR generation error:", error);
+    return res.status(500).send("Unable to generate visitor pass QR.");
+  }
+});
+
+app.get("/api/visitor-passes/summary", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    await expireStaleVisitorPasses(pool, getAuthActorName(req) || "visitor-summary");
+    const summary = await getVisitorSummaryMetrics(pool);
+    const currentInside = await getCurrentVisitorInsideRows(pool, 50);
+    const overstayRows = currentInside.filter((row) => row.is_overstay);
+    return res.json({
+      ok: true,
+      summary,
+      current_inside_rows: currentInside,
+      overstay_rows: overstayRows,
+      visitor_overstay_limit_hours: VISITOR_OVERSTAY_HOURS
+    });
+  } catch (error) {
+    console.error("Visitor summary API error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to load visitor summary." });
+  }
+});
+
+app.get("/api/visitor-passes", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    await expireStaleVisitorPasses(pool, getAuthActorName(req) || "visitor-passes-api");
+    const rows = await listVisitorPasses(req.query, pool);
+    return res.json({ ok: true, rows });
+  } catch (error) {
+    console.error("Visitor passes API error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to load visitor passes.", rows: [] });
+  }
+});
+
+app.get("/api/visitor-logs", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const rows = await listVisitorScanLogs(req.query, pool);
+    return res.json({ ok: true, rows });
+  } catch (error) {
+    console.error("Visitor logs API error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to load visitor logs.", rows: [] });
   }
 });
 
@@ -4417,9 +5482,11 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), asy
   if (!q) return res.json({ ok: false, message: "No query provided.", results: [] });
 
   try {
+    await expireStaleVisitorPasses(pool, getAuthActorName(req) || "gate-lookup");
     const like = `%${q}%`;
-    const [results] = await pool.query(
+    const [studentResults] = await pool.query(
       `SELECT
+         'student' AS entity_type,
          v.id AS vehicle_id,
          v.plate_number,
          v.model,
@@ -4430,6 +5497,9 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), asy
          s.sticker_code,
          s.qr_token,
          s.expires_at,
+         NULL AS visitor_pass_id,
+         NULL AS visitor_type,
+         NULL AS approval_status,
          (
            SELECT sl2.action
            FROM scan_logs sl2
@@ -4457,10 +5527,64 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), asy
        WHERE v.plate_number LIKE ?
           OR st.student_number LIKE ?
           OR st.full_name LIKE ?
+          OR s.qr_token LIKE ?
+          OR s.sticker_code LIKE ?
        ORDER BY st.full_name ASC
        LIMIT 10`,
-      [like, like, like]
+      [like, like, like, like, like]
     );
+
+    const [visitorResults] = await pool.query(
+      `SELECT
+         'visitor' AS entity_type,
+         NULL AS vehicle_id,
+         vp.plate_number,
+         vp.vehicle_type AS model,
+         NULL AS color,
+         vp.visitor_name AS full_name,
+         vp.pass_code AS student_number,
+         CASE
+           WHEN vp.pass_state = 'EXPIRED' THEN 'expired'
+           WHEN vp.approval_status = 'PENDING' THEN 'pending'
+           WHEN vp.approval_status IN ('REJECTED', 'CANCELLED') THEN 'revoked'
+           WHEN vp.pass_state IN ('ACTIVE', 'INSIDE', 'EXITED') THEN 'active'
+           ELSE LOWER(vp.pass_state)
+         END AS sticker_status,
+         vp.pass_code AS sticker_code,
+         vp.qr_token,
+         vp.valid_until AS expires_at,
+         vp.id AS visitor_pass_id,
+         vp.visitor_type,
+         vp.approval_status,
+         (
+           SELECT vsl2.action
+           FROM visitor_scan_logs vsl2
+           WHERE vsl2.visitor_pass_id = vp.id
+             AND vsl2.result = 'VALID'
+             AND vsl2.action IN ('ENTRY', 'EXIT')
+           ORDER BY vsl2.scanned_at DESC, vsl2.id DESC
+           LIMIT 1
+         ) AS last_action,
+         (
+           SELECT ps.slot_code
+           FROM parking_slots ps
+           WHERE ps.current_visitor_pass_id = vp.id
+           LIMIT 1
+         ) AS current_slot
+       FROM visitor_passes vp
+       WHERE vp.visitor_name LIKE ?
+          OR vp.pass_code LIKE ?
+          OR vp.plate_number LIKE ?
+          OR vp.qr_token LIKE ?
+          OR vp.organization LIKE ?
+       ORDER BY vp.created_at DESC
+       LIMIT 10`,
+      [like, like, like, like, like]
+    );
+
+    const results = [...studentResults, ...visitorResults]
+      .sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || "")))
+      .slice(0, 14);
     res.json({ ok: true, results });
   } catch (error) {
     console.error("Gate lookup error:", error);
@@ -4470,7 +5594,8 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), asy
 
 app.get("/api/parking-slots", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
-    const slots = await getAvailableParkingSlots();
+    const scope = String(req.query.scope || "all").toLowerCase();
+    const slots = await getAvailableParkingSlots(pool, { scope });
     res.json({ ok: true, slots });
   } catch (error) {
     console.error("Parking slots API error:", error);
@@ -4480,7 +5605,8 @@ app.get("/api/parking-slots", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), a
 
 app.get("/api/parking-slot-overview", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
-    const overview = await getParkingSlotOverview();
+    const scope = String(req.query.scope || "all").toLowerCase();
+    const overview = await getParkingSlotOverview(pool, { scope });
     res.json({ ok: true, ...overview });
   } catch (error) {
     console.error("Parking slot overview API error:", error);
@@ -4493,12 +5619,15 @@ app.get("/api/parking-slot-overview", requireRole(USER_ROLES.ADMIN, USER_ROLES.G
   }
 });
 
-// API: manually record ENTRY or EXIT for a sticker (by qr_token)
+// API: manually record ENTRY or EXIT for student sticker or visitor pass token
 app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const { action, gate, slot_id } = req.body;
   const selectedAction = String(action || "").toUpperCase();
   const slotId = slot_id ? Number(slot_id) : null;
+  const entityType = String(req.body.entity_type || "student").trim().toLowerCase();
+  const actorName = getAuthActorName(req);
+  const gateName = gate || "Manual Gate";
 
   if (!token) return res.status(400).json({ ok: false, message: "Missing sticker token." });
   if (!["ENTRY", "EXIT"].includes(selectedAction)) {
@@ -4506,20 +5635,174 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
   }
 
   try {
+    if (entityType === "visitor") {
+      const verification = await getVisitorPassVerificationState(token, pool);
+      if (!verification.ok) {
+        const deniedLog = verification.visitor_pass?.id
+          ? await insertVisitorScanLog(
+              verification.visitor_pass.id,
+              verification.result || "INVALID",
+              "DENIED",
+              gateName,
+              verification.message || "Visitor movement denied.",
+              {
+                gateId: gateName,
+                qrValue: token,
+                assignedByGuard: actorName,
+                scanSource: "manual",
+                status: "DENIED"
+              }
+            )
+          : null;
+
+        await createVisitorAccessAlert(pool, {
+          result: verification.result || "INVALID",
+          reason: verification.message || "Visitor access denied.",
+          qrValue: token,
+          gate: gateName,
+          source: "manual",
+          actorName,
+          relatedVisitorPassId: verification.visitor_pass?.id || null,
+          passCode: verification.visitor_pass?.pass_code || null
+        });
+        broadcastNotificationsUpdated("visitor-manual-denied", {
+          gate_id: gateName,
+          qr_value: token,
+          result: verification.result || "INVALID",
+          visitor_scan_log_id: deniedLog?.id || null
+        });
+        return res.json({ ok: false, message: verification.message, movement_saved: false });
+      }
+
+      const visitorPass = verification.visitor_pass;
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.query("SELECT id FROM visitor_passes WHERE id = ? FOR UPDATE", [visitorPass.id]);
+
+        const lastMovement = await getLastVisitorMovement(visitorPass.id, connection);
+        if (lastMovement && lastMovement.action === selectedAction) {
+          await connection.rollback();
+          await createVisitorAccessAlert(pool, {
+            result: "INVALID",
+            reason: `Visitor ${selectedAction} denied: last movement is already ${selectedAction}.`,
+            qrValue: token,
+            gate: gateName,
+            source: "manual",
+            actorName,
+            relatedVisitorPassId: visitorPass.id,
+            passCode: visitorPass.pass_code
+          });
+          broadcastNotificationsUpdated("visitor-duplicate-movement-blocked", {
+            gate_id: gateName,
+            qr_value: token,
+            action: selectedAction,
+            visitor_pass_id: visitorPass.id
+          });
+          return res.json({
+            ok: false,
+            movement_saved: false,
+            duplicate_movement: true,
+            message: `Visitor's last recorded movement is already ${selectedAction}.`
+          });
+        }
+
+        let currentSlot = null;
+        if (selectedAction === "ENTRY") {
+          if (!slotId) {
+            await connection.rollback();
+            return res.status(400).json({ ok: false, message: "Please select a visitor parking slot before recording entry." });
+          }
+          currentSlot = await assignVisitorParkingSlot(connection, visitorPass.id, slotId);
+        } else {
+          currentSlot = await getCurrentParkingSlotByVisitorPass(visitorPass.id, connection);
+        }
+
+        const movementLog = await insertVisitorScanLogWithDb(
+          connection,
+          visitorPass.id,
+          "VALID",
+          selectedAction,
+          gateName,
+          "Visitor movement recorded via Gate Console",
+          {
+            gateId: gateName,
+            slotId: currentSlot?.id || null,
+            qrValue: token,
+            assignedByGuard: actorName,
+            scanSource: "manual",
+            status: "AUTHORIZED"
+          }
+        );
+
+        if (selectedAction === "ENTRY") {
+          await connection.query(
+            `UPDATE visitor_passes
+             SET
+               pass_state = 'INSIDE',
+               last_entry_at = NOW(),
+               assigned_slot_id = ?,
+               assigned_zone = ?,
+               updated_at = NOW()
+             WHERE id = ?`,
+            [currentSlot?.id || null, currentSlot?.zone || visitorPass.assigned_zone || "Visitor Zone", visitorPass.id]
+          );
+        } else {
+          await releaseVisitorParkingSlot(connection, visitorPass.id);
+          await connection.query(
+            `UPDATE visitor_passes
+             SET
+               pass_state = 'EXITED',
+               last_exit_at = NOW(),
+               updated_at = NOW()
+             WHERE id = ?`,
+            [visitorPass.id]
+          );
+        }
+
+        await connection.commit();
+        await evaluateZoneCapacityAlerts(pool, actorName || "manual-visitor-movement");
+        await evaluateVisitorOverstayAlerts(pool, actorName || "manual-visitor-movement");
+        broadcastNotificationsUpdated("visitor-movement-recorded", {
+          movement_action: selectedAction,
+          gate_id: gateName,
+          qr_value: token,
+          visitor_pass_id: visitorPass.id
+        });
+
+        return res.json({
+          ok: true,
+          movement_saved: true,
+          entity_type: "visitor",
+          action: selectedAction,
+          parking_slot: currentSlot?.slot_code || null,
+          visitor_pass_id: visitorPass.id,
+          pass_code: visitorPass.pass_code,
+          scan_log_id: movementLog?.id || null,
+          scanned_at: movementLog?.scanned_at || null
+        });
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+    }
+
     const verification = await getVerificationState(token);
     if (!verification.ok) {
       const invalidScanLog = await insertScanLog(
         verification.sticker?.id || null,
         verification.result || "INVALID",
         "VERIFY",
-        gate || "Manual Gate",
+        gateName,
         verification.message || "Manual movement rejected: invalid sticker.",
         {
-          gateId: gate || "Manual Gate",
+          gateId: gateName,
           qrValue: token,
           studentId: verification.sticker?.student_id_ref || null,
           vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
-          assignedByGuard: getAuthActorName(req),
+          assignedByGuard: actorName,
           scanSource: "manual",
           status: normalizeScanStatus(verification.result || "INVALID")
         }
@@ -4528,22 +5811,22 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
         result: verification.result || "INVALID",
         reason: verification.message || "Manual movement rejected due to invalid sticker.",
         qrValue: token,
-        gate: gate || "Manual Gate",
+        gate: gateName,
         source: "manual",
-        actorName: getAuthActorName(req),
+        actorName,
         relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
         scanLogId: invalidScanLog?.id || null
       });
       await evaluateSuspiciousScanSignals(pool, {
         qrValue: token,
-        gate: gate || "Manual Gate",
+        gate: gateName,
         source: "manual",
-        actorName: getAuthActorName(req),
+        actorName,
         result: verification.result || "INVALID",
         scanLogId: invalidScanLog?.id || null
       });
       broadcastNotificationsUpdated("manual-invalid-movement", {
-        gate_id: gate || "Manual Gate",
+        gate_id: gateName,
         qr_value: token,
         result: verification.result || "INVALID"
       });
@@ -4560,14 +5843,14 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
         await connection.rollback();
         await evaluateSuspiciousScanSignals(pool, {
           qrValue: token,
-          gate: gate || "Manual Gate",
+          gate: gateName,
           source: "manual",
-          actorName: getAuthActorName(req),
+          actorName,
           result: "VALID",
           deniedReason: `Manual ${selectedAction} denied: last movement is already ${selectedAction}.`
         });
         broadcastNotificationsUpdated("manual-duplicate-movement-blocked", {
-          gate_id: gate || "Manual Gate",
+          gate_id: gateName,
           qr_value: token,
           action: selectedAction
         });
@@ -4595,16 +5878,16 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
         verification.sticker.id,
         "VALID",
         selectedAction,
-        gate || "Manual Gate",
+        gateName,
         "Recorded via Gate Console",
         {
-          gateId: gate || "Manual Gate",
+          gateId: gateName,
           slotId: currentSlot?.id || null,
           qrValue: token,
           studentId: verification.sticker.student_id_ref || null,
           vehicleId: verification.sticker.vehicle_id_ref || verification.sticker.vehicle_id || null,
           assignedArea: currentSlot?.zone || null,
-          assignedByGuard: getAuthActorName(req),
+          assignedByGuard: actorName,
           scanSource: "manual",
           status: "AUTHORIZED"
         }
@@ -4615,10 +5898,10 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
       }
 
       await connection.commit();
-      await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "manual-movement");
+      await evaluateZoneCapacityAlerts(pool, actorName || "manual-movement");
       broadcastNotificationsUpdated("movement-recorded", {
         movement_action: selectedAction,
-        gate_id: gate || "Manual Gate",
+        gate_id: gateName,
         qr_value: token
       });
 

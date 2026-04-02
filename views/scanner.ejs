@@ -127,7 +127,7 @@
       box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
       transition: all 0.15s ease;
     " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(22,163,74,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(22,163,74,0.35)'">
-      <span style="font-size: 2rem; line-height:1;">🟢</span>
+      <span style="font-size: 1.05rem; line-height:1; font-weight:900;">IN</span>
       <span>Record ENTRY</span>
     </button>
     <button type="button" id="gateExitBtn" style="
@@ -147,7 +147,7 @@
       box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
       transition: all 0.15s ease;
     " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(220,38,38,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(220,38,38,0.35)'">
-      <span style="font-size: 2rem; line-height:1;">🔴</span>
+      <span style="font-size: 1.05rem; line-height:1; font-weight:900;">OUT</span>
       <span>Record EXIT</span>
     </button>
   </div>
@@ -222,7 +222,9 @@
 
     let selectedToken = null;
     let selectedLabel = "";
+    let selectedEntityType = "student";
     let selectedSlotId = null;
+    let selectedSlotScope = "all";
     let html5QrCode = null;
     let parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
     let remotePendingEntries = [];
@@ -349,7 +351,7 @@
 
       activeRemoteEntryId = entry.id;
       setGateStage("record");
-      remoteEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) • ${entry.plate_number || "-"} • ${entry.gate_id || "Main Gate"} • ${formatQueuedAt(entry.created_at)}`;
+      remoteEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) | ${entry.plate_number || "-"} | ${entry.gate_id || "Main Gate"} | ${formatQueuedAt(entry.created_at)}`;
       remoteEntryHint.textContent = "Loading available parking slots...";
       remoteEntrySlotSelect.innerHTML = '<option value="">Loading slots...</option>';
 
@@ -376,7 +378,7 @@
         remoteEntryConfirmBtn.disabled = false;
         remoteEntrySlotSelect.innerHTML = [
           '<option value="">Select parking slot...</option>',
-          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} • ${escapeHtml(slot.zone || "General")}</option>`)
+          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
         ].join("");
         remoteEntryHint.textContent = `${slots.length} slot(s) available.`;
       } catch (error) {
@@ -437,8 +439,8 @@
           <article class="remote-queue-card">
             <div class="remote-queue-main">
               <h4>${escapeHtml(entry.full_name || "Unknown Student")}</h4>
-              <p>${escapeHtml(entry.student_number || "-")} • ${escapeHtml(entry.plate_number || "-")}</p>
-              <p>${escapeHtml(entry.gate_id || "Main Gate")} • ${formatQueuedAt(entry.created_at)}</p>
+              <p>${escapeHtml(entry.student_number || "-")} | ${escapeHtml(entry.plate_number || "-")}</p>
+              <p>${escapeHtml(entry.gate_id || "Main Gate")} | ${formatQueuedAt(entry.created_at)}</p>
             </div>
             <div class="remote-queue-actions">
               <span class="badge badge-warning">Pending</span>
@@ -616,13 +618,14 @@
       attachSlotHandlers();
     }
 
-    async function loadParkingSlots() {
+    async function loadParkingSlots(scope = "all") {
       if (!slotPickerStatus) return;
       slotPickerStatus.textContent = "Loading parking map...";
       selectedSlotId = null;
+      const selectedScope = String(scope || "all").toLowerCase();
 
       try {
-        const resp = await fetch("/api/parking-slot-overview");
+        const resp = await fetch(`/api/parking-slot-overview?scope=${encodeURIComponent(selectedScope)}`);
         const data = await resp.json();
         if (!data.ok) throw new Error(data.message || "Failed to load parking overview.");
         parkingOverview = {
@@ -678,7 +681,8 @@
       try {
         const url = new URL(decodedText);
         const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length >= 2 && parts[0] === "verify") token = parts[1];
+        if (parts.length >= 3 && parts[0] === "verify" && parts[1] === "visitor") token = parts[2];
+        else if (parts.length >= 2 && parts[0] === "verify") token = parts[1];
       } catch(e){}
 
       statusEl.textContent = "Processing scan...";
@@ -706,7 +710,7 @@
           setTimeout(() => document.querySelector('.select-vehicle-btn').click(), 100);
         } else {
           playBeep('error');
-          statusEl.innerHTML = `<span style="color:red">⚠️ Error: ${verifyRes.message} (Offline Mode)</span>`;
+          statusEl.innerHTML = `<span style="color:red">Warning: ${verifyRes.message} (Offline Mode)</span>`;
           setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
         }
       } else {
@@ -726,9 +730,17 @@
             await doSearch(); // Does full online search using plate
             setTimeout(() => document.querySelector('.select-vehicle-btn')?.click(), 100);
           } else {
-            playBeep('error');
-            statusEl.innerHTML = `<span style="color:red">⚠️ Token not found or invalid.</span>`;
-            setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
+            searchInput.value = token;
+            await doSearch();
+            const firstSelectable = document.querySelector('.select-vehicle-btn');
+            if (firstSelectable) {
+              playBeep('success');
+              setTimeout(() => firstSelectable.click(), 120);
+            } else {
+              playBeep('error');
+              statusEl.innerHTML = `<span style="color:red">Warning: Token not found or invalid.</span>`;
+              setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
+            }
           }
         } catch(e) {
             playBeep('error');
@@ -740,40 +752,55 @@
 
     // --- Search Logic ---
     function renderVehicleCard(item) {
-      const statusClass = item.sticker_status === 'active' ? 'valid' : item.sticker_status;
-      const isActive = item.sticker_status === 'active';
+      const entityType = String(item.entity_type || "student").toLowerCase();
+      const isVisitor = entityType === "visitor";
+      const statusRaw = String(item.sticker_status || "").toLowerCase();
+      const statusClass = statusRaw === "active" ? "valid" : statusRaw;
+      const isActive = statusRaw === "active";
+      const identityLabel = isVisitor
+        ? `Pass: ${item.sticker_code || "-"}`
+        : `${item.student_number || ""}`;
+      const vehicleDetail = isVisitor
+        ? `${item.model ? ` · ${item.model}` : ""}${item.visitor_type ? ` · ${item.visitor_type}` : ""}`
+        : `${item.model ? ` · ${item.model}` : ""}${item.color ? ` · ${item.color}` : ""}`;
+      const restrictedReason = statusRaw === "pending"
+        ? "Pending approval - cannot record movement yet."
+        : statusRaw === "expired"
+          ? "Visitor pass has expired."
+          : statusRaw === "revoked"
+            ? "Access denied for this pass."
+            : "No active QR token available.";
       return `
         <div class="mini-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; padding: 1rem;">
           <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:0.5rem;">
             <div>
               <strong>${item.full_name || "-"}</strong>
-              <span class="helper-text" style="margin-left:0.5rem;">${item.student_number || ""}</span>
+              <span class="helper-text" style="margin-left:0.5rem;">${identityLabel}</span>
             </div>
             <span class="badge badge-${statusClass}">${item.sticker_status || "no sticker"}</span>
           </div>
           <div class="helper-text">
-            🚗 <strong>${item.plate_number || "-"}</strong>
-            ${item.model ? `· ${item.model}` : ""}
-            ${item.color ? `· ${item.color}` : ""}
+            Vehicle: <strong>${item.plate_number || "-"}</strong>${vehicleDetail}
           </div>
           <div class="helper-text">
-            🪪 Sticker: <strong>${item.sticker_code || "None"}</strong>
-            ${item.expires_at ? `· Expires: ${new Date(item.expires_at).toLocaleDateString()}` : ""}
+            ${isVisitor ? "Pass" : "Sticker"}: <strong>${item.sticker_code || "None"}</strong>
+            ${item.expires_at ? ` · Expires: ${new Date(item.expires_at).toLocaleDateString()}` : ""}
           </div>
           ${item.current_slot ? `<div class="helper-text">Current Slot: <strong>${item.current_slot}</strong></div>` : ""}
           ${isActive && item.qr_token
             ? `<button type="button" class="select-vehicle-btn btn-sm"
                 data-token="${item.qr_token}"
                 data-label="${item.full_name} · ${item.plate_number}"
+                data-entity="${entityType}"
+                data-scope="${isVisitor ? "visitor" : "all"}"
                 data-lastaction="${item.last_action || ''}"
                 data-currentslot="${item.current_slot || ''}">
-                Select this Vehicle
+                ${isVisitor ? "Select this Pass" : "Select this Vehicle"}
               </button>`
-            : `<span class="helper-text">⚠️ No active sticker — cannot record movement.</span>`
+            : `<span class="helper-text">Access: ${restrictedReason}</span>`
           }
         </div>`;
     }
-
     function renderSearchResults(resultsData) {
       setGateStage(resultsData.length ? "select" : "scan");
       statusEl.textContent = `Found ${resultsData.length} result(s).`;
@@ -782,11 +809,14 @@
         btn.addEventListener("click", async () => {
           selectedToken = btn.dataset.token;
           selectedLabel = btn.dataset.label;
+          selectedEntityType = btn.dataset.entity || "student";
+          selectedSlotScope = btn.dataset.scope || (selectedEntityType === "visitor" ? "visitor" : "all");
           selectedSlotId = null;
           logInfo.textContent = selectedLabel;
           const currentSlot = btn.dataset.currentslot || "";
           logDetails.innerHTML = `
             <p class="helper-text">Gate: <strong>${gateSelect.value}</strong></p>
+            <p class="helper-text">Mode: <strong>${selectedEntityType === "visitor" ? "Visitor Pass" : "Student Vehicle"}</strong></p>
             ${currentSlot ? `<p class="helper-text">Current Slot: <strong>${currentSlot}</strong></p>` : ""}
           `;
           logFeedback.innerHTML = "";
@@ -807,7 +837,7 @@
 
           if (entryBtn.style.display !== "none") {
             slotPickerPanel.style.display = "block";
-            await loadParkingSlots();
+            await loadParkingSlots(selectedSlotScope);
           }
         });
       });
@@ -864,6 +894,11 @@
 
     searchBtn.addEventListener("click", doSearch);
     searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+    const initialSearchQuery = new URLSearchParams(window.location.search).get("q");
+    if (initialSearchQuery) {
+      searchInput.value = initialSearchQuery;
+      doSearch();
+    }
 
     if (guardQueueMode) {
       remoteQueueRefreshBtn?.addEventListener("click", () => fetchRemotePendingEntries({ silent: false }));
@@ -901,7 +936,7 @@
         // Queue movement in outbox
         await window.OfflineManager.queueMovement(selectedToken, action, gate);
         playBeep('success');
-        logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">✅ ${action} saved to OFFLINE QUEUE.<br><small>Will sync when connection is restored.</small></div>`;
+        logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">${action} saved to OFFLINE QUEUE.<br><small>Will sync when connection is restored.</small></div>`;
         logPanel.style.opacity = '0.7';
         statusEl.textContent = `${action} queued offline. Ready for next scan.`;
         setGateStage("scan");
@@ -912,13 +947,19 @@
           const resp = await fetch("/api/manual-movement", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: selectedToken, action, gate, slot_id: action === "ENTRY" ? selectedSlotId : null })
+            body: JSON.stringify({
+              token: selectedToken,
+              action,
+              gate,
+              slot_id: action === "ENTRY" ? selectedSlotId : null,
+              entity_type: selectedEntityType
+            })
           });
           const data = await resp.json();
           if (data.movement_saved) {
             playBeep('success');
             if (action === "ENTRY") {
-              await loadParkingSlots();
+              await loadParkingSlots(selectedSlotScope);
             } else {
               selectedSlotId = null;
               slotPickerPanel.style.display = "none";
@@ -928,17 +969,19 @@
             setGateStage("scan");
             selectedToken = null;
             selectedLabel = "";
+            selectedEntityType = "student";
+            selectedSlotScope = "all";
             window.setTimeout(() => {
               logPanel.style.display = "none";
             }, 900);
           } else {
              playBeep('error');
-             logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">⚠️ ${data.message || "Unable to record"}</div>`;
+             logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">${data.message || "Unable to record"}</div>`;
           }
           setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
         } catch (err) {
           playBeep('error');
-          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">❌ Network error. Start app in true offline mode.</div>`;
+          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Network error. Start app in true offline mode.</div>`;
         }
       }
     }
@@ -946,7 +989,7 @@
     entryBtn.addEventListener("click", () => recordMovement("ENTRY"));
     exitBtn.addEventListener("click", () => recordMovement("EXIT"));
 
-    // ── Scan History ──────────────────────────────────────────────────
+    // Scan History
     const scanHistory = [];
     const historyList = document.getElementById("scanHistoryList");
     const historyEmpty = document.getElementById("scanHistoryEmpty");
@@ -969,7 +1012,7 @@
       historyList.innerHTML = scanHistory.map(entry => {
         const actionClass = entry.action === "ENTRY" ? "entry" : "exit";
         const actionColor = entry.action === "ENTRY" ? "#15803d" : "#be123c";
-        const statusIcon  = entry.isSuccess ? "✅" : "⚠️";
+        const statusIcon  = entry.isSuccess ? "OK" : "WARN";
         const offlineTag  = entry.isOffline ? `<span style="font-size:0.65rem;background:var(--orange-soft);color:var(--orange-text);border:1px solid var(--orange-border);padding:0.1rem 0.4rem;border-radius:999px;font-weight:700;">OFFLINE</span>` : "";
         return `<div style="display:flex;align-items:center;gap:0.65rem;padding:0.65rem 0.85rem;background:var(--surface-soft);border:1px solid var(--line);border-radius:var(--radius-sm);border-left:3px solid ${actionColor};">
           <span style="font-size:1.1rem;line-height:1;">${statusIcon}</span>
@@ -982,9 +1025,7 @@
       }).join("");
     }
 
-    // Patch recordMovement to push to history
-    const _origRecord = recordMovement;
-    // Override by wrapping it after both button listeners are attached
+    // Track each button-triggered movement in session history.
     entryBtn.addEventListener("click", () => {
       if (selectedLabel) addToHistory(selectedLabel, "ENTRY", !window.OfflineManager?.isOnline, true);
     });
@@ -1010,7 +1051,7 @@
     <p>Last 8 movements recorded since you opened this page.</p>
   </div>
   <div id="scanHistoryEmpty" style="text-align:center;padding:1.5rem;color:var(--muted);font-size:0.875rem;">
-    <div style="font-size:2rem;margin-bottom:0.5rem;opacity:0.5;">🕐</div>
+    <div style="font-size:1rem;margin-bottom:0.5rem;opacity:0.7;letter-spacing:0.08em;">LOG</div>
     No scans recorded yet this session.
   </div>
   <div id="scanHistoryList" style="display:grid;gap:0.4rem;"></div>
@@ -1018,5 +1059,6 @@
 </div> <!-- end overlap-wrapper -->
 
 <%- include("partials/footer") %>
+
 
 
