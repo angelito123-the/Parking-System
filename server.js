@@ -2735,7 +2735,7 @@ async function getReportsData(filters) {
       studentParams.push(safeFilters.zone);
     }
     if (safeFilters.vehicle_type !== "ALL") {
-      studentWhere.push("COALESCE(NULLIF(TRIM(v.type), ''), 'Unknown') = ?");
+      studentWhere.push("COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') = ?");
       studentParams.push(safeFilters.vehicle_type);
     }
 
@@ -2769,7 +2769,7 @@ async function getReportsData(filters) {
            sl.action,
            COALESCE(sl.gate, 'Unspecified') AS gate,
            COALESCE(ps.zone, sl.assigned_area, 'Unassigned') AS zone,
-           COALESCE(NULLIF(TRIM(v.type), ''), 'Unknown') AS vehicle_type,
+           COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') AS vehicle_type,
            'student' AS pass_type,
            COALESCE(st.student_number, 'Unknown') AS identity_number,
            COALESCE(st.full_name, 'Unknown Student') AS identity_name,
@@ -2851,7 +2851,7 @@ async function getReportsData(filters) {
       pool.query(
         `SELECT vehicle_type
          FROM (
-           SELECT DISTINCT COALESCE(NULLIF(TRIM(type), ''), 'Unknown') AS vehicle_type FROM vehicles
+           SELECT DISTINCT COALESCE(NULLIF(TRIM(model), ''), 'Unknown') AS vehicle_type FROM vehicles
            UNION
            SELECT DISTINCT COALESCE(NULLIF(TRIM(vehicle_type), ''), 'Unknown') AS vehicle_type FROM visitor_passes
          ) v
