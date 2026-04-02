@@ -1,143 +1,551 @@
 <%- include("partials/header") %>
 <%
-  const gateStatsSafe = Array.isArray(gateStats) ? gateStats : [];
-  const studentStatsSafe = Array.isArray(studentStats) ? studentStats : [];
-  const hourStatsSafe = Array.isArray(hourStats) ? hourStats : [];
-  const summarySafe = typeof summary === "object" && summary
-    ? summary
-    : { totalScans: 0, validScans: 0, totalEntries: 0, totalExits: 0, uniqueStudents: 0 };
+  const safeFilters = typeof filters === "object" && filters ? filters : {
+    preset: "last7",
+    from: "",
+    to: "",
+    gate: "ALL",
+    zone: "ALL",
+    pass_type: "all",
+    vehicle_type: "ALL"
+  };
+  const safeFilterOptions = typeof filterOptions === "object" && filterOptions ? filterOptions : {
+    gates: [],
+    zones: [],
+    vehicleTypes: [],
+    passTypes: []
+  };
+  const safeSummary = typeof summary === "object" && summary ? summary : {};
+  const safeCharts = typeof charts === "object" && charts ? charts : {};
+  const safeTables = typeof tables === "object" && tables ? tables : {};
+  const safeMetadata = typeof metadata === "object" && metadata ? metadata : {};
+  const isPrintMode = Boolean(printMode);
 
-  const busiestHour = hourStatsSafe.length
-    ? hourStatsSafe.reduce((best, item) => Number(item.total || 0) > Number(best.total || 0) ? item : best, hourStatsSafe[0])
-    : null;
-  const busiestHourLabel = busiestHour ? `${busiestHour.hour_slot || "-"} (${busiestHour.total || 0})` : "No data";
+  const presets = [
+    { key: "today", label: "Today" },
+    { key: "last7", label: "Last 7 Days" },
+    { key: "last30", label: "Last 30 Days" },
+    { key: "custom", label: "Custom Range" }
+  ];
 
-  const mostUsedGate = gateStatsSafe.length
-    ? gateStatsSafe.reduce((best, item) => Number(item.total || 0) > Number(best.total || 0) ? item : best, gateStatsSafe[0])
-    : null;
-  const mostUsedGateLabel = mostUsedGate ? `${mostUsedGate.gate || "Unspecified"} (${mostUsedGate.total || 0})` : "No data";
+  const makeQuery = (next = {}) => {
+    const params = new URLSearchParams({
+      preset: safeFilters.preset || "last7",
+      from: safeFilters.from || "",
+      to: safeFilters.to || "",
+      gate: safeFilters.gate || "ALL",
+      zone: safeFilters.zone || "ALL",
+      pass_type: safeFilters.pass_type || "all",
+      vehicle_type: safeFilters.vehicle_type || "ALL",
+      ...next
+    });
+    return params.toString();
+  };
 %>
 
-<div class="analytics-shell">
-  <section class="panel analytics-header-panel">
-    <div class="section-head analytics-head">
-      <h2>Analytics</h2>
-      <h1>Parking Analytics Dashboard</h1>
-      <p>Operational trends for gate movement, usage share, and student scan activity.</p>
+<style>
+  .analytics-v3 {
+    display: grid;
+    gap: 1rem;
+    width: 100%;
+    min-width: 0;
+    padding: 1rem 0 2rem;
+  }
+
+  .analytics-v3 .panel {
+    margin-bottom: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .analytics-v3-head {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(14, 116, 144, 0.08));
+  }
+
+  .analytics-v3-head .section-head {
+    margin-bottom: 0.85rem;
+  }
+
+  .analytics-v3-title {
+    margin: 0.1rem 0 0.35rem;
+    font-size: clamp(1.2rem, 2vw, 1.65rem);
+    line-height: 1.15;
+    font-family: "Sora", "Plus Jakarta Sans", sans-serif;
+  }
+
+  .analytics-v3-sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+    max-width: 920px;
+  }
+
+  .analytics-v3-summary {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .analytics-v3-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface-soft);
+    padding: 0.72rem 0.8rem;
+    display: grid;
+    gap: 0.24rem;
+  }
+
+  .analytics-v3-card span {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .analytics-v3-card strong {
+    color: var(--text);
+    font-size: 1.08rem;
+    line-height: 1.15;
+  }
+
+  .analytics-v3-card.is-highlight {
+    background: rgba(37, 99, 235, 0.11);
+    border-color: rgba(147, 197, 253, 0.5);
+  }
+
+  .analytics-v3-card.is-success {
+    background: rgba(16, 185, 129, 0.11);
+    border-color: rgba(110, 231, 183, 0.5);
+  }
+
+  .analytics-v3-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.48rem;
+    margin-top: -0.2rem;
+  }
+
+  .analytics-v3-preset {
+    text-decoration: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface-soft);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.35rem 0.7rem;
+  }
+
+  .analytics-v3-preset.active {
+    border-color: rgba(37, 99, 235, 0.5);
+    background: rgba(37, 99, 235, 0.14);
+    color: #1d4ed8;
+  }
+
+  .analytics-v3-form {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.7rem;
+    align-items: end;
+  }
+
+  .analytics-v3-form label {
+    display: grid;
+    gap: 0.32rem;
+  }
+
+  .analytics-v3-form label span {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .analytics-v3-actions {
+    grid-column: span 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.48rem;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .analytics-v3-actions button {
+    background: var(--blue-mid);
+    color: #fff;
+  }
+
+  .analytics-v3-grid-2 {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  }
+
+  .analytics-v3-grid-2 .panel {
+    min-width: 0;
+  }
+
+  .analytics-v3-chart {
+    height: 300px;
+    min-width: 0;
+  }
+
+  .analytics-v3-kpis {
+    margin-top: 0.85rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .analytics-v3-kpi {
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 0.6rem 0.65rem;
+    display: grid;
+    gap: 0.2rem;
+    background: var(--surface-soft);
+  }
+
+  .analytics-v3-kpi span {
+    font-size: 0.68rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+  }
+
+  .analytics-v3-kpi strong {
+    font-size: 0.98rem;
+    color: var(--text);
+  }
+
+  .analytics-v3-table-wrap {
+    overflow: auto;
+    width: 100%;
+  }
+
+  .analytics-v3 table {
+    width: 100%;
+    min-width: 100% !important;
+    border-spacing: 0 0.55rem;
+  }
+
+  .analytics-v3 table th,
+  .analytics-v3 table td {
+    padding: 0.62rem 0.75rem;
+    font-size: 0.84rem;
+  }
+
+  .analytics-v3-empty {
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    padding: 1rem;
+    color: var(--muted);
+    text-align: center;
+    background: var(--surface-soft);
+  }
+
+  .analytics-v3-print-note {
+    display: none;
+  }
+
+  @media (max-width: 1450px) {
+    .analytics-v3-summary {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 1220px) {
+    .analytics-v3-form {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .analytics-v3-actions {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .analytics-v3-grid-2 {
+      grid-template-columns: 1fr;
+    }
+
+    .analytics-v3-chart {
+      height: 250px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .analytics-v3-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .analytics-v3-form {
+      grid-template-columns: 1fr;
+    }
+
+    .analytics-v3-actions {
+      grid-column: auto;
+      width: 100%;
+    }
+
+    .analytics-v3-actions button,
+    .analytics-v3-actions .link-btn {
+      width: 100%;
+      text-align: center;
+      justify-content: center;
+    }
+
+    .analytics-v3-kpis {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media print {
+    .top-nav,
+    .analytics-v3-presets,
+    .analytics-v3-actions,
+    .notification-panel {
+      display: none !important;
+    }
+
+    .analytics-v3 {
+      padding: 0;
+      gap: 0.6rem;
+    }
+
+    .analytics-v3 .panel {
+      box-shadow: none !important;
+      border: 1px solid #d5dbe5 !important;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .analytics-v3-chart {
+      height: 220px !important;
+    }
+
+    .analytics-v3-print-note {
+      display: block;
+      margin: 0;
+      color: #334155;
+      font-size: 0.82rem;
+    }
+  }
+</style>
+
+<div class="analytics-v3">
+  <section class="panel analytics-v3-head">
+    <div class="section-head">
+      <h2>Admin Analytics</h2>
+      <h1 class="analytics-v3-title">Parking Analytics Dashboard</h1>
+      <p class="analytics-v3-sub">
+        Real-time and historical analytics using gate logs, slot assignment, and overstay behavior.
+        Range: <strong><%= safeFilters.range_label || `${safeFilters.from} to ${safeFilters.to}` %></strong>
+      </p>
+      <p class="analytics-v3-print-note">
+        Printed on <%= new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }) %>
+      </p>
     </div>
 
-    <div class="analytics-summary-grid">
-      <article class="analytics-summary-card">
-        <span>Total Scans</span>
-        <strong><%= summarySafe.totalScans || 0 %></strong>
+    <div class="analytics-v3-summary">
+      <article class="analytics-v3-card">
+        <span>Total Vehicles Today</span>
+        <strong><%= safeSummary.total_vehicles_today || 0 %></strong>
       </article>
-      <article class="analytics-summary-card">
-        <span>Valid Scans</span>
-        <strong><%= summarySafe.validScans || 0 %></strong>
+      <article class="analytics-v3-card">
+        <span>Active Parked</span>
+        <strong><%= safeSummary.active_parked_vehicles || 0 %></strong>
       </article>
-      <article class="analytics-summary-card">
-        <span>Entries</span>
-        <strong><%= summarySafe.totalEntries || 0 %></strong>
+      <article class="analytics-v3-card is-highlight">
+        <span>Busiest Hour Today</span>
+        <strong><%= safeSummary.busiest_hour_today || "No data" %></strong>
       </article>
-      <article class="analytics-summary-card">
-        <span>Exits</span>
-        <strong><%= summarySafe.totalExits || 0 %></strong>
+      <article class="analytics-v3-card is-success">
+        <span>Most Used Zone</span>
+        <strong><%= safeSummary.most_used_zone || "No data" %></strong>
       </article>
-      <article class="analytics-summary-card analytics-summary-card-muted">
-        <span>Busiest Hour</span>
-        <strong><%= busiestHourLabel %></strong>
+      <article class="analytics-v3-card">
+        <span>Avg Parking Duration</span>
+        <strong><%= safeSummary.average_parking_duration_label || "No data" %></strong>
       </article>
-      <article class="analytics-summary-card analytics-summary-card-success">
-        <span>Most Used Gate</span>
-        <strong><%= mostUsedGateLabel %></strong>
+      <article class="analytics-v3-card">
+        <span>Overstay Cases</span>
+        <strong><%= safeSummary.total_overstay_cases || 0 %></strong>
+      </article>
+      <article class="analytics-v3-card">
+        <span>Available Slots Now</span>
+        <strong><%= safeSummary.available_slots_now || 0 %> / <%= safeSummary.total_slots_now || 0 %></strong>
       </article>
     </div>
   </section>
 
-  <section class="panel analytics-filter-panel">
+  <section class="panel">
     <div class="section-head">
       <h2>Filters and Export</h2>
-      <p>Need per-scan details? Open <a href="/admin/records" class="link-btn">Gate Records</a>.</p>
+      <p>Filter by date, gate, zone, pass type, and vehicle type. Export movement or analytics summaries for presentation.</p>
     </div>
 
-    <form method="get" action="/reports" class="analytics-filter-form">
+    <div class="analytics-v3-presets">
+      <% presets.forEach((preset) => { %>
+        <a
+          class="analytics-v3-preset <%= safeFilters.preset === preset.key ? "active" : "" %>"
+          href="/reports?<%= makeQuery({ preset: preset.key }) %>"
+        >
+          <%= preset.label %>
+        </a>
+      <% }) %>
+    </div>
+
+    <form method="get" action="/reports" class="analytics-v3-form" style="margin-top:0.72rem;">
+      <input type="hidden" name="preset" value="custom" />
       <label>
         <span>From</span>
-        <input id="reportFrom" type="date" name="from" value="<%= filters.from %>" />
+        <input type="date" name="from" value="<%= safeFilters.from || "" %>" />
       </label>
       <label>
         <span>To</span>
-        <input id="reportTo" type="date" name="to" value="<%= filters.to %>" />
+        <input type="date" name="to" value="<%= safeFilters.to || "" %>" />
       </label>
       <label>
         <span>Gate</span>
-        <select id="reportGate" name="gate">
-          <option value="ALL" <%= filters.gate === "ALL" ? "selected" : "" %>>All Gates</option>
-          <% gateStatsSafe.forEach((item) => { %>
-            <% const gateName = item.gate || "Unspecified"; %>
-            <option value="<%= gateName %>" <%= filters.gate === gateName ? "selected" : "" %>><%= gateName %></option>
+        <select name="gate">
+          <option value="ALL" <%= safeFilters.gate === "ALL" ? "selected" : "" %>>All Gates</option>
+          <% (safeFilterOptions.gates || []).forEach((gate) => { %>
+            <option value="<%= gate %>" <%= safeFilters.gate === gate ? "selected" : "" %>><%= gate %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>
+        <span>Zone</span>
+        <select name="zone">
+          <option value="ALL" <%= safeFilters.zone === "ALL" ? "selected" : "" %>>All Zones</option>
+          <% (safeFilterOptions.zones || []).forEach((zone) => { %>
+            <option value="<%= zone %>" <%= safeFilters.zone === zone ? "selected" : "" %>><%= zone %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>
+        <span>Pass Type</span>
+        <select name="pass_type">
+          <% (safeFilterOptions.passTypes || []).forEach((item) => { %>
+            <option value="<%= item.value %>" <%= safeFilters.pass_type === item.value ? "selected" : "" %>><%= item.label %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>
+        <span>Vehicle Type</span>
+        <select name="vehicle_type">
+          <option value="ALL" <%= safeFilters.vehicle_type === "ALL" ? "selected" : "" %>>All Vehicle Types</option>
+          <% (safeFilterOptions.vehicleTypes || []).forEach((type) => { %>
+            <option value="<%= type %>" <%= safeFilters.vehicle_type === type ? "selected" : "" %>><%= type %></option>
           <% }) %>
         </select>
       </label>
 
-      <div class="analytics-filter-actions">
+      <div class="analytics-v3-actions">
         <button type="submit">Apply Filters</button>
-        <a class="link-btn" href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">Export CSV</a>
-        <a class="link-btn" href="/admin/records">Open Gate Records</a>
+        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'csv' }) %>">Export Excel CSV</a>
+        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'analytics_csv' }) %>">Export Analytics CSV</a>
+        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'print' }) %>" target="_blank" rel="noopener">Printable View</a>
       </div>
     </form>
   </section>
 
-  <section class="analytics-grid">
+  <section class="analytics-v3-grid-2">
     <article class="panel">
       <div class="section-head">
-        <h2>Hourly Traffic</h2>
-        <p>Busiest time windows in the selected period.</p>
+        <h2>Busiest Hours</h2>
+        <p>Peak scan windows across selected filters.</p>
       </div>
-      <% if (!hourStatsSafe.length) { %>
-        <div class="empty-state"><p>No hourly data available for current filters.</p></div>
+      <% if (!Array.isArray(safeCharts.busiestHours) || !safeCharts.busiestHours.length) { %>
+        <div class="analytics-v3-empty">No hourly data in this range.</div>
       <% } else { %>
-        <div class="analytics-chart-wrap"><canvas id="hourlyTrafficChart"></canvas></div>
+        <div class="analytics-v3-chart"><canvas id="analyticsBusiestHoursChart"></canvas></div>
       <% } %>
     </article>
-
     <article class="panel">
       <div class="section-head">
-        <h2>Gate Usage Share</h2>
-        <p>Distribution of scan activity by gate.</p>
+        <h2>Most Used Parking Zones</h2>
+        <p>Usage share based on ENTRY transactions.</p>
       </div>
-      <% if (!gateStatsSafe.length) { %>
-        <div class="empty-state"><p>No gate usage data for current filters.</p></div>
+      <% if (!Array.isArray(safeCharts.zoneUsage) || !safeCharts.zoneUsage.length) { %>
+        <div class="analytics-v3-empty">No zone usage data in this range.</div>
       <% } else { %>
-        <div class="analytics-chart-wrap"><canvas id="gateShareChart"></canvas></div>
+        <div class="analytics-v3-chart"><canvas id="analyticsZoneUsageChart"></canvas></div>
       <% } %>
     </article>
   </section>
 
-  <section class="analytics-grid">
+  <section class="analytics-v3-grid-2">
     <article class="panel">
       <div class="section-head">
-        <h2>Top Students</h2>
-        <p>Most frequently scanned students in the selected period.</p>
+        <h2>Available Slot Trends</h2>
+        <p>Estimated occupancy and availability trend (<%= safeMetadata.trend_granularity || "day" %>-level).</p>
       </div>
-      <% if (!studentStatsSafe.length) { %>
-        <div class="empty-state"><p>No student scan data found.</p></div>
+      <% if (!Array.isArray(safeCharts.slotTrends) || !safeCharts.slotTrends.length) { %>
+        <div class="analytics-v3-empty">No slot trend data available.</div>
       <% } else { %>
-        <div class="table-wrap analytics-table-wrap">
+        <div class="analytics-v3-chart"><canvas id="analyticsSlotTrendChart"></canvas></div>
+      <% } %>
+      <div class="analytics-v3-kpis">
+        <div class="analytics-v3-kpi">
+          <span>Zone Full Moments</span>
+          <strong><%= safeSummary.zone_full_moments || 0 %></strong>
+        </div>
+        <div class="analytics-v3-kpi">
+          <span>Nearly Full Moments</span>
+          <strong><%= safeSummary.zone_nearly_full_moments || 0 %></strong>
+        </div>
+        <div class="analytics-v3-kpi">
+          <span>Underused Moments</span>
+          <strong><%= safeSummary.zone_underused_moments || 0 %></strong>
+        </div>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="section-head">
+        <h2>Overstay Frequency</h2>
+        <p>Frequency of sessions beyond allowed stay duration.</p>
+      </div>
+      <% if (!Array.isArray(safeCharts.overstayByDay) || !safeCharts.overstayByDay.length) { %>
+        <div class="analytics-v3-empty">
+          No overstay cases for selected filters.
+          Student limit: <%= safeSummary.overstay_limit_label || "-" %>h
+          • Visitor limit: <%= safeSummary.visitor_overstay_limit_label || "-" %>h
+        </div>
+      <% } else { %>
+        <div class="analytics-v3-chart"><canvas id="analyticsOverstayChart"></canvas></div>
+      <% } %>
+    </article>
+  </section>
+
+  <section class="analytics-v3-grid-2">
+    <article class="panel">
+      <div class="section-head">
+        <h2>Peak Hour by Day</h2>
+        <p>Daily peak scan hour and volume.</p>
+      </div>
+      <% if (!Array.isArray(safeTables.peakHoursByDay) || !safeTables.peakHoursByDay.length) { %>
+        <div class="analytics-v3-empty">No daily peak data for this range.</div>
+      <% } else { %>
+        <div class="analytics-v3-table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Student Number</th>
-                <th>Name</th>
+                <th>Date</th>
+                <th>Peak Hour</th>
                 <th>Total Scans</th>
               </tr>
             </thead>
             <tbody>
-              <% studentStatsSafe.forEach((item) => { %>
+              <% safeTables.peakHoursByDay.forEach((row) => { %>
                 <tr>
-                  <td><strong><%= item.student_number || "-" %></strong></td>
-                  <td><%= item.full_name || "Unknown Student" %></td>
-                  <td><strong><%= item.total_scans || 0 %></strong></td>
+                  <td><strong><%= row.day %></strong></td>
+                  <td><%= row.hour_slot %></td>
+                  <td><%= row.total %></td>
                 </tr>
               <% }) %>
             </tbody>
@@ -145,33 +553,112 @@
         </div>
       <% } %>
     </article>
-
     <article class="panel">
       <div class="section-head">
-        <h2>Hourly Breakdown Table</h2>
-        <p>Operational reference for guard and admin scheduling.</p>
+        <h2>Average Duration by Zone</h2>
+        <p>Completed entry/exit sessions only.</p>
       </div>
-      <% if (!hourStatsSafe.length) { %>
-        <div class="empty-state"><p>No hourly breakdown to display.</p></div>
+      <% if (!Array.isArray(safeTables.durationByZone) || !safeTables.durationByZone.length) { %>
+        <div class="analytics-v3-empty">No completed sessions for duration analysis.</div>
       <% } else { %>
-        <div class="table-wrap analytics-table-wrap">
+        <div class="analytics-v3-table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Hour Slot</th>
-                <th>Total Scans</th>
-                <th>Share</th>
+                <th>Zone</th>
+                <th>Sessions</th>
+                <th>Average Duration</th>
               </tr>
             </thead>
             <tbody>
-              <% const totalHourly = hourStatsSafe.reduce((sum, item) => sum + Number(item.total || 0), 0); %>
-              <% hourStatsSafe.forEach((item) => { %>
-                <% const count = Number(item.total || 0); %>
-                <% const percent = totalHourly > 0 ? ((count / totalHourly) * 100).toFixed(1) : "0.0"; %>
+              <% safeTables.durationByZone.forEach((row) => { %>
                 <tr>
-                  <td><strong><%= item.hour_slot || "-" %></strong></td>
-                  <td><%= count %></td>
-                  <td><%= percent %>%</td>
+                  <td><strong><%= row.zone %></strong></td>
+                  <td><%= row.sessions %></td>
+                  <td><%= row.avg_label %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </article>
+  </section>
+
+  <section class="analytics-v3-grid-2">
+    <article class="panel">
+      <div class="section-head">
+        <h2>Repeat Overstays</h2>
+        <p>Entities with more than one overstay in selected period.</p>
+      </div>
+      <% if (!Array.isArray(safeTables.repeatOverstays) || !safeTables.repeatOverstays.length) { %>
+        <div class="analytics-v3-empty">No repeat overstay behavior found.</div>
+      <% } else { %>
+        <div class="analytics-v3-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Identity</th>
+                <th>Type</th>
+                <th>Overstay Count</th>
+                <th>Total Beyond Limit</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% safeTables.repeatOverstays.forEach((row) => { %>
+                <tr>
+                  <td>
+                    <strong><%= row.identity_number %></strong><br />
+                    <small><%= row.identity_name %></small>
+                  </td>
+                  <td><%= row.pass_type %></td>
+                  <td><%= row.overstay_count %></td>
+                  <td><%= row.total_overstay_label %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </article>
+    <article class="panel">
+      <div class="section-head">
+        <h2>Latest Parking Sessions</h2>
+        <p>Recent completed sessions in selected range.</p>
+      </div>
+      <% if (!Array.isArray(safeTables.sessions) || !safeTables.sessions.length) { %>
+        <div class="analytics-v3-empty">No completed sessions found for this filter.</div>
+      <% } else { %>
+        <div class="analytics-v3-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Identity</th>
+                <th>Zone</th>
+                <th>Entry</th>
+                <th>Exit</th>
+                <th>Duration</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% safeTables.sessions.slice(0, 20).forEach((row) => { %>
+                <tr>
+                  <td>
+                    <strong><%= row.identity_number %></strong><br />
+                    <small><%= row.identity_name %></small>
+                  </td>
+                  <td><%= row.zone %></td>
+                  <td><%= row.entry_at %></td>
+                  <td><%= row.exit_at %></td>
+                  <td><%= row.duration_label %></td>
+                  <td>
+                    <% if (row.is_overstay) { %>
+                      <span class="badge badge-warning">Overstay</span>
+                    <% } else { %>
+                      <span class="badge badge-ok">Within Limit</span>
+                    <% } %>
+                  </td>
                 </tr>
               <% }) %>
             </tbody>
@@ -185,25 +672,32 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
   (() => {
-    const hourData = <%- JSON.stringify(hourStatsSafe) %>;
-    const gateData = <%- JSON.stringify(gateStatsSafe) %>;
+    const charts = <%- JSON.stringify(safeCharts || {}) %>;
 
-    if (Array.isArray(hourData) && hourData.length && document.getElementById("hourlyTrafficChart")) {
-      const labels = hourData.map((item) => item.hour_slot || "-");
-      const values = hourData.map((item) => Number(item.total || 0));
-      const ctx = document.getElementById("hourlyTrafficChart").getContext("2d");
-      new Chart(ctx, {
+    const parseSeries = (rows, valueKey) => Array.isArray(rows)
+      ? rows.map((row) => ({
+          label: row.bucket || row.zone || "-",
+          value: Number(row[valueKey] || row.total || 0)
+        }))
+      : [];
+
+    const renderBusiestHours = () => {
+      const canvas = document.getElementById("analyticsBusiestHoursChart");
+      if (!canvas) return;
+      const series = parseSeries(charts.busiestHours, "total");
+      if (!series.length) return;
+      new Chart(canvas.getContext("2d"), {
         type: "bar",
         data: {
-          labels,
+          labels: series.map((item) => item.label),
           datasets: [{
-            label: "Scans",
-            data: values,
-            backgroundColor: "rgba(37, 99, 235, 0.65)",
+            label: "Total Scans",
+            data: series.map((item) => item.value),
+            backgroundColor: "rgba(37, 99, 235, 0.62)",
             borderColor: "rgba(29, 78, 216, 1)",
-            borderWidth: 1,
             borderRadius: 8,
-            maxBarThickness: 34
+            maxBarThickness: 30,
+            borderWidth: 1
           }]
         },
         options: {
@@ -216,26 +710,27 @@
           }
         }
       });
-    }
+    };
 
-    if (Array.isArray(gateData) && gateData.length && document.getElementById("gateShareChart")) {
-      const labels = gateData.map((item) => item.gate || "Unspecified");
-      const values = gateData.map((item) => Number(item.total || 0));
-      const ctx = document.getElementById("gateShareChart").getContext("2d");
-      new Chart(ctx, {
+    const renderZoneUsage = () => {
+      const canvas = document.getElementById("analyticsZoneUsageChart");
+      if (!canvas) return;
+      const source = Array.isArray(charts.zoneUsage) ? charts.zoneUsage : [];
+      if (!source.length) return;
+      new Chart(canvas.getContext("2d"), {
         type: "doughnut",
         data: {
-          labels,
+          labels: source.map((item) => item.zone || "-"),
           datasets: [{
-            data: values,
+            data: source.map((item) => Number(item.total || 0)),
             backgroundColor: [
               "rgba(37, 99, 235, 0.75)",
               "rgba(16, 185, 129, 0.75)",
               "rgba(245, 158, 11, 0.75)",
               "rgba(190, 24, 93, 0.75)",
-              "rgba(99, 102, 241, 0.75)"
+              "rgba(99, 102, 241, 0.75)",
+              "rgba(14, 116, 144, 0.75)"
             ],
-            borderColor: "rgba(255,255,255,0.55)",
             borderWidth: 1
           }]
         },
@@ -245,10 +740,95 @@
           plugins: {
             legend: {
               position: "bottom",
-              labels: { boxWidth: 12, boxHeight: 12 }
+              labels: { boxWidth: 10, boxHeight: 10 }
             }
           }
         }
+      });
+    };
+
+    const renderSlotTrend = () => {
+      const canvas = document.getElementById("analyticsSlotTrendChart");
+      if (!canvas) return;
+      const source = Array.isArray(charts.slotTrends) ? charts.slotTrends : [];
+      if (!source.length) return;
+      new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+          labels: source.map((item) => item.bucket || "-"),
+          datasets: [
+            {
+              label: "Available",
+              data: source.map((item) => Number(item.available || 0)),
+              borderColor: "rgba(16, 185, 129, 1)",
+              backgroundColor: "rgba(16, 185, 129, 0.18)",
+              fill: true,
+              tension: 0.25,
+              pointRadius: 0
+            },
+            {
+              label: "Occupied",
+              data: source.map((item) => Number(item.occupied || 0)),
+              borderColor: "rgba(37, 99, 235, 1)",
+              backgroundColor: "rgba(37, 99, 235, 0.08)",
+              fill: false,
+              tension: 0.25,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: "bottom" } },
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } },
+            x: { ticks: { autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } }
+          }
+        }
+      });
+    };
+
+    const renderOverstay = () => {
+      const canvas = document.getElementById("analyticsOverstayChart");
+      if (!canvas) return;
+      const source = Array.isArray(charts.overstayByDay) ? charts.overstayByDay : [];
+      if (!source.length) return;
+      new Chart(canvas.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: source.map((item) => item.bucket || "-"),
+          datasets: [{
+            label: "Overstay Cases",
+            data: source.map((item) => Number(item.total || 0)),
+            backgroundColor: "rgba(190, 24, 93, 0.62)",
+            borderColor: "rgba(190, 24, 93, 1)",
+            borderRadius: 8,
+            borderWidth: 1,
+            maxBarThickness: 30
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } },
+            x: { ticks: { autoSkip: true, maxTicksLimit: 10 }, grid: { display: false } }
+          }
+        }
+      });
+    };
+
+    renderBusiestHours();
+    renderZoneUsage();
+    renderSlotTrend();
+    renderOverstay();
+
+    const isPrintMode = <%- JSON.stringify(isPrintMode) %>;
+    if (isPrintMode) {
+      window.requestAnimationFrame(() => {
+        window.print();
       });
     }
   })();

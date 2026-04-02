@@ -1789,30 +1789,122 @@ async function saveSnapshotDataUrl(snapshotDataUrl, prefix = "scan") {
 }
 
 function buildReportFilters(query) {
-  const today = new Date();
-  const defaultTo = toDateOnly(today);
-  const sevenDaysAgo = new Date(today);
-  sevenDaysAgo.setDate(today.getDate() - 6);
-  const defaultFrom = toDateOnly(sevenDaysAgo);
+  const allowedPresets = new Set(["today", "last7", "last30", "custom"]);
+  const safePreset = allowedPresets.has(String(query.preset || "").toLowerCase())
+    ? String(query.preset || "").toLowerCase()
+    : "last7";
 
-  const from = toDateOnly(query.from) || defaultFrom;
-  const to = toDateOnly(query.to) || defaultTo;
-  const gate = query.gate && query.gate !== "ALL" ? String(query.gate) : "ALL";
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  let fromDate = new Date(today);
+  let toDate = new Date(today);
 
-  return { from, to, gate };
+  if (safePreset === "today") {
+    fromDate = new Date(today);
+    toDate = new Date(today);
+  } else if (safePreset === "last30") {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 29);
+  } else if (safePreset === "custom") {
+    const parsedFrom = toDateOnly(query.from);
+    const parsedTo = toDateOnly(query.to);
+    if (parsedFrom && parsedTo) {
+      fromDate = new Date(parsedFrom);
+      toDate = new Date(parsedTo);
+    } else {
+      fromDate = new Date(today);
+      fromDate.setDate(fromDate.getDate() - 6);
+    }
+  } else {
+    fromDate = new Date(today);
+    fromDate.setDate(fromDate.getDate() - 6);
+  }
+
+  if (fromDate > toDate) {
+    const tmp = fromDate;
+    fromDate = toDate;
+    toDate = tmp;
+  }
+
+  const maxRangeDays = 180;
+  const maxToDate = new Date(fromDate);
+  maxToDate.setDate(maxToDate.getDate() + maxRangeDays - 1);
+  if (toDate > maxToDate) {
+    toDate = maxToDate;
+  }
+
+  const gate = query.gate && String(query.gate).trim() && String(query.gate).trim() !== "ALL"
+    ? String(query.gate).trim()
+    : "ALL";
+  const zone = query.zone && String(query.zone).trim() && String(query.zone).trim() !== "ALL"
+    ? String(query.zone).trim()
+    : "ALL";
+  const passType = ["all", "student", "visitor"].includes(String(query.pass_type || "").toLowerCase())
+    ? String(query.pass_type || "").toLowerCase()
+    : "all";
+  const vehicleType = query.vehicle_type && String(query.vehicle_type).trim() && String(query.vehicle_type).trim() !== "ALL"
+    ? String(query.vehicle_type).trim()
+    : "ALL";
+
+  const from = toDateOnly(fromDate);
+  const to = toDateOnly(toDate);
+  const preset = safePreset;
+
+  return {
+    preset,
+    from,
+    to,
+    gate,
+    zone,
+    pass_type: passType,
+    vehicle_type: vehicleType
+  };
 }
 
 function buildWhereClause(filters) {
-  const where = ["DATE(sl.scanned_at) BETWEEN ? AND ?"];
+  const where = ["DATE(event_time) BETWEEN ? AND ?"];
   const params = [filters.from, filters.to];
   if (filters.gate !== "ALL") {
-    where.push("sl.gate = ?");
+    where.push("gate = ?");
     params.push(filters.gate);
+  }
+  if (filters.zone !== "ALL") {
+    where.push("zone = ?");
+    params.push(filters.zone);
+  }
+  if (filters.pass_type !== "all") {
+    where.push("pass_type = ?");
+    params.push(filters.pass_type);
+  }
+  if (filters.vehicle_type !== "ALL") {
+    where.push("vehicle_type = ?");
+    params.push(filters.vehicle_type);
   }
   return {
     whereSql: where.join(" AND "),
     params
   };
+}
+
+function getReportQueryString(filters = {}, overrides = {}) {
+  const merged = {
+    preset: filters.preset || "last7",
+    from: filters.from || "",
+    to: filters.to || "",
+    gate: filters.gate || "ALL",
+    zone: filters.zone || "ALL",
+    pass_type: filters.pass_type || "all",
+    vehicle_type: filters.vehicle_type || "ALL",
+    ...overrides
+  };
+  const params = new URLSearchParams();
+  Object.keys(merged).forEach((key) => {
+    const value = merged[key];
+    if (value == null || value === "") return;
+    params.set(key, String(value));
+  });
+  return params.toString();
 }
 
 async function findStickerByToken(token) {
@@ -2571,84 +2663,516 @@ async function getDashboardData() {
 }
 
 async function getReportsData(filters) {
-  const { whereSql, params } = buildWhereClause(filters);
-
-  const [rows] = await pool.query(
-    `SELECT
-      sl.id,
-      sl.scanned_at,
-      sl.result,
-      sl.action,
-      sl.gate,
-      ps.slot_code AS parking_slot,
-      sl.notes,
-      s.sticker_code,
-      st.student_number,
-      st.full_name,
-      v.plate_number
-     FROM scan_logs sl
-     LEFT JOIN stickers s ON s.id = sl.sticker_id
-     LEFT JOIN vehicles v ON v.id = s.vehicle_id
-     LEFT JOIN students st ON st.id = v.student_id
-     LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
-     WHERE ${whereSql}
-     ORDER BY sl.scanned_at DESC`,
-    params
-  );
-
-  const [gateStats] = await pool.query(
-    `SELECT
-      IFNULL(sl.gate, 'Unspecified') AS gate,
-      COUNT(*) AS total
-     FROM scan_logs sl
-     WHERE ${whereSql}
-     GROUP BY sl.gate
-     ORDER BY total DESC`,
-    params
-  );
-
-  const [studentStats] = await pool.query(
-    `SELECT
-      IFNULL(st.student_number, 'Unknown') AS student_number,
-      IFNULL(st.full_name, 'Unknown Student') AS full_name,
-      COUNT(*) AS total_scans
-     FROM scan_logs sl
-     LEFT JOIN stickers s ON s.id = sl.sticker_id
-     LEFT JOIN vehicles v ON v.id = s.vehicle_id
-     LEFT JOIN students st ON st.id = v.student_id
-     WHERE ${whereSql}
-     GROUP BY st.student_number, st.full_name
-     ORDER BY total_scans DESC
-     LIMIT 10`,
-    params
-  );
-
-  const [hourStats] = await pool.query(
-    `SELECT
-      DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot,
-      COUNT(*) AS total
-     FROM scan_logs sl
-     WHERE ${whereSql}
-     GROUP BY hour_slot
-     ORDER BY hour_slot`,
-    params
-  );
-
-  const summary = {
-    totalScans: rows.length,
-    validScans: rows.filter((r) => r.result === "VALID").length,
-    totalEntries: rows.filter((r) => r.action === "ENTRY").length,
-    totalExits: rows.filter((r) => r.action === "EXIT").length,
-    uniqueStudents: new Set(rows.filter((r) => r.student_number).map((r) => r.student_number)).size
+  const safeFilters = buildReportFilters(filters);
+  const todayDate = toDateOnly(new Date());
+  const toTimeValue = (value) => {
+    const ts = new Date(value).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  const sortByTimeAsc = (a, b) => {
+    const diff = toTimeValue(a.event_time) - toTimeValue(b.event_time);
+    if (diff !== 0) return diff;
+    return Number(a.id || 0) - Number(b.id || 0);
+  };
+  const sortByTimeDesc = (a, b) => {
+    const diff = toTimeValue(b.event_time) - toTimeValue(a.event_time);
+    if (diff !== 0) return diff;
+    return Number(b.id || 0) - Number(a.id || 0);
+  };
+  const asString = (value, fallback = "Unknown") => {
+    const safe = String(value == null ? "" : value).trim();
+    return safe || fallback;
+  };
+  const computeWeekKey = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Unknown";
+    const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNum = utc.getUTCDay() || 7;
+    utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+    return `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+  };
+  const aggregateCounts = (rows, keyPicker) => {
+    const map = new Map();
+    rows.forEach((row) => {
+      const key = keyPicker(row);
+      map.set(key, Number(map.get(key) || 0) + 1);
+    });
+    return map;
+  };
+  const mapToSeries = (map, label = "count") => {
+    return Array.from(map.entries())
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .map(([bucket, total]) => ({ bucket, [label]: Number(total || 0) }));
+  };
+  const reduceSlotSummary = (slots) => {
+    return slots.reduce(
+      (acc, slot) => {
+        acc.total += 1;
+        if (slot.occupancy === "available") acc.available += 1;
+        else if (slot.occupancy === "occupied") acc.occupied += 1;
+        else acc.disabled += 1;
+        return acc;
+      },
+      { total: 0, available: 0, occupied: 0, disabled: 0 }
+    );
   };
 
+  const fetchMovementEvents = async (rangeFrom, rangeTo) => {
+    const studentWhere = [
+      "sl.result = 'VALID'",
+      "sl.action IN ('ENTRY', 'EXIT')",
+      "DATE(sl.scanned_at) BETWEEN ? AND ?"
+    ];
+    const studentParams = [rangeFrom, rangeTo];
+    if (safeFilters.gate !== "ALL") {
+      studentWhere.push("COALESCE(sl.gate, 'Unspecified') = ?");
+      studentParams.push(safeFilters.gate);
+    }
+    if (safeFilters.zone !== "ALL") {
+      studentWhere.push("COALESCE(ps.zone, sl.assigned_area, 'Unassigned') = ?");
+      studentParams.push(safeFilters.zone);
+    }
+    if (safeFilters.vehicle_type !== "ALL") {
+      studentWhere.push("COALESCE(NULLIF(TRIM(v.type), ''), 'Unknown') = ?");
+      studentParams.push(safeFilters.vehicle_type);
+    }
+
+    const visitorWhere = [
+      "vsl.result = 'VALID'",
+      "vsl.action IN ('ENTRY', 'EXIT')",
+      "DATE(vsl.scanned_at) BETWEEN ? AND ?"
+    ];
+    const visitorParams = [rangeFrom, rangeTo];
+    if (safeFilters.gate !== "ALL") {
+      visitorWhere.push("COALESCE(vsl.gate, 'Unspecified') = ?");
+      visitorParams.push(safeFilters.gate);
+    }
+    if (safeFilters.zone !== "ALL") {
+      visitorWhere.push("COALESCE(ps.zone, vp.assigned_zone, 'Visitor Zone') = ?");
+      visitorParams.push(safeFilters.zone);
+    }
+    if (safeFilters.vehicle_type !== "ALL") {
+      visitorWhere.push("COALESCE(NULLIF(TRIM(vp.vehicle_type), ''), 'Unknown') = ?");
+      visitorParams.push(safeFilters.vehicle_type);
+    }
+
+    let studentEvents = [];
+    let visitorEvents = [];
+
+    if (safeFilters.pass_type !== "visitor") {
+      const [rows] = await pool.query(
+        `SELECT
+           sl.id,
+           sl.scanned_at AS event_time,
+           sl.action,
+           COALESCE(sl.gate, 'Unspecified') AS gate,
+           COALESCE(ps.zone, sl.assigned_area, 'Unassigned') AS zone,
+           COALESCE(NULLIF(TRIM(v.type), ''), 'Unknown') AS vehicle_type,
+           'student' AS pass_type,
+           COALESCE(st.student_number, 'Unknown') AS identity_number,
+           COALESCE(st.full_name, 'Unknown Student') AS identity_name,
+           COALESCE(v.plate_number, '-') AS plate_number,
+           COALESCE(sl.sticker_id, sl.vehicle_id, sl.student_id, sl.id) AS entity_id,
+           DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
+           DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot
+         FROM scan_logs sl
+         LEFT JOIN stickers s ON s.id = sl.sticker_id
+         LEFT JOIN vehicles v ON v.id = COALESCE(sl.vehicle_id, s.vehicle_id)
+         LEFT JOIN students st ON st.id = COALESCE(sl.student_id, v.student_id)
+         LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+         WHERE ${studentWhere.join(" AND ")}
+         ORDER BY sl.scanned_at ASC, sl.id ASC`,
+        studentParams
+      );
+      studentEvents = rows;
+    }
+
+    if (safeFilters.pass_type !== "student") {
+      const [rows] = await pool.query(
+        `SELECT
+           vsl.id,
+           vsl.scanned_at AS event_time,
+           vsl.action,
+           COALESCE(vsl.gate, 'Unspecified') AS gate,
+           COALESCE(ps.zone, vp.assigned_zone, 'Visitor Zone') AS zone,
+           COALESCE(NULLIF(TRIM(vp.vehicle_type), ''), 'Unknown') AS vehicle_type,
+           'visitor' AS pass_type,
+           COALESCE(vp.pass_code, CONCAT('VIS-', vsl.visitor_pass_id)) AS identity_number,
+           COALESCE(vp.visitor_name, 'Visitor') AS identity_name,
+           COALESCE(vp.plate_number, '-') AS plate_number,
+           COALESCE(vsl.visitor_pass_id, vsl.id) AS entity_id,
+           DATE_FORMAT(vsl.scanned_at, '%Y-%m-%d') AS day_key,
+           DATE_FORMAT(vsl.scanned_at, '%H:00') AS hour_slot
+         FROM visitor_scan_logs vsl
+         JOIN visitor_passes vp ON vp.id = vsl.visitor_pass_id
+         LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
+         WHERE ${visitorWhere.join(" AND ")}
+         ORDER BY vsl.scanned_at ASC, vsl.id ASC`,
+        visitorParams
+      );
+      visitorEvents = rows;
+    }
+
+    return [...studentEvents, ...visitorEvents]
+      .map((row) => ({
+        ...row,
+        action: asString(row.action, "VERIFY").toUpperCase(),
+        gate: asString(row.gate, "Unspecified"),
+        zone: asString(row.zone, "Unassigned"),
+        vehicle_type: asString(row.vehicle_type, "Unknown"),
+        pass_type: asString(row.pass_type, "student").toLowerCase(),
+        identity_number: asString(row.identity_number, "Unknown"),
+        identity_name: asString(row.identity_name, "Unknown"),
+        plate_number: asString(row.plate_number, "-")
+      }))
+      .sort(sortByTimeAsc);
+  };
+
+  const [events, optionSets, parkingSlotOverview, todayEvents] = await Promise.all([
+    fetchMovementEvents(safeFilters.from, safeFilters.to),
+    Promise.all([
+      pool.query(
+        `SELECT gate
+         FROM (
+           SELECT DISTINCT COALESCE(gate, 'Unspecified') AS gate FROM scan_logs
+           UNION
+           SELECT DISTINCT COALESCE(gate, 'Unspecified') AS gate FROM visitor_scan_logs
+         ) g
+         WHERE gate IS NOT NULL AND gate <> ''
+         ORDER BY gate ASC`
+      ),
+      pool.query(
+        `SELECT DISTINCT COALESCE(zone, 'General') AS zone
+         FROM parking_slots
+         ORDER BY zone ASC`
+      ),
+      pool.query(
+        `SELECT vehicle_type
+         FROM (
+           SELECT DISTINCT COALESCE(NULLIF(TRIM(type), ''), 'Unknown') AS vehicle_type FROM vehicles
+           UNION
+           SELECT DISTINCT COALESCE(NULLIF(TRIM(vehicle_type), ''), 'Unknown') AS vehicle_type FROM visitor_passes
+         ) v
+         ORDER BY vehicle_type ASC`
+      )
+    ]),
+    getParkingSlotOverview(),
+    fetchMovementEvents(todayDate, todayDate)
+  ]);
+
+  const [gateRows, zoneRows, vehicleRows] = optionSets.map((result) => (Array.isArray(result) ? result[0] || [] : []));
+  const filterOptions = {
+    gates: gateRows.map((row) => asString(row.gate, "Unspecified")),
+    zones: zoneRows.map((row) => asString(row.zone, "General")),
+    vehicleTypes: vehicleRows.map((row) => asString(row.vehicle_type, "Unknown")),
+    passTypes: [
+      { value: "all", label: "All Pass Types" },
+      { value: "student", label: "Students" },
+      { value: "visitor", label: "Visitors / Temporary" }
+    ]
+  };
+
+  const scopedSlots = parkingSlotOverview.slots.filter((slot) => {
+    const zone = asString(slot.zone, "General");
+    if (safeFilters.zone !== "ALL") return zone === safeFilters.zone;
+    if (safeFilters.pass_type === "student") return !isVisitorZone(zone);
+    if (safeFilters.pass_type === "visitor") return isVisitorZone(zone);
+    return true;
+  });
+  const slotSummary = reduceSlotSummary(scopedSlots);
+
+  const entryEvents = events.filter((row) => row.action === "ENTRY");
+  const exitEvents = events.filter((row) => row.action === "EXIT");
+  const todayEntryEvents = todayEvents.filter((row) => row.action === "ENTRY");
+  const todayEventsByHour = aggregateCounts(todayEvents, (row) => row.hour_slot || "00:00");
+  const busiestHourToday = Array.from(todayEventsByHour.entries())
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
+
+  const hourlyMap = aggregateCounts(events, (row) => row.hour_slot || "00:00");
+  const busiestHours = mapToSeries(hourlyMap, "total");
+  const busiestHourOverall = busiestHours
+    .slice()
+    .sort((a, b) => Number(b.total || 0) - Number(a.total || 0))[0] || null;
+
+  const gateMap = aggregateCounts(events, (row) => row.gate || "Unspecified");
+  const gateUsage = mapToSeries(gateMap, "total")
+    .sort((a, b) => Number(b.total || 0) - Number(a.total || 0));
+
+  const zoneMap = aggregateCounts(entryEvents, (row) => row.zone || "Unassigned");
+  const zoneUsageRaw = mapToSeries(zoneMap, "total")
+    .sort((a, b) => Number(b.total || 0) - Number(a.total || 0));
+  const totalZoneEntries = zoneUsageRaw.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const zoneUsage = zoneUsageRaw.map((row) => ({
+    zone: row.bucket,
+    total: row.total,
+    percent: totalZoneEntries > 0 ? Number(((row.total / totalZoneEntries) * 100).toFixed(1)) : 0
+  }));
+  const mostUsedZone = zoneUsage[0] || null;
+  const leastUsedZone = zoneUsage.length ? zoneUsage[zoneUsage.length - 1] : null;
+
+  const dailyPeakMap = new Map();
+  events.forEach((row) => {
+    const dayKey = row.day_key || "Unknown";
+    const hourSlot = row.hour_slot || "00:00";
+    const dayData = dailyPeakMap.get(dayKey) || new Map();
+    dayData.set(hourSlot, Number(dayData.get(hourSlot) || 0) + 1);
+    dailyPeakMap.set(dayKey, dayData);
+  });
+  const peakHoursByDay = Array.from(dailyPeakMap.entries())
+    .map(([day, hourMapLocal]) => {
+      const best = Array.from(hourMapLocal.entries()).sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || ["00:00", 0];
+      return {
+        day,
+        hour_slot: best[0],
+        total: Number(best[1] || 0)
+      };
+    })
+    .sort((a, b) => String(a.day).localeCompare(String(b.day)))
+    .slice(-31);
+
+  const eventsByEntity = new Map();
+  events.forEach((row) => {
+    const key = `${row.pass_type}:${row.entity_id}:${row.identity_number}`;
+    if (!eventsByEntity.has(key)) {
+      eventsByEntity.set(key, []);
+    }
+    eventsByEntity.get(key).push(row);
+  });
+
+  const sessions = [];
+  eventsByEntity.forEach((entityRows) => {
+    const sorted = entityRows.slice().sort(sortByTimeAsc);
+    let openEntry = null;
+    sorted.forEach((row) => {
+      if (row.action === "ENTRY") {
+        openEntry = row;
+        return;
+      }
+      if (row.action !== "EXIT" || !openEntry) return;
+      const durationMinutes = Math.max(0, Math.floor((toTimeValue(row.event_time) - toTimeValue(openEntry.event_time)) / 60000));
+      const threshold = openEntry.pass_type === "visitor" ? VISITOR_OVERSTAY_MINUTES : OVERSTAY_LIMIT_MINUTES;
+      const overstayMinutes = Math.max(0, durationMinutes - threshold);
+      sessions.push({
+        pass_type: openEntry.pass_type,
+        identity_number: openEntry.identity_number,
+        identity_name: openEntry.identity_name,
+        plate_number: openEntry.plate_number,
+        vehicle_type: openEntry.vehicle_type,
+        zone: openEntry.zone,
+        gate: openEntry.gate,
+        entry_at: openEntry.event_time,
+        exit_at: row.event_time,
+        duration_minutes: durationMinutes,
+        duration_label: formatDurationMinutes(durationMinutes),
+        overstay_limit_minutes: threshold,
+        overstay_minutes: overstayMinutes,
+        is_overstay: overstayMinutes > 0
+      });
+      openEntry = null;
+    });
+  });
+
+  const completedSessionCount = sessions.length;
+  const avgDurationMinutes = completedSessionCount
+    ? Math.round(sessions.reduce((sum, row) => sum + Number(row.duration_minutes || 0), 0) / completedSessionCount)
+    : 0;
+
+  const durationByZoneMap = new Map();
+  sessions.forEach((row) => {
+    const zone = asString(row.zone, "Unassigned");
+    const current = durationByZoneMap.get(zone) || { zone, total_minutes: 0, sessions: 0 };
+    current.total_minutes += Number(row.duration_minutes || 0);
+    current.sessions += 1;
+    durationByZoneMap.set(zone, current);
+  });
+  const durationByZone = Array.from(durationByZoneMap.values())
+    .map((row) => {
+      const avgMinutes = row.sessions > 0 ? Math.round(row.total_minutes / row.sessions) : 0;
+      return {
+        zone: row.zone,
+        sessions: row.sessions,
+        avg_minutes: avgMinutes,
+        avg_label: formatDurationMinutes(avgMinutes)
+      };
+    })
+    .sort((a, b) => Number(b.sessions || 0) - Number(a.sessions || 0));
+
+  const overstaySessions = sessions.filter((row) => row.is_overstay);
+  const overstayByDay = mapToSeries(aggregateCounts(overstaySessions, (row) => toDateOnly(row.exit_at) || "Unknown"), "total");
+  const overstayByWeek = mapToSeries(aggregateCounts(overstaySessions, (row) => computeWeekKey(row.exit_at)), "total");
+  const overstayByMonth = mapToSeries(aggregateCounts(overstaySessions, (row) => {
+    const dt = toDateOnly(row.exit_at);
+    return dt ? dt.slice(0, 7) : "Unknown";
+  }), "total");
+
+  const repeatOverstayMap = new Map();
+  overstaySessions.forEach((row) => {
+    const key = `${row.pass_type}:${row.identity_number}:${row.identity_name}`;
+    const current = repeatOverstayMap.get(key) || {
+      pass_type: row.pass_type,
+      identity_number: row.identity_number,
+      identity_name: row.identity_name,
+      plate_number: row.plate_number,
+      overstay_count: 0,
+      total_overstay_minutes: 0
+    };
+    current.overstay_count += 1;
+    current.total_overstay_minutes += Number(row.overstay_minutes || 0);
+    repeatOverstayMap.set(key, current);
+  });
+  const repeatOverstays = Array.from(repeatOverstayMap.values())
+    .filter((row) => row.overstay_count > 1)
+    .sort((a, b) => Number(b.overstay_count || 0) - Number(a.overstay_count || 0))
+    .slice(0, 10)
+    .map((row) => ({
+      ...row,
+      total_overstay_label: formatDurationMinutes(row.total_overstay_minutes)
+    }));
+
+  const fromDate = new Date(`${safeFilters.from}T00:00:00Z`);
+  const toDate = new Date(`${safeFilters.to}T00:00:00Z`);
+  const rangeDays = Math.max(1, Math.floor((toDate.getTime() - fromDate.getTime()) / 86400000) + 1);
+  const trendGranularity = rangeDays <= 2 ? "hour" : "day";
+  const bucketList = [];
+  if (trendGranularity === "hour") {
+    const cursor = new Date(fromDate);
+    const end = new Date(toDate);
+    end.setUTCHours(23, 0, 0, 0);
+    while (cursor.getTime() <= end.getTime()) {
+      const yyyy = cursor.getUTCFullYear();
+      const mm = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(cursor.getUTCDate()).padStart(2, "0");
+      const hh = String(cursor.getUTCHours()).padStart(2, "0");
+      bucketList.push(`${yyyy}-${mm}-${dd} ${hh}:00`);
+      cursor.setUTCHours(cursor.getUTCHours() + 1);
+    }
+  } else {
+    const cursor = new Date(fromDate);
+    const end = new Date(toDate);
+    while (cursor.getTime() <= end.getTime()) {
+      const yyyy = cursor.getUTCFullYear();
+      const mm = String(cursor.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(cursor.getUTCDate()).padStart(2, "0");
+      bucketList.push(`${yyyy}-${mm}-${dd}`);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  }
+
+  const trendBase = new Map();
+  events.forEach((row) => {
+    const bucket = trendGranularity === "hour"
+      ? `${row.day_key || "Unknown"} ${row.hour_slot || "00:00"}`
+      : (row.day_key || "Unknown");
+    const current = trendBase.get(bucket) || { entries: 0, exits: 0 };
+    if (row.action === "ENTRY") current.entries += 1;
+    if (row.action === "EXIT") current.exits += 1;
+    trendBase.set(bucket, current);
+  });
+
+  const totalSlotsNow = Number(slotSummary.total || 0);
+  const occupiedNow = Number(slotSummary.occupied || 0);
+  const netRangeDelta = entryEvents.length - exitEvents.length;
+  let estimatedOccupied = Math.max(0, Math.min(totalSlotsNow, occupiedNow - netRangeDelta));
+  const slotTrends = bucketList.map((bucket) => {
+    const base = trendBase.get(bucket) || { entries: 0, exits: 0 };
+    estimatedOccupied = Math.max(0, Math.min(totalSlotsNow, estimatedOccupied + base.entries - base.exits));
+    const available = Math.max(0, totalSlotsNow - estimatedOccupied);
+    return {
+      bucket,
+      entries: base.entries,
+      exits: base.exits,
+      occupied: estimatedOccupied,
+      available
+    };
+  });
+
+  const lowSlotThreshold = Math.max(1, Math.ceil(totalSlotsNow * 0.15));
+  const underusedThreshold = Math.floor(totalSlotsNow * 0.35);
+  const slotStateMoments = slotTrends.reduce(
+    (acc, row) => {
+      if (totalSlotsNow <= 0) return acc;
+      if (row.available <= 0) acc.full += 1;
+      else if (row.available <= lowSlotThreshold) acc.nearly_full += 1;
+      if (row.occupied <= underusedThreshold) acc.underused += 1;
+      return acc;
+    },
+    { full: 0, nearly_full: 0, underused: 0 }
+  );
+
+  const movementRows = events
+    .slice()
+    .sort(sortByTimeDesc)
+    .slice(0, 200);
+
+  const summary = {
+    total_vehicles_today: todayEntryEvents.length,
+    active_parked_vehicles: Number(slotSummary.occupied || 0),
+    busiest_hour_today: busiestHourToday ? `${busiestHourToday[0]} (${busiestHourToday[1]})` : "No data",
+    busiest_hour_overall: busiestHourOverall ? `${busiestHourOverall.bucket} (${busiestHourOverall.total})` : "No data",
+    most_used_zone: mostUsedZone ? `${mostUsedZone.zone} (${mostUsedZone.total})` : "No data",
+    least_used_zone: leastUsedZone ? `${leastUsedZone.zone} (${leastUsedZone.total})` : "No data",
+    average_parking_duration_minutes: avgDurationMinutes,
+    average_parking_duration_label: completedSessionCount ? formatDurationMinutes(avgDurationMinutes) : "No completed sessions",
+    total_overstay_cases: overstaySessions.length,
+    available_slots_now: Number(slotSummary.available || 0),
+    total_slots_now: totalSlotsNow,
+    completed_sessions: completedSessionCount,
+    zone_full_moments: slotStateMoments.full,
+    zone_nearly_full_moments: slotStateMoments.nearly_full,
+    zone_underused_moments: slotStateMoments.underused,
+    overstay_limit_label: formatHoursLabel(OVERSTAY_LIMIT_HOURS),
+    visitor_overstay_limit_label: formatHoursLabel(VISITOR_OVERSTAY_HOURS)
+  };
+
+  const exportRows = events
+    .slice()
+    .sort(sortByTimeDesc)
+    .map((row) => ({
+    scanned_at: row.event_time,
+    pass_type: row.pass_type,
+    identity_number: row.identity_number,
+    identity_name: row.identity_name,
+    plate_number: row.plate_number,
+    vehicle_type: row.vehicle_type,
+    zone: row.zone,
+    gate: row.gate,
+    action: row.action
+  }));
+
   return {
-    filters,
+    filters: {
+      ...safeFilters,
+      query_string: getReportQueryString(safeFilters),
+      range_label: `${safeFilters.from} to ${safeFilters.to}`
+    },
+    filterOptions,
     summary,
-    rows,
-    gateStats,
-    studentStats,
-    hourStats
+    charts: {
+      busiestHours,
+      gateUsage,
+      zoneUsage,
+      slotTrends,
+      overstayByDay,
+      overstayByWeek,
+      overstayByMonth
+    },
+    tables: {
+      peakHoursByDay,
+      durationByZone,
+      repeatOverstays,
+      sessions: sessions
+        .slice()
+        .sort((a, b) => toTimeValue(b.exit_at) - toTimeValue(a.exit_at))
+        .slice(0, 80),
+      movementRows
+    },
+    exportRows,
+    metadata: {
+      trend_granularity: trendGranularity,
+      range_days: rangeDays
+    }
   };
 }
 
@@ -5985,45 +6509,109 @@ app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const filters = buildReportFilters(req.query);
     const data = await getReportsData(filters);
+    const format = String(req.query.format || "").trim().toLowerCase();
 
-    if (req.query.format === "csv") {
+    if (format === "csv" || format === "excel") {
       const header = [
-        "scanned_at",
-        "student_number",
-        "full_name",
+        "event_time",
+        "pass_type",
+        "identity_number",
+        "identity_name",
         "plate_number",
-        "sticker_code",
-        "result",
-        "action",
+        "vehicle_type",
+        "zone",
         "gate",
-        "parking_slot",
-        "notes"
+        "action",
       ];
       const lines = [header.join(",")];
-      for (const row of data.rows) {
+      for (const row of data.exportRows) {
         lines.push(
           [
             escapeCsv(row.scanned_at),
-            escapeCsv(row.student_number),
-            escapeCsv(row.full_name),
+            escapeCsv(row.pass_type),
+            escapeCsv(row.identity_number),
+            escapeCsv(row.identity_name),
             escapeCsv(row.plate_number),
-            escapeCsv(row.sticker_code),
-            escapeCsv(row.result),
-            escapeCsv(row.action),
+            escapeCsv(row.vehicle_type),
+            escapeCsv(row.zone),
             escapeCsv(row.gate),
-            escapeCsv(row.parking_slot),
-            escapeCsv(row.notes)
+            escapeCsv(row.action),
           ].join(",")
         );
       }
 
-      const filename = `naap-scan-report-${filters.from}-to-${filters.to}.csv`;
+      const filename = `naap-analytics-movement-${filters.from}-to-${filters.to}.csv`;
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       return res.send(lines.join("\n"));
     }
 
-    res.render("reports", data);
+    if (format === "analytics_csv") {
+      const lines = [];
+      lines.push("NAAP Parking Analytics");
+      lines.push(`Date Range,${escapeCsv(`${data.filters.from} to ${data.filters.to}`)}`);
+      lines.push(`Preset,${escapeCsv(data.filters.preset)}`);
+      lines.push(`Gate Filter,${escapeCsv(data.filters.gate)}`);
+      lines.push(`Zone Filter,${escapeCsv(data.filters.zone)}`);
+      lines.push(`Pass Type Filter,${escapeCsv(data.filters.pass_type)}`);
+      lines.push(`Vehicle Type Filter,${escapeCsv(data.filters.vehicle_type)}`);
+      lines.push("");
+
+      lines.push("Summary");
+      lines.push("metric,value");
+      lines.push(`total_vehicles_today,${escapeCsv(data.summary.total_vehicles_today)}`);
+      lines.push(`active_parked_vehicles,${escapeCsv(data.summary.active_parked_vehicles)}`);
+      lines.push(`busiest_hour_today,${escapeCsv(data.summary.busiest_hour_today)}`);
+      lines.push(`most_used_zone,${escapeCsv(data.summary.most_used_zone)}`);
+      lines.push(`average_parking_duration,${escapeCsv(data.summary.average_parking_duration_label)}`);
+      lines.push(`total_overstay_cases,${escapeCsv(data.summary.total_overstay_cases)}`);
+      lines.push(`available_slots_now,${escapeCsv(data.summary.available_slots_now)}`);
+      lines.push("");
+
+      lines.push("Busiest Hours");
+      lines.push("hour_slot,total_scans");
+      data.charts.busiestHours.forEach((row) => {
+        lines.push([escapeCsv(row.bucket), escapeCsv(row.total)].join(","));
+      });
+      lines.push("");
+
+      lines.push("Zone Usage");
+      lines.push("zone,total_entries,share_percent");
+      data.charts.zoneUsage.forEach((row) => {
+        lines.push([escapeCsv(row.zone), escapeCsv(row.total), escapeCsv(row.percent)].join(","));
+      });
+      lines.push("");
+
+      lines.push("Overstay Frequency (Daily)");
+      lines.push("date,total_overstay_cases");
+      data.charts.overstayByDay.forEach((row) => {
+        lines.push([escapeCsv(row.bucket), escapeCsv(row.total)].join(","));
+      });
+      lines.push("");
+
+      lines.push("Slot Trend");
+      lines.push("bucket,entries,exits,occupied,available");
+      data.charts.slotTrends.forEach((row) => {
+        lines.push([
+          escapeCsv(row.bucket),
+          escapeCsv(row.entries),
+          escapeCsv(row.exits),
+          escapeCsv(row.occupied),
+          escapeCsv(row.available)
+        ].join(","));
+      });
+
+      const filename = `naap-analytics-summary-${filters.from}-to-${filters.to}.csv`;
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(lines.join("\n"));
+    }
+
+    const printMode = format === "print";
+    res.render("reports", {
+      ...data,
+      printMode
+    });
   } catch (error) {
     console.error("Reports error:", error);
     res.status(500).send("An error occurred loading reports.");
