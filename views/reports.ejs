@@ -1,4 +1,4 @@
-﻿<%- include("partials/header") %>
+<%- include("partials/header") %>
 <%
   const gateStatsSafe = Array.isArray(gateStats) ? gateStats : [];
   const studentStatsSafe = Array.isArray(studentStats) ? studentStats : [];
@@ -18,75 +18,77 @@
   const mostUsedGateLabel = mostUsedGate ? `${mostUsedGate.gate || "Unspecified"} (${mostUsedGate.total || 0})` : "No data";
 %>
 
-<section class="dashboard-hero">
-  <div class="hero-greeting">
-    <h2>Analytics</h2>
-    <h1>Parking Analytics Dashboard</h1>
-  </div>
-  <div class="hero-cards">
-    <div class="hero-card">
-      <h3>Total Scans</h3>
-      <p><%= summarySafe.totalScans || 0 %></p>
+<div class="analytics-shell">
+  <section class="panel analytics-header-panel">
+    <div class="section-head analytics-head">
+      <h2>Analytics</h2>
+      <h1>Parking Analytics Dashboard</h1>
+      <p>Operational trends for gate movement, usage share, and student scan activity.</p>
     </div>
-    <div class="hero-card">
-      <h3>Valid Scans</h3>
-      <p><%= summarySafe.validScans || 0 %></p>
-    </div>
-    <div class="hero-card">
-      <h3>Entries</h3>
-      <p><%= summarySafe.totalEntries || 0 %></p>
-    </div>
-    <div class="hero-card">
-      <h3>Exits</h3>
-      <p><%= summarySafe.totalExits || 0 %></p>
-    </div>
-    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
-      <h3>Busiest Hour</h3>
-      <p style="font-size:1rem;"><%= busiestHourLabel %></p>
-    </div>
-    <div class="hero-card" style="background: rgba(16, 185, 129, 0.22); border-color: rgba(110, 231, 183, 0.45);">
-      <h3>Most Used Gate</h3>
-      <p style="font-size:1rem;"><%= mostUsedGateLabel %></p>
-    </div>
-  </div>
-</section>
 
-<div class="overlap-wrapper reports-overlap">
-  <section class="panel reports-filter-panel">
+    <div class="analytics-summary-grid">
+      <article class="analytics-summary-card">
+        <span>Total Scans</span>
+        <strong><%= summarySafe.totalScans || 0 %></strong>
+      </article>
+      <article class="analytics-summary-card">
+        <span>Valid Scans</span>
+        <strong><%= summarySafe.validScans || 0 %></strong>
+      </article>
+      <article class="analytics-summary-card">
+        <span>Entries</span>
+        <strong><%= summarySafe.totalEntries || 0 %></strong>
+      </article>
+      <article class="analytics-summary-card">
+        <span>Exits</span>
+        <strong><%= summarySafe.totalExits || 0 %></strong>
+      </article>
+      <article class="analytics-summary-card analytics-summary-card-muted">
+        <span>Busiest Hour</span>
+        <strong><%= busiestHourLabel %></strong>
+      </article>
+      <article class="analytics-summary-card analytics-summary-card-success">
+        <span>Most Used Gate</span>
+        <strong><%= mostUsedGateLabel %></strong>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel analytics-filter-panel">
     <div class="section-head">
       <h2>Filters and Export</h2>
-      <p>Analytics-only view. Detailed per-scan logs are in <a href="/admin/records" class="link-btn">Gate Records</a>.</p>
+      <p>Need per-scan details? Open <a href="/admin/records" class="link-btn">Gate Records</a>.</p>
     </div>
 
-    <form method="get" action="/reports" class="filters-grid reports-filters-grid">
-      <div>
-        <label for="reportFrom">From</label>
-        <input id="reportFrom" type="date" name="from" value="<%= filters.from %>" style="border:1px solid var(--line);" />
-      </div>
-      <div>
-        <label for="reportTo">To</label>
-        <input id="reportTo" type="date" name="to" value="<%= filters.to %>" style="border:1px solid var(--line);" />
-      </div>
-      <div>
-        <label for="reportGate">Gate</label>
-        <select id="reportGate" name="gate" style="border:1px solid var(--line);">
+    <form method="get" action="/reports" class="analytics-filter-form">
+      <label>
+        <span>From</span>
+        <input id="reportFrom" type="date" name="from" value="<%= filters.from %>" />
+      </label>
+      <label>
+        <span>To</span>
+        <input id="reportTo" type="date" name="to" value="<%= filters.to %>" />
+      </label>
+      <label>
+        <span>Gate</span>
+        <select id="reportGate" name="gate">
           <option value="ALL" <%= filters.gate === "ALL" ? "selected" : "" %>>All Gates</option>
           <% gateStatsSafe.forEach((item) => { %>
             <% const gateName = item.gate || "Unspecified"; %>
             <option value="<%= gateName %>" <%= filters.gate === gateName ? "selected" : "" %>><%= gateName %></option>
           <% }) %>
         </select>
-      </div>
+      </label>
 
-      <div class="filters-actions reports-filters-actions">
-        <button type="submit" style="background:var(--blue-mid); color:#fff;">Apply Filters</button>
+      <div class="analytics-filter-actions">
+        <button type="submit">Apply Filters</button>
         <a class="link-btn" href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">Export CSV</a>
         <a class="link-btn" href="/admin/records">Open Gate Records</a>
       </div>
     </form>
   </section>
 
-  <section class="dashboard-grid">
+  <section class="analytics-grid">
     <article class="panel">
       <div class="section-head">
         <h2>Hourly Traffic</h2>
@@ -95,7 +97,7 @@
       <% if (!hourStatsSafe.length) { %>
         <div class="empty-state"><p>No hourly data available for current filters.</p></div>
       <% } else { %>
-        <div style="height:280px;"><canvas id="hourlyTrafficChart"></canvas></div>
+        <div class="analytics-chart-wrap"><canvas id="hourlyTrafficChart"></canvas></div>
       <% } %>
     </article>
 
@@ -107,12 +109,12 @@
       <% if (!gateStatsSafe.length) { %>
         <div class="empty-state"><p>No gate usage data for current filters.</p></div>
       <% } else { %>
-        <div style="height:280px;"><canvas id="gateShareChart"></canvas></div>
+        <div class="analytics-chart-wrap"><canvas id="gateShareChart"></canvas></div>
       <% } %>
     </article>
   </section>
 
-  <section class="dashboard-grid">
+  <section class="analytics-grid">
     <article class="panel">
       <div class="section-head">
         <h2>Top Students</h2>
@@ -121,7 +123,7 @@
       <% if (!studentStatsSafe.length) { %>
         <div class="empty-state"><p>No student scan data found.</p></div>
       <% } else { %>
-        <div class="table-wrap">
+        <div class="table-wrap analytics-table-wrap">
           <table>
             <thead>
               <tr>
@@ -152,7 +154,7 @@
       <% if (!hourStatsSafe.length) { %>
         <div class="empty-state"><p>No hourly breakdown to display.</p></div>
       <% } else { %>
-        <div class="table-wrap">
+        <div class="table-wrap analytics-table-wrap">
           <table>
             <thead>
               <tr>
@@ -253,4 +255,3 @@
 </script>
 
 <%- include("partials/footer") %>
-
