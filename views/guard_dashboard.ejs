@@ -115,6 +115,28 @@
     </p>
   </section>
 
+  <section class="panel guard-alerts-panel">
+    <div class="section-head">
+      <h2>Operational Alerts</h2>
+      <p>Live security and capacity alerts relevant for guard operations.</p>
+    </div>
+    <div class="guard-alert-metrics">
+      <span class="badge badge-soft">Invalid Today: <strong id="guardMetricInvalid"><%= safeMetrics.invalidScans || 0 %></strong></span>
+      <span class="badge badge-soft">Pending: <strong id="guardMetricPending"><%= safeMetrics.pendingApprovals || 0 %></strong></span>
+      <span class="badge badge-soft">Full Zones: <strong id="guardMetricFullZones"><%= safeMetrics.fullParkingZones || 0 %></strong></span>
+      <span class="badge badge-soft">Suspicious: <strong id="guardMetricSuspicious"><%= safeMetrics.suspiciousScans || 0 %></strong></span>
+    </div>
+    <div class="remote-queue-toolbar" style="margin-top:0.65rem;">
+      <p id="guardAlertsMeta" class="helper-text">Loading active alerts...</p>
+      <button type="button" id="guardAlertsRefreshBtn" class="btn-sm">Refresh Alerts</button>
+    </div>
+    <div id="guardAlertsList" class="guard-alert-list">
+      <div class="empty-state" style="padding:1rem;">
+        <p>Loading alerts...</p>
+      </div>
+    </div>
+  </section>
+
   <section class="panel">
     <div class="section-head">
       <h2>Current Occupancy</h2>
@@ -291,6 +313,13 @@
     const healthDevice = document.getElementById("guardHealthDevice");
     const healthGate = document.getElementById("guardHealthGate");
     const healthHint = document.getElementById("guardHealthHint");
+    const guardAlertsMeta = document.getElementById("guardAlertsMeta");
+    const guardAlertsList = document.getElementById("guardAlertsList");
+    const guardAlertsRefreshBtn = document.getElementById("guardAlertsRefreshBtn");
+    const guardMetricInvalid = document.getElementById("guardMetricInvalid");
+    const guardMetricPending = document.getElementById("guardMetricPending");
+    const guardMetricFullZones = document.getElementById("guardMetricFullZones");
+    const guardMetricSuspicious = document.getElementById("guardMetricSuspicious");
 
     const guardEntryModal = document.getElementById("guardEntryModal");
     const guardEntryCloseBtn = document.getElementById("guardEntryCloseBtn");
@@ -318,6 +347,9 @@
     let fallbackPollTimer = null;
     let queueRefreshTimer = null;
     let isLiveConnected = false;
+    let alertsRefreshTimer = null;
+    let notificationEventSource = null;
+    let notificationReconnectTimer = null;
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -443,6 +475,140 @@
       }
     }
 
+    function notificationSeverityClass(severity) {
+      const safe = String(severity || "low").toLowerCase();
+      if (safe === "critical" || safe === "high") return "sev-high";
+      if (safe === "medium") return "sev-medium";
+      return "sev-low";
+    }
+
+    function formatAlertTime(value) {
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return "-";
+      return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(dt);
+    }
+
+    function renderGuardAlert(alert) {
+      const isResolved = String(alert.status || "").toLowerCase() === "resolved";
+      const severityClass = notificationSeverityClass(alert.severity);
+      return `
+        <article class="guard-alert-row ${isResolved ? "is-resolved" : ""}">
+          <div class="guard-alert-main">
+            <p class="guard-alert-title">
+              <span class="notify-severity-dot ${severityClass}"></span>
+              ${escapeHtml(alert.title || "Alert")}
+            </p>
+            <p class="guard-alert-message">${escapeHtml(alert.message || "-")}</p>
+            <p class="guard-alert-meta">
+              <span class="notification-chip">${escapeHtml(alert.type || "ALERT")}</span>
+              <span class="notification-chip">${escapeHtml(String(alert.severity || "low").toUpperCase())}</span>
+              <span class="notification-chip ${isResolved ? "state-resolved" : "state-active"}">${isResolved ? "resolved" : "active"}</span>
+              <span>${escapeHtml(formatAlertTime(alert.created_at))}</span>
+            </p>
+          </div>
+        </article>
+      `;
+    }
+
+    async function fetchGuardAlertSummary() {
+      try {
+        const response = await fetch("/api/notifications/summary", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({ ok: false }));
+        if (!response.ok || !data.ok) return;
+        const summary = data.summary || {};
+        if (guardMetricInvalid) guardMetricInvalid.textContent = summary.invalid_active ?? "0";
+        if (guardMetricPending) guardMetricPending.textContent = summary.pending_active ?? "0";
+        if (guardMetricFullZones) guardMetricFullZones.textContent = summary.full_zone_active ?? "0";
+        if (guardMetricSuspicious) guardMetricSuspicious.textContent = summary.suspicious_active ?? "0";
+      } catch (_error) {
+        // non-fatal
+      }
+    }
+
+    async function fetchGuardAlerts({ silent = false } = {}) {
+      if (!silent && guardAlertsMeta) guardAlertsMeta.textContent = "Loading active alerts...";
+      try {
+        const response = await fetch("/api/notifications?limit=8&status=active", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({ ok: false, rows: [] }));
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || `Unable to load alerts (${response.status})`);
+        }
+
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        if (guardAlertsList) {
+          guardAlertsList.innerHTML = rows.length
+            ? rows.map(renderGuardAlert).join("")
+            : `<div class="empty-state" style="padding:1rem;"><p>No active operational alerts.</p></div>`;
+        }
+        if (guardAlertsMeta) {
+          guardAlertsMeta.textContent = rows.length
+            ? `${rows.length} active alert(s) shown.`
+            : "No active operational alerts.";
+        }
+      } catch (error) {
+        if (guardAlertsList) {
+          guardAlertsList.innerHTML = `<div class="empty-state" style="padding:1rem;"><p>${escapeHtml(error.message || "Unable to load alerts.")}</p></div>`;
+        }
+        if (guardAlertsMeta) guardAlertsMeta.textContent = error.message || "Unable to load alerts.";
+      }
+    }
+
+    function scheduleAlertRefresh(delayMs = 140) {
+      if (alertsRefreshTimer) return;
+      alertsRefreshTimer = window.setTimeout(async () => {
+        alertsRefreshTimer = null;
+        await Promise.all([
+          fetchGuardAlerts({ silent: true }),
+          fetchGuardAlertSummary()
+        ]);
+      }, Math.max(60, Number(delayMs) || 140));
+    }
+
+    function closeNotificationEvents() {
+      if (notificationReconnectTimer) {
+        clearTimeout(notificationReconnectTimer);
+        notificationReconnectTimer = null;
+      }
+      if (notificationEventSource) {
+        try {
+          notificationEventSource.close();
+        } catch (_error) {
+          // ignore close race
+        }
+        notificationEventSource = null;
+      }
+    }
+
+    function connectNotificationEvents() {
+      if (typeof window.EventSource !== "function") return;
+      closeNotificationEvents();
+      const source = new EventSource("/api/notifications/events");
+      notificationEventSource = source;
+
+      source.addEventListener("notifications-updated", () => {
+        scheduleAlertRefresh(60);
+      });
+      source.addEventListener("notifications-summary", () => {
+        scheduleAlertRefresh(70);
+      });
+      source.addEventListener("error", () => {
+        if (notificationEventSource !== source) return;
+        closeNotificationEvents();
+        notificationReconnectTimer = window.setTimeout(connectNotificationEvents, 3200);
+      });
+    }
+
     function scheduleQueueRefresh(delayMs = 120) {
       if (queueRefreshTimer) return;
       queueRefreshTimer = window.setTimeout(async () => {
@@ -532,10 +698,12 @@
 
       source.addEventListener("pending-entry-created", () => {
         scheduleQueueRefresh(60);
+        scheduleAlertRefresh(80);
       });
 
       source.addEventListener("pending-entry-updated", () => {
         scheduleQueueRefresh(80);
+        scheduleAlertRefresh(110);
       });
 
       source.addEventListener("pending-entry-sync", () => {
@@ -888,6 +1056,12 @@
     queueRefreshBtn?.addEventListener("click", () => {
       fetchPendingEntries({ silent: false });
       fetchQueueHealth({ silent: false });
+      fetchGuardAlerts({ silent: false });
+      fetchGuardAlertSummary();
+    });
+    guardAlertsRefreshBtn?.addEventListener("click", () => {
+      fetchGuardAlerts({ silent: false });
+      fetchGuardAlertSummary();
     });
     guardEntryCloseBtn?.addEventListener("click", closeGuardEntryModal);
     guardEntryConfirmBtn?.addEventListener("click", confirmEntry);
@@ -902,10 +1076,15 @@
     });
     window.addEventListener("beforeunload", () => {
       closeLiveEvents();
+      closeNotificationEvents();
       stopFallbackPolling();
       if (queueRefreshTimer) {
         clearTimeout(queueRefreshTimer);
         queueRefreshTimer = null;
+      }
+      if (alertsRefreshTimer) {
+        clearTimeout(alertsRefreshTimer);
+        alertsRefreshTimer = null;
       }
     });
     document.addEventListener("visibilitychange", () => {
@@ -915,11 +1094,21 @@
         fetchQueueHealth({ silent: true });
         connectLiveEvents();
       }
+      if (!notificationEventSource) {
+        connectNotificationEvents();
+      }
     });
 
     fetchPendingEntries({ silent: false });
     fetchQueueHealth({ silent: false });
+    fetchGuardAlerts({ silent: false });
+    fetchGuardAlertSummary();
     connectLiveEvents();
+    connectNotificationEvents();
+    setInterval(() => {
+      fetchGuardAlerts({ silent: true });
+      fetchGuardAlertSummary();
+    }, 20000);
   })();
 </script>
 

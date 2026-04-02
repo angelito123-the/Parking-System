@@ -1,0 +1,454 @@
+<%- include("partials/header") %>
+<%
+  const safeSummary = typeof alertSummary === "object" && alertSummary
+    ? alertSummary
+    : {
+      invalid_qr_today: 0,
+      full_parking_zones: 0,
+      low_slot_warnings: 0,
+      pending_approvals: 0,
+      suspicious_scans: 0
+    };
+  const safeInitialAlerts = Array.isArray(initialAlerts) ? initialAlerts : [];
+  const safeInitialTotal = Number(initialTotal || safeInitialAlerts.length || 0);
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Access Control</h2>
+    <h1>Notifications & Alerts</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card" style="background: rgba(190, 18, 60, 0.2); border-color: rgba(251, 113, 133, 0.46);">
+      <h3>Invalid QR Today</h3>
+      <p id="alertsMetricInvalid"><%= safeSummary.invalid_qr_today || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(194, 65, 12, 0.2); border-color: rgba(253, 186, 116, 0.46);">
+      <h3>Full Zones</h3>
+      <p id="alertsMetricFullZones"><%= safeSummary.full_parking_zones || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(30, 64, 175, 0.2); border-color: rgba(147, 197, 253, 0.46);">
+      <h3>Pending Approvals</h3>
+      <p id="alertsMetricPending"><%= safeSummary.pending_approvals || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(124, 58, 237, 0.2); border-color: rgba(196, 181, 253, 0.46);">
+      <h3>Suspicious Scans</h3>
+      <p id="alertsMetricSuspicious"><%= safeSummary.suspicious_scans || 0 %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.2rem;">
+  <section class="panel alerts-filter-panel">
+    <div class="section-head">
+      <h2>Filter Alerts</h2>
+      <p>Search historical and active alerts by status, type, severity, and date range.</p>
+    </div>
+    <form id="alertsFilterForm" class="alerts-filter-grid">
+      <label>
+        <span>Status</span>
+        <select id="alertsFilterStatus" name="status">
+          <option value="all">All</option>
+          <option value="active" selected>Active</option>
+          <option value="resolved">Resolved</option>
+        </select>
+      </label>
+      <label>
+        <span>Type</span>
+        <select id="alertsFilterType" name="type">
+          <option value="all">All Types</option>
+          <option value="INVALID_QR_ATTEMPT">Invalid QR Attempt</option>
+          <option value="FULL_PARKING_ZONE">Full Parking Zone</option>
+          <option value="LOW_SLOT_WARNING">Low Slot Warning</option>
+          <option value="PENDING_ENTRY_APPROVAL">Pending Entry Approval</option>
+          <option value="SUSPICIOUS_SCAN_BEHAVIOR">Suspicious Scan</option>
+        </select>
+      </label>
+      <label>
+        <span>Severity</span>
+        <select id="alertsFilterSeverity" name="severity">
+          <option value="all">All Severities</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </label>
+      <label>
+        <span>Read State</span>
+        <select id="alertsFilterReadState" name="read_state">
+          <option value="all">All</option>
+          <option value="unread">Unread</option>
+          <option value="read">Read</option>
+        </select>
+      </label>
+      <label>
+        <span>From</span>
+        <input id="alertsFilterFrom" name="from" type="date" />
+      </label>
+      <label>
+        <span>To</span>
+        <input id="alertsFilterTo" name="to" type="date" />
+      </label>
+      <label class="alerts-filter-search">
+        <span>Search</span>
+        <input id="alertsFilterQuery" name="q" type="text" placeholder="QR, gate, zone, title, message..." />
+      </label>
+      <div class="alerts-filter-actions">
+        <button type="submit" class="btn-sm">Apply Filters</button>
+        <button type="button" class="btn-sm danger" id="alertsResetFiltersBtn">Reset</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel alerts-log-panel">
+    <div class="section-head">
+      <h2>Alert Log</h2>
+      <p id="alertsMetaText"><%= safeInitialTotal %> alert(s) loaded.</p>
+    </div>
+    <div class="alerts-log-toolbar">
+      <button type="button" class="btn-sm" id="alertsMarkAllReadBtn">Mark All Read</button>
+      <button type="button" class="btn-sm" id="alertsRefreshBtn">Refresh</button>
+    </div>
+    <div id="alertsList" class="alerts-log-list">
+      <% if (!safeInitialAlerts.length) { %>
+        <div class="empty-state"><p>No alerts available for this filter.</p></div>
+      <% } %>
+      <% safeInitialAlerts.forEach((row) => { %>
+        <article class="alerts-log-row <%= row.is_read ? '' : 'is-unread' %>">
+          <div class="alerts-log-main">
+            <p class="alerts-log-title">
+              <span class="notify-severity-dot <%= (row.severity === 'critical' || row.severity === 'high') ? 'sev-high' : row.severity === 'medium' ? 'sev-medium' : 'sev-low' %>"></span>
+              <%= row.title || "Alert" %>
+            </p>
+            <p class="alerts-log-message"><%= row.message || "-" %></p>
+            <p class="alerts-log-meta">
+              <span class="notification-chip"><%= row.type || "ALERT" %></span>
+              <span class="notification-chip"><%= String(row.severity || "low").toUpperCase() %></span>
+              <span class="notification-chip <%= String(row.status || "").toLowerCase() === "resolved" ? "state-resolved" : "state-active" %>"><%= row.status || "active" %></span>
+              <% if (row.related_gate_id) { %><span>Gate: <%= row.related_gate_id %></span><% } %>
+              <% if (row.related_zone_id) { %><span>Zone: <%= row.related_zone_id %></span><% } %>
+              <% if (row.related_qr_id) { %><span>QR: <%= row.related_qr_id %></span><% } %>
+              <span><%= row.created_at ? new Date(row.created_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) : "-" %></span>
+            </p>
+          </div>
+          <div class="alerts-log-actions">
+            <% if (!row.is_read) { %>
+              <button type="button" class="btn-sm alerts-read-btn" data-alert-id="<%= row.id %>">Read</button>
+            <% } %>
+            <% if (String(row.status || "").toLowerCase() !== "resolved") { %>
+              <button type="button" class="btn-sm danger alerts-resolve-btn" data-alert-id="<%= row.id %>">Resolve</button>
+            <% } %>
+          </div>
+        </article>
+      <% }) %>
+    </div>
+  </section>
+</div>
+
+<script>
+  (() => {
+    const alertsMetricInvalid = document.getElementById("alertsMetricInvalid");
+    const alertsMetricFullZones = document.getElementById("alertsMetricFullZones");
+    const alertsMetricPending = document.getElementById("alertsMetricPending");
+    const alertsMetricSuspicious = document.getElementById("alertsMetricSuspicious");
+    const alertsFilterForm = document.getElementById("alertsFilterForm");
+    const alertsFilterStatus = document.getElementById("alertsFilterStatus");
+    const alertsFilterType = document.getElementById("alertsFilterType");
+    const alertsFilterSeverity = document.getElementById("alertsFilterSeverity");
+    const alertsFilterReadState = document.getElementById("alertsFilterReadState");
+    const alertsFilterFrom = document.getElementById("alertsFilterFrom");
+    const alertsFilterTo = document.getElementById("alertsFilterTo");
+    const alertsFilterQuery = document.getElementById("alertsFilterQuery");
+    const alertsResetFiltersBtn = document.getElementById("alertsResetFiltersBtn");
+    const alertsMetaText = document.getElementById("alertsMetaText");
+    const alertsMarkAllReadBtn = document.getElementById("alertsMarkAllReadBtn");
+    const alertsRefreshBtn = document.getElementById("alertsRefreshBtn");
+    const alertsList = document.getElementById("alertsList");
+    let currentAlerts = <%- JSON.stringify(safeInitialAlerts) %>;
+    let totalAlerts = Number(<%- JSON.stringify(safeInitialTotal) %>) || currentAlerts.length || 0;
+    let notifyEventSource = null;
+    let notifyReconnectTimer = null;
+    let isFetching = false;
+    const defaultFilters = {
+      status: "active",
+      type: "all",
+      severity: "all",
+      read_state: "all",
+      from: "",
+      to: "",
+      q: ""
+    };
+    const state = {
+      ...defaultFilters,
+      limit: 60
+    };
+
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function getSeverityClass(severity) {
+      const safe = String(severity || "low").toLowerCase();
+      if (safe === "critical" || safe === "high") return "sev-high";
+      if (safe === "medium") return "sev-medium";
+      return "sev-low";
+    }
+
+    function formatDateTime(value) {
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return "-";
+      return new Intl.DateTimeFormat("en-PH", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }).format(dt);
+    }
+
+    function buildMetaBits(row) {
+      const bits = [];
+      bits.push(`<span class="notification-chip">${escapeHtml(row.type || "ALERT")}</span>`);
+      bits.push(`<span class="notification-chip">${escapeHtml(String(row.severity || "low").toUpperCase())}</span>`);
+      bits.push(`<span class="notification-chip ${String(row.status || "").toLowerCase() === "resolved" ? "state-resolved" : "state-active"}">${escapeHtml(row.status || "active")}</span>`);
+      if (row.related_gate_id) bits.push(`<span>Gate: ${escapeHtml(row.related_gate_id)}</span>`);
+      if (row.related_zone_id) bits.push(`<span>Zone: ${escapeHtml(row.related_zone_id)}</span>`);
+      if (row.related_qr_id) bits.push(`<span>QR: ${escapeHtml(row.related_qr_id)}</span>`);
+      if (row.source) bits.push(`<span>Source: ${escapeHtml(row.source)}</span>`);
+      bits.push(`<span>${escapeHtml(formatDateTime(row.created_at))}</span>`);
+      if (String(row.status || "").toLowerCase() === "resolved" && row.resolved_at) {
+        bits.push(`<span>Resolved: ${escapeHtml(formatDateTime(row.resolved_at))}</span>`);
+      }
+      return bits.join("");
+    }
+
+    function renderAlertRow(row) {
+      const unreadClass = row.is_read ? "" : "is-unread";
+      const isResolved = String(row.status || "").toLowerCase() === "resolved";
+      const severityClass = getSeverityClass(row.severity);
+      return `
+        <article class="alerts-log-row ${unreadClass}">
+          <div class="alerts-log-main">
+            <p class="alerts-log-title">
+              <span class="notify-severity-dot ${severityClass}"></span>
+              ${escapeHtml(row.title || "Alert")}
+            </p>
+            <p class="alerts-log-message">${escapeHtml(row.message || "-")}</p>
+            <p class="alerts-log-meta">${buildMetaBits(row)}</p>
+          </div>
+          <div class="alerts-log-actions">
+            ${row.is_read ? "" : `<button type="button" class="btn-sm alerts-read-btn" data-alert-id="${row.id}">Read</button>`}
+            ${isResolved ? "" : `<button type="button" class="btn-sm danger alerts-resolve-btn" data-alert-id="${row.id}">Resolve</button>`}
+          </div>
+        </article>
+      `;
+    }
+
+    function renderAlerts() {
+      if (!alertsList || !alertsMetaText) return;
+      if (!currentAlerts.length) {
+        alertsList.innerHTML = `<div class="empty-state"><p>No alerts available for this filter.</p></div>`;
+        alertsMetaText.textContent = "No alerts found for current filters.";
+        return;
+      }
+
+      alertsList.innerHTML = currentAlerts.map(renderAlertRow).join("");
+      alertsMetaText.textContent = `${currentAlerts.length} of ${totalAlerts} alert(s) shown.`;
+      wireRowActions();
+    }
+
+    function getQueryString() {
+      const params = new URLSearchParams();
+      params.set("limit", String(state.limit));
+      if (state.status && state.status !== "all") params.set("status", state.status);
+      if (state.type && state.type !== "all") params.set("type", state.type);
+      if (state.severity && state.severity !== "all") params.set("severity", state.severity);
+      if (state.read_state && state.read_state !== "all") params.set("read_state", state.read_state);
+      if (state.from) params.set("from", state.from);
+      if (state.to) params.set("to", state.to);
+      if (state.q) params.set("q", state.q);
+      return params.toString();
+    }
+
+    async function fetchAlertSummary() {
+      try {
+        const response = await fetch("/api/notifications/summary", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({ ok: false }));
+        if (!response.ok || !data.ok) return;
+        const operational = data.operational || {};
+        if (alertsMetricInvalid) alertsMetricInvalid.textContent = operational.invalid_qr_today ?? "0";
+        if (alertsMetricFullZones) alertsMetricFullZones.textContent = operational.full_parking_zones ?? "0";
+        if (alertsMetricPending) alertsMetricPending.textContent = operational.pending_approvals ?? "0";
+        if (alertsMetricSuspicious) alertsMetricSuspicious.textContent = operational.suspicious_scans ?? "0";
+      } catch (_error) {
+        // non-fatal
+      }
+    }
+
+    async function fetchAlerts() {
+      if (isFetching) return;
+      isFetching = true;
+      try {
+        const response = await fetch(`/api/notifications?${getQueryString()}`, {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        const data = await response.json().catch(() => ({ ok: false, rows: [] }));
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || `Unable to load alerts (${response.status})`);
+        }
+        currentAlerts = Array.isArray(data.rows) ? data.rows : [];
+        totalAlerts = Number(data.total || currentAlerts.length || 0);
+        renderAlerts();
+      } catch (error) {
+        if (alertsList) {
+          alertsList.innerHTML = `<div class="empty-state"><p>${escapeHtml(error.message || "Unable to load alerts.")}</p></div>`;
+        }
+        if (alertsMetaText) alertsMetaText.textContent = error.message || "Unable to load alerts.";
+      } finally {
+        isFetching = false;
+      }
+    }
+
+    async function markAlertRead(alertId) {
+      try {
+        await fetch(`/api/notifications/${alertId}/read`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin"
+        });
+      } catch (_error) {
+        // ignore
+      }
+    }
+
+    async function resolveAlert(alertId) {
+      try {
+        await fetch(`/api/notifications/${alertId}/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin"
+        });
+      } catch (_error) {
+        // ignore
+      }
+    }
+
+    function wireRowActions() {
+      if (!alertsList) return;
+      alertsList.querySelectorAll(".alerts-read-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const alertId = button.getAttribute("data-alert-id");
+          if (!alertId) return;
+          await markAlertRead(alertId);
+          await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+        });
+      });
+      alertsList.querySelectorAll(".alerts-resolve-btn").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const alertId = button.getAttribute("data-alert-id");
+          if (!alertId) return;
+          await resolveAlert(alertId);
+          await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+        });
+      });
+    }
+
+    function applyFiltersFromForm() {
+      state.status = alertsFilterStatus?.value || defaultFilters.status;
+      state.type = alertsFilterType?.value || defaultFilters.type;
+      state.severity = alertsFilterSeverity?.value || defaultFilters.severity;
+      state.read_state = alertsFilterReadState?.value || defaultFilters.read_state;
+      state.from = alertsFilterFrom?.value || defaultFilters.from;
+      state.to = alertsFilterTo?.value || defaultFilters.to;
+      state.q = (alertsFilterQuery?.value || "").trim();
+    }
+
+    function resetFilters() {
+      if (alertsFilterStatus) alertsFilterStatus.value = defaultFilters.status;
+      if (alertsFilterType) alertsFilterType.value = defaultFilters.type;
+      if (alertsFilterSeverity) alertsFilterSeverity.value = defaultFilters.severity;
+      if (alertsFilterReadState) alertsFilterReadState.value = defaultFilters.read_state;
+      if (alertsFilterFrom) alertsFilterFrom.value = defaultFilters.from;
+      if (alertsFilterTo) alertsFilterTo.value = defaultFilters.to;
+      if (alertsFilterQuery) alertsFilterQuery.value = defaultFilters.q;
+      applyFiltersFromForm();
+    }
+
+    function connectNotificationEvents() {
+      if (typeof window.EventSource !== "function") return;
+      if (notifyEventSource) {
+        notifyEventSource.close();
+        notifyEventSource = null;
+      }
+      const source = new EventSource("/api/notifications/events");
+      notifyEventSource = source;
+
+      source.addEventListener("notifications-updated", async () => {
+        await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+      });
+      source.addEventListener("notifications-summary", async () => {
+        await fetchAlertSummary();
+      });
+      source.addEventListener("error", () => {
+        if (notifyEventSource !== source) return;
+        source.close();
+        notifyEventSource = null;
+        if (notifyReconnectTimer) clearTimeout(notifyReconnectTimer);
+        notifyReconnectTimer = window.setTimeout(connectNotificationEvents, 3500);
+      });
+    }
+
+    alertsFilterForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      applyFiltersFromForm();
+      await fetchAlerts();
+    });
+
+    alertsResetFiltersBtn?.addEventListener("click", async () => {
+      resetFilters();
+      await fetchAlerts();
+    });
+
+    alertsMarkAllReadBtn?.addEventListener("click", async () => {
+      try {
+        await fetch("/api/notifications/read-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin"
+        });
+      } catch (_error) {
+        // ignore
+      }
+      await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+    });
+
+    alertsRefreshBtn?.addEventListener("click", async () => {
+      await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      fetchAlertSummary();
+      fetchAlerts();
+    });
+
+    applyFiltersFromForm();
+    renderAlerts();
+    fetchAlertSummary();
+    fetchAlerts();
+    connectNotificationEvents();
+  })();
+</script>
+
+<%- include("partials/footer") %>

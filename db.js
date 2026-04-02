@@ -37,6 +37,7 @@ async function ensureDatabaseSchema() {
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
   await ensureAutoScanHeartbeatMigrations();
+  await ensureAlertMigrations();
   await ensureUserMigrations();
   await ensureAnnouncementMigrations();
 }
@@ -405,6 +406,83 @@ async function ensureAutoScanHeartbeatMigrations() {
       INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at)
     )
   `);
+}
+
+async function ensureAlertMigrations() {
+  await pool.query("SET FOREIGN_KEY_CHECKS = 0");
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alerts (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        type VARCHAR(80) NOT NULL,
+        title VARCHAR(180) NOT NULL,
+        message TEXT NOT NULL,
+        severity ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'low',
+        audience_role ENUM('admin', 'guard', 'student', 'staff', 'all') NOT NULL DEFAULT 'staff',
+        related_user_id INT NULL,
+        related_vehicle_id INT NULL,
+        related_qr_id VARCHAR(120) NULL,
+        related_zone_id VARCHAR(80) NULL,
+        related_gate_id VARCHAR(80) NULL,
+        related_scan_log_id INT NULL,
+        related_pending_entry_id INT NULL,
+        source VARCHAR(80) NULL,
+        status ENUM('active', 'resolved') NOT NULL DEFAULT 'active',
+        is_read TINYINT(1) NOT NULL DEFAULT 0,
+        dedupe_key VARCHAR(190) NULL,
+        metadata_json JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMP NULL DEFAULT NULL,
+        resolved_by VARCHAR(120) NULL,
+        INDEX idx_alert_type_created (type, created_at),
+        INDEX idx_alert_status_created (status, created_at),
+        INDEX idx_alert_severity_created (severity, created_at),
+        INDEX idx_alert_audience_status (audience_role, status),
+        INDEX idx_alert_zone_status (related_zone_id, status),
+        INDEX idx_alert_pending_status (related_pending_entry_id, status),
+        INDEX idx_alert_dedupe_status (dedupe_key, status),
+        CONSTRAINT fk_alert_user FOREIGN KEY (related_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        CONSTRAINT fk_alert_vehicle FOREIGN KEY (related_vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
+        CONSTRAINT fk_alert_scan_log FOREIGN KEY (related_scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL,
+        CONSTRAINT fk_alert_pending_entry FOREIGN KEY (related_pending_entry_id) REFERENCES auto_scan_queue(id) ON DELETE SET NULL
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS alert_reads (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        alert_id INT NOT NULL,
+        user_id INT NOT NULL,
+        read_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_alert_reads (alert_id, user_id),
+        INDEX idx_alert_reads_user_read (user_id, read_at),
+        CONSTRAINT fk_alert_reads_alert FOREIGN KEY (alert_id) REFERENCES alerts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_alert_reads_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+  } finally {
+    await pool.query("SET FOREIGN_KEY_CHECKS = 1");
+  }
+
+  // Backward compatible column additions for deployments that may already have alerts table.
+  async function addAlertColumnIfMissing(columnName, columnDefinition) {
+    if (await columnExists("alerts", columnName)) return;
+    await pool.query(`ALTER TABLE alerts ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+
+  try {
+    await addAlertColumnIfMissing("is_read", "TINYINT(1) NOT NULL DEFAULT 0 AFTER status");
+    await addAlertColumnIfMissing("dedupe_key", "VARCHAR(190) NULL AFTER is_read");
+    await addAlertColumnIfMissing("metadata_json", "JSON NULL AFTER dedupe_key");
+    await addAlertColumnIfMissing("related_scan_log_id", "INT NULL AFTER related_gate_id");
+    await addAlertColumnIfMissing("related_pending_entry_id", "INT NULL AFTER related_scan_log_id");
+  } catch (error) {
+    if (error.errno !== 1060) {
+      throw error;
+    }
+  }
 }
 
 module.exports = {

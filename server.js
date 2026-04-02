@@ -51,8 +51,52 @@ const USER_ROLES = Object.freeze({
   GUARD: "guard"
 });
 const VALID_ROLES = new Set(Object.values(USER_ROLES));
+const ALERT_TYPES = Object.freeze({
+  INVALID_QR_ATTEMPT: "INVALID_QR_ATTEMPT",
+  FULL_PARKING_ZONE: "FULL_PARKING_ZONE",
+  LOW_SLOT_WARNING: "LOW_SLOT_WARNING",
+  PENDING_ENTRY_APPROVAL: "PENDING_ENTRY_APPROVAL",
+  SUSPICIOUS_SCAN_BEHAVIOR: "SUSPICIOUS_SCAN_BEHAVIOR"
+});
+const ALERT_SEVERITIES = Object.freeze({
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+  CRITICAL: "critical"
+});
+const ALERT_STATUS = Object.freeze({
+  ACTIVE: "active",
+  RESOLVED: "resolved"
+});
+const INVALID_SCAN_RESULTS = new Set(["INVALID", "REVOKED", "EXPIRED"]);
+const ZONE_LOW_SLOT_WARNING_THRESHOLD = Math.max(
+  1,
+  Number.isFinite(Number(process.env.ZONE_LOW_SLOT_WARNING_THRESHOLD))
+    ? Number(process.env.ZONE_LOW_SLOT_WARNING_THRESHOLD)
+    : 2
+);
+const SUSPICIOUS_WINDOW_MINUTES = Math.max(
+  1,
+  Number.isFinite(Number(process.env.SUSPICIOUS_WINDOW_MINUTES))
+    ? Number(process.env.SUSPICIOUS_WINDOW_MINUTES)
+    : 5
+);
+const SUSPICIOUS_FAILED_SCAN_THRESHOLD = Math.max(
+  3,
+  Number.isFinite(Number(process.env.SUSPICIOUS_FAILED_SCAN_THRESHOLD))
+    ? Number(process.env.SUSPICIOUS_FAILED_SCAN_THRESHOLD)
+    : 4
+);
+const SUSPICIOUS_REPEAT_QR_THRESHOLD = Math.max(
+  3,
+  Number.isFinite(Number(process.env.SUSPICIOUS_REPEAT_QR_THRESHOLD))
+    ? Number(process.env.SUSPICIOUS_REPEAT_QR_THRESHOLD)
+    : 5
+);
 const autoScanSseClients = new Map();
 let autoScanSseClientCounter = 0;
+const notificationSseClients = new Map();
+let notificationSseClientCounter = 0;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -481,6 +525,33 @@ function broadcastAutoScanSse(eventName, payload = {}) {
   }
 }
 
+function removeNotificationSseClient(clientId) {
+  const existing = notificationSseClients.get(clientId);
+  if (existing?.heartbeatTimer) {
+    clearInterval(existing.heartbeatTimer);
+  }
+  notificationSseClients.delete(clientId);
+}
+
+function broadcastNotificationSse(eventName, payload = {}) {
+  if (!notificationSseClients.size) return;
+  for (const [clientId, client] of notificationSseClients.entries()) {
+    try {
+      writeSseEvent(client.res, eventName, payload);
+    } catch (_error) {
+      removeNotificationSseClient(clientId);
+    }
+  }
+}
+
+function broadcastNotificationsUpdated(reason = "updated", payload = {}) {
+  broadcastNotificationSse("notifications-updated", {
+    reason,
+    server_time: new Date().toISOString(),
+    ...payload
+  });
+}
+
 async function broadcastAutoScanHealth(reason = "heartbeat") {
   if (!autoScanSseClients.size) return;
   try {
@@ -525,6 +596,775 @@ function getAutoStickerPayload(sticker) {
   };
 }
 
+function normalizeAlertSeverity(value) {
+  const normalized = String(value || ALERT_SEVERITIES.LOW).trim().toLowerCase();
+  if (Object.values(ALERT_SEVERITIES).includes(normalized)) return normalized;
+  return ALERT_SEVERITIES.LOW;
+}
+
+function normalizeAlertAudienceRole(value) {
+  const normalized = String(value || "staff").trim().toLowerCase();
+  if (["admin", "guard", "student", "staff", "all"].includes(normalized)) return normalized;
+  return "staff";
+}
+
+function normalizeAlertStatus(value) {
+  const normalized = String(value || ALERT_STATUS.ACTIVE).trim().toLowerCase();
+  if (Object.values(ALERT_STATUS).includes(normalized)) return normalized;
+  return ALERT_STATUS.ACTIVE;
+}
+
+function getAlertAudienceRolesForViewer(role) {
+  const safeRole = normalizeRole(role);
+  if (safeRole === USER_ROLES.ADMIN) {
+    return ["all", "staff", "admin", "guard", "student"];
+  }
+  if (safeRole === USER_ROLES.GUARD) {
+    return ["all", "staff", "guard"];
+  }
+  return ["all", "student"];
+}
+
+function safeJsonStringify(value) {
+  try {
+    return JSON.stringify(value == null ? null : value);
+  } catch (_error) {
+    return JSON.stringify({ note: "metadata-serialization-failed" });
+  }
+}
+
+function mapAlertRow(row) {
+  if (!row) return null;
+  let metadata = null;
+  if (row.metadata_json) {
+    try {
+      metadata = typeof row.metadata_json === "string" ? JSON.parse(row.metadata_json) : row.metadata_json;
+    } catch (_error) {
+      metadata = null;
+    }
+  }
+
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    message: row.message,
+    severity: row.severity,
+    audience_role: row.audience_role,
+    related_user_id: row.related_user_id,
+    related_vehicle_id: row.related_vehicle_id,
+    related_qr_id: row.related_qr_id,
+    related_zone_id: row.related_zone_id,
+    related_gate_id: row.related_gate_id,
+    related_scan_log_id: row.related_scan_log_id,
+    related_pending_entry_id: row.related_pending_entry_id,
+    source: row.source,
+    status: row.status,
+    is_read: Boolean(Number(row.user_is_read || 0)),
+    dedupe_key: row.dedupe_key || null,
+    metadata,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    resolved_at: row.resolved_at,
+    resolved_by: row.resolved_by
+  };
+}
+
+async function createOrRefreshAlertWithDb(db, payload = {}) {
+  const type = String(payload.type || "").trim().slice(0, 80);
+  const title = String(payload.title || "").trim().slice(0, 180);
+  const message = String(payload.message || "").trim();
+  if (!type || !title || !message) {
+    throw new Error("Alert payload is missing type, title, or message.");
+  }
+
+  const severity = normalizeAlertSeverity(payload.severity);
+  const audienceRole = normalizeAlertAudienceRole(payload.audienceRole || "staff");
+  const status = normalizeAlertStatus(payload.status || ALERT_STATUS.ACTIVE);
+  const dedupeKey = payload.dedupeKey ? String(payload.dedupeKey).trim().slice(0, 190) : null;
+  const metadataJson = payload.metadata === undefined ? null : safeJsonStringify(payload.metadata);
+  const relatedUserId = Number(payload.relatedUserId) || null;
+  const relatedVehicleId = Number(payload.relatedVehicleId) || null;
+  const relatedScanLogId = Number(payload.relatedScanLogId) || null;
+  const relatedPendingEntryId = Number(payload.relatedPendingEntryId) || null;
+  const relatedQrId = payload.relatedQrId ? String(payload.relatedQrId).slice(0, 120) : null;
+  const relatedZoneId = payload.relatedZoneId ? String(payload.relatedZoneId).slice(0, 80) : null;
+  const relatedGateId = payload.relatedGateId ? String(payload.relatedGateId).slice(0, 80) : null;
+  const source = payload.source ? String(payload.source).slice(0, 80) : null;
+  const resolvedBy = payload.resolvedBy ? String(payload.resolvedBy).slice(0, 120) : null;
+
+  if (dedupeKey) {
+    const [existingRows] = await db.query(
+      `SELECT id
+       FROM alerts
+       WHERE dedupe_key = ?
+         AND status = 'active'
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [dedupeKey]
+    );
+
+    if (existingRows.length > 0) {
+      const existingId = existingRows[0].id;
+      await db.query(
+        `UPDATE alerts
+         SET
+           type = ?,
+           title = ?,
+           message = ?,
+           severity = ?,
+           audience_role = ?,
+           related_user_id = ?,
+           related_vehicle_id = ?,
+           related_qr_id = ?,
+           related_zone_id = ?,
+           related_gate_id = ?,
+           related_scan_log_id = ?,
+           related_pending_entry_id = ?,
+           source = ?,
+           status = ?,
+           is_read = 0,
+           metadata_json = ?,
+           resolved_at = CASE WHEN ? = 'resolved' THEN NOW() ELSE NULL END,
+           resolved_by = CASE WHEN ? = 'resolved' THEN ? ELSE NULL END
+         WHERE id = ?`,
+        [
+          type,
+          title,
+          message,
+          severity,
+          audienceRole,
+          relatedUserId,
+          relatedVehicleId,
+          relatedQrId,
+          relatedZoneId,
+          relatedGateId,
+          relatedScanLogId,
+          relatedPendingEntryId,
+          source,
+          status,
+          metadataJson,
+          status,
+          status,
+          resolvedBy,
+          existingId
+        ]
+      );
+      const [rows] = await db.query("SELECT * FROM alerts WHERE id = ? LIMIT 1", [existingId]);
+      return rows.length > 0 ? rows[0] : null;
+    }
+  }
+
+  const [insertResult] = await db.query(
+    `INSERT INTO alerts (
+       type,
+       title,
+       message,
+       severity,
+       audience_role,
+       related_user_id,
+       related_vehicle_id,
+       related_qr_id,
+       related_zone_id,
+       related_gate_id,
+       related_scan_log_id,
+       related_pending_entry_id,
+       source,
+       status,
+       is_read,
+       dedupe_key,
+       metadata_json,
+       resolved_at,
+       resolved_by
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+    [
+      type,
+      title,
+      message,
+      severity,
+      audienceRole,
+      relatedUserId,
+      relatedVehicleId,
+      relatedQrId,
+      relatedZoneId,
+      relatedGateId,
+      relatedScanLogId,
+      relatedPendingEntryId,
+      source,
+      status,
+      dedupeKey,
+      metadataJson,
+      status === ALERT_STATUS.RESOLVED ? new Date() : null,
+      status === ALERT_STATUS.RESOLVED ? resolvedBy : null
+    ]
+  );
+
+  const [rows] = await db.query("SELECT * FROM alerts WHERE id = ? LIMIT 1", [insertResult.insertId]);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+async function resolveAlertsByDedupeKey(db, dedupeKey, resolvedBy = "system") {
+  if (!dedupeKey) return 0;
+  const [result] = await db.query(
+    `UPDATE alerts
+     SET
+       status = 'resolved',
+       resolved_at = COALESCE(resolved_at, NOW()),
+       resolved_by = COALESCE(resolved_by, ?)
+     WHERE dedupe_key = ?
+       AND status = 'active'`,
+    [resolvedBy, dedupeKey]
+  );
+  return Number(result?.affectedRows || 0);
+}
+
+async function resolvePendingEntryAlert(db, pendingEntryId, resolvedBy = "system") {
+  if (!Number.isInteger(Number(pendingEntryId)) || Number(pendingEntryId) <= 0) return 0;
+  const [result] = await db.query(
+    `UPDATE alerts
+     SET
+       status = 'resolved',
+       resolved_at = COALESCE(resolved_at, NOW()),
+       resolved_by = COALESCE(resolved_by, ?)
+     WHERE related_pending_entry_id = ?
+       AND type = ?
+       AND status = 'active'`,
+    [resolvedBy, Number(pendingEntryId), ALERT_TYPES.PENDING_ENTRY_APPROVAL]
+  );
+  return Number(result?.affectedRows || 0);
+}
+
+async function markAlertReadForUser(db, alertId, userId) {
+  const safeAlertId = Number(alertId);
+  const safeUserId = Number(userId);
+  if (!Number.isInteger(safeAlertId) || safeAlertId <= 0) return false;
+  if (!Number.isInteger(safeUserId) || safeUserId <= 0) return false;
+
+  await db.query(
+    `INSERT INTO alert_reads (alert_id, user_id, read_at)
+     VALUES (?, ?, NOW())
+     ON DUPLICATE KEY UPDATE read_at = VALUES(read_at)`,
+    [safeAlertId, safeUserId]
+  );
+  return true;
+}
+
+async function markAllAlertsReadForUser(db, user) {
+  const safeUserId = Number(user?.id) || 0;
+  if (!Number.isInteger(safeUserId) || safeUserId <= 0) return 0;
+  const audienceRoles = getAlertAudienceRolesForViewer(user?.role);
+  if (!audienceRoles.length) return 0;
+
+  const placeholders = audienceRoles.map(() => "?").join(", ");
+  const [result] = await db.query(
+    `INSERT INTO alert_reads (alert_id, user_id, read_at)
+     SELECT a.id, ?, NOW()
+     FROM alerts a
+     LEFT JOIN alert_reads ar
+       ON ar.alert_id = a.id
+      AND ar.user_id = ?
+     WHERE a.audience_role IN (${placeholders})
+       AND ar.alert_id IS NULL
+     ON DUPLICATE KEY UPDATE read_at = VALUES(read_at)`,
+    [safeUserId, safeUserId, ...audienceRoles]
+  );
+  return Number(result?.affectedRows || 0);
+}
+
+function buildNotificationFilterParams(filters = {}) {
+  const sanitized = {
+    status: String(filters.status || "all").toLowerCase(),
+    type: String(filters.type || "all").toUpperCase(),
+    severity: String(filters.severity || "all").toLowerCase(),
+    readState: String(filters.readState || "all").toLowerCase(),
+    query: String(filters.query || "").trim(),
+    from: toDateOnly(filters.from),
+    to: toDateOnly(filters.to),
+    limit: Math.max(1, Math.min(200, Number(filters.limit) || 25)),
+    offset: Math.max(0, Number(filters.offset) || 0)
+  };
+
+  if (!["all", "active", "resolved"].includes(sanitized.status)) {
+    sanitized.status = "all";
+  }
+  if (sanitized.type === "ALL") sanitized.type = "all";
+  if (!["all", "low", "medium", "high", "critical"].includes(sanitized.severity)) {
+    sanitized.severity = "all";
+  }
+  if (!["all", "read", "unread"].includes(sanitized.readState)) {
+    sanitized.readState = "all";
+  }
+  return sanitized;
+}
+
+async function listAlertsForUser(user, filters = {}, db = pool) {
+  const safeUserId = Number(user?.id) || 0;
+  const audienceRoles = getAlertAudienceRolesForViewer(user?.role);
+  const safeFilters = buildNotificationFilterParams(filters);
+  const where = [];
+  const params = [safeUserId, ...audienceRoles];
+  where.push(`a.audience_role IN (${audienceRoles.map(() => "?").join(", ")})`);
+
+  if (safeFilters.status !== "all") {
+    where.push("a.status = ?");
+    params.push(safeFilters.status);
+  }
+  if (safeFilters.type !== "all") {
+    where.push("a.type = ?");
+    params.push(safeFilters.type);
+  }
+  if (safeFilters.severity !== "all") {
+    where.push("a.severity = ?");
+    params.push(safeFilters.severity);
+  }
+  if (safeFilters.readState === "read") {
+    where.push("ar.alert_id IS NOT NULL");
+  } else if (safeFilters.readState === "unread") {
+    where.push("ar.alert_id IS NULL");
+  }
+  if (safeFilters.from) {
+    where.push("DATE(a.created_at) >= ?");
+    params.push(safeFilters.from);
+  }
+  if (safeFilters.to) {
+    where.push("DATE(a.created_at) <= ?");
+    params.push(safeFilters.to);
+  }
+  if (safeFilters.query) {
+    where.push("(a.title LIKE ? OR a.message LIKE ? OR a.related_qr_id LIKE ? OR a.related_zone_id LIKE ? OR a.related_gate_id LIKE ?)");
+    const like = `%${safeFilters.query}%`;
+    params.push(like, like, like, like, like);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const baseFromSql = `
+    FROM alerts a
+    LEFT JOIN alert_reads ar
+      ON ar.alert_id = a.id
+     AND ar.user_id = ?
+    ${whereSql}
+  `;
+
+  const [rows] = await db.query(
+    `SELECT
+       a.*,
+       CASE WHEN ar.alert_id IS NULL THEN 0 ELSE 1 END AS user_is_read
+     ${baseFromSql}
+     ORDER BY a.status ASC, a.created_at DESC
+     LIMIT ?
+     OFFSET ?`,
+    [...params, safeFilters.limit, safeFilters.offset]
+  );
+
+  const [[totalRow]] = await db.query(
+    `SELECT COUNT(*) AS total ${baseFromSql}`,
+    params
+  );
+
+  return {
+    rows: rows.map(mapAlertRow),
+    total: Number(totalRow?.total || 0),
+    limit: safeFilters.limit,
+    offset: safeFilters.offset,
+    filters: safeFilters
+  };
+}
+
+async function getNotificationSummaryForUser(user, db = pool) {
+  const safeUserId = Number(user?.id) || 0;
+  const audienceRoles = getAlertAudienceRolesForViewer(user?.role);
+  const placeholders = audienceRoles.map(() => "?").join(", ");
+
+  const [[row]] = await db.query(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN a.status = 'active' THEN 1 ELSE 0 END) AS active_total,
+       SUM(CASE WHEN ar.alert_id IS NULL THEN 1 ELSE 0 END) AS unread_total,
+       SUM(CASE WHEN a.status = 'active' AND a.type = ? THEN 1 ELSE 0 END) AS invalid_active,
+       SUM(CASE WHEN a.status = 'active' AND a.type = ? THEN 1 ELSE 0 END) AS full_zone_active,
+       SUM(CASE WHEN a.status = 'active' AND a.type = ? THEN 1 ELSE 0 END) AS low_slot_active,
+       SUM(CASE WHEN a.status = 'active' AND a.type = ? THEN 1 ELSE 0 END) AS pending_active,
+       SUM(CASE WHEN a.status = 'active' AND a.type = ? THEN 1 ELSE 0 END) AS suspicious_active
+     FROM alerts a
+     LEFT JOIN alert_reads ar
+       ON ar.alert_id = a.id
+      AND ar.user_id = ?
+     WHERE a.audience_role IN (${placeholders})`,
+    [
+      ALERT_TYPES.INVALID_QR_ATTEMPT,
+      ALERT_TYPES.FULL_PARKING_ZONE,
+      ALERT_TYPES.LOW_SLOT_WARNING,
+      ALERT_TYPES.PENDING_ENTRY_APPROVAL,
+      ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR,
+      safeUserId,
+      ...audienceRoles
+    ]
+  );
+
+  return {
+    total: Number(row?.total || 0),
+    active_total: Number(row?.active_total || 0),
+    unread_total: Number(row?.unread_total || 0),
+    invalid_active: Number(row?.invalid_active || 0),
+    full_zone_active: Number(row?.full_zone_active || 0),
+    low_slot_active: Number(row?.low_slot_active || 0),
+    pending_active: Number(row?.pending_active || 0),
+    suspicious_active: Number(row?.suspicious_active || 0)
+  };
+}
+
+async function getOperationalAlertMetrics(db = pool) {
+  const [[invalidTodayRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM scan_logs
+     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
+       AND DATE(scanned_at) = CURDATE()`
+  );
+  const [[pendingRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM auto_scan_queue
+     WHERE status = 'PENDING'`
+  );
+  const [[fullZoneRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM alerts
+     WHERE type = ?
+       AND status = 'active'`,
+    [ALERT_TYPES.FULL_PARKING_ZONE]
+  );
+  const [[lowZoneRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM alerts
+     WHERE type = ?
+       AND status = 'active'`,
+    [ALERT_TYPES.LOW_SLOT_WARNING]
+  );
+  const [[suspiciousRow]] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM alerts
+     WHERE type = ?
+       AND status = 'active'`,
+    [ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR]
+  );
+
+  return {
+    invalid_qr_today: Number(invalidTodayRow?.total || 0),
+    pending_approvals: Number(pendingRow?.total || 0),
+    full_parking_zones: Number(fullZoneRow?.total || 0),
+    low_slot_warnings: Number(lowZoneRow?.total || 0),
+    suspicious_scans: Number(suspiciousRow?.total || 0)
+  };
+}
+
+async function createInvalidQrAlert(db, payload = {}) {
+  const reason = String(payload.reason || payload.message || "Invalid QR attempt.").trim();
+  const typeLabelMap = {
+    INVALID: "Invalid QR",
+    REVOKED: "Revoked QR",
+    EXPIRED: "Expired QR",
+    MISMATCH: "QR Mismatch"
+  };
+  const resultCode = String(payload.result || "INVALID").toUpperCase();
+  const title = `${typeLabelMap[resultCode] || "Invalid QR Attempt"} at ${payload.gate || "Main Gate"}`;
+  return createOrRefreshAlertWithDb(db, {
+    type: ALERT_TYPES.INVALID_QR_ATTEMPT,
+    title,
+    message: reason,
+    severity: payload.severity || ALERT_SEVERITIES.MEDIUM,
+    audienceRole: "staff",
+    relatedVehicleId: payload.relatedVehicleId || null,
+    relatedQrId: payload.qrValue || null,
+    relatedZoneId: payload.relatedZoneId || null,
+    relatedGateId: payload.gate || null,
+    relatedScanLogId: payload.scanLogId || null,
+    source: payload.source || "scanner",
+    metadata: {
+      result: resultCode,
+      gate: payload.gate || null,
+      actor: payload.actorName || null,
+      scanner_source: payload.source || null,
+      qr_value: payload.qrValue || null
+    }
+  });
+}
+
+async function createPendingApprovalAlert(db, pendingEntry, actorName = "system") {
+  if (!pendingEntry?.id) return null;
+  const studentName = pendingEntry.full_name || "Unknown Student";
+  const plateNumber = pendingEntry.plate_number || "-";
+  return createOrRefreshAlertWithDb(db, {
+    type: ALERT_TYPES.PENDING_ENTRY_APPROVAL,
+    title: `Pending entry approval: ${studentName}`,
+    message: `${studentName} (${plateNumber}) is waiting for parking assignment confirmation.`,
+    severity: ALERT_SEVERITIES.MEDIUM,
+    audienceRole: "staff",
+    relatedVehicleId: pendingEntry.vehicle_id || null,
+    relatedQrId: pendingEntry.qr_value || null,
+    relatedGateId: pendingEntry.gate_id || null,
+    relatedPendingEntryId: pendingEntry.id,
+    dedupeKey: `PENDING_ENTRY:${pendingEntry.id}`,
+    source: "camera_phone",
+    metadata: {
+      pending_entry_id: pendingEntry.id,
+      student_name: studentName,
+      student_number: pendingEntry.student_number || null,
+      plate_number: plateNumber,
+      gate_id: pendingEntry.gate_id || null,
+      requested_by_guard: pendingEntry.requested_by_guard || actorName || null,
+      requested_at: pendingEntry.created_at || null
+    }
+  });
+}
+
+async function resolvePendingApprovalAlert(db, pendingEntryId, resolvedBy = "system") {
+  const resolvedRows = await resolvePendingEntryAlert(db, pendingEntryId, resolvedBy);
+  return resolvedRows > 0;
+}
+
+async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
+  const [rows] = await db.query(
+    `SELECT
+       COALESCE(zone, 'General') AS zone,
+       COUNT(*) AS total_slots,
+       SUM(CASE WHEN status = 'available' AND current_sticker_id IS NULL THEN 1 ELSE 0 END) AS available_slots,
+       SUM(CASE WHEN status = 'available' AND current_sticker_id IS NOT NULL THEN 1 ELSE 0 END) AS occupied_slots,
+       SUM(CASE WHEN status <> 'available' THEN 1 ELSE 0 END) AS disabled_slots
+     FROM parking_slots
+     GROUP BY COALESCE(zone, 'General')`
+  );
+
+  const zoneStates = rows.map((row) => ({
+    zone: row.zone || "General",
+    total_slots: Number(row.total_slots || 0),
+    available_slots: Number(row.available_slots || 0),
+    occupied_slots: Number(row.occupied_slots || 0),
+    disabled_slots: Number(row.disabled_slots || 0)
+  }));
+
+  for (const zone of zoneStates) {
+    const fullDedupeKey = `ZONE_FULL:${zone.zone}`;
+    const lowDedupeKey = `ZONE_LOW:${zone.zone}`;
+
+    if (zone.total_slots > 0 && zone.available_slots <= 0) {
+      await createOrRefreshAlertWithDb(db, {
+        type: ALERT_TYPES.FULL_PARKING_ZONE,
+        title: `Parking zone full: ${zone.zone}`,
+        message: `${zone.zone} has reached full capacity. New entry assignment is blocked until a slot is released.`,
+        severity: ALERT_SEVERITIES.HIGH,
+        audienceRole: "staff",
+        relatedZoneId: zone.zone,
+        dedupeKey: fullDedupeKey,
+        source: "system",
+        metadata: {
+          zone: zone.zone,
+          available_slots: zone.available_slots,
+          occupied_slots: zone.occupied_slots,
+          disabled_slots: zone.disabled_slots,
+          total_slots: zone.total_slots,
+          threshold: ZONE_LOW_SLOT_WARNING_THRESHOLD,
+          actor: actorName
+        }
+      });
+    } else {
+      await resolveAlertsByDedupeKey(db, fullDedupeKey, actorName);
+    }
+
+    if (zone.total_slots > 0 && zone.available_slots > 0 && zone.available_slots <= ZONE_LOW_SLOT_WARNING_THRESHOLD) {
+      await createOrRefreshAlertWithDb(db, {
+        type: ALERT_TYPES.LOW_SLOT_WARNING,
+        title: `Low slot warning: ${zone.zone}`,
+        message: `${zone.zone} is running low with ${zone.available_slots} slot(s) remaining.`,
+        severity: zone.available_slots === 1 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
+        audienceRole: "staff",
+        relatedZoneId: zone.zone,
+        dedupeKey: lowDedupeKey,
+        source: "system",
+        metadata: {
+          zone: zone.zone,
+          available_slots: zone.available_slots,
+          occupied_slots: zone.occupied_slots,
+          disabled_slots: zone.disabled_slots,
+          total_slots: zone.total_slots,
+          threshold: ZONE_LOW_SLOT_WARNING_THRESHOLD,
+          actor: actorName
+        }
+      });
+    } else {
+      await resolveAlertsByDedupeKey(db, lowDedupeKey, actorName);
+    }
+  }
+
+  const fullCount = zoneStates.filter((zone) => zone.total_slots > 0 && zone.available_slots <= 0).length;
+  const lowCount = zoneStates.filter((zone) =>
+    zone.total_slots > 0 &&
+    zone.available_slots > 0 &&
+    zone.available_slots <= ZONE_LOW_SLOT_WARNING_THRESHOLD
+  ).length;
+  return {
+    zones: zoneStates,
+    full_zone_count: fullCount,
+    low_slot_zone_count: lowCount
+  };
+}
+
+async function createSuspiciousScanAlert(db, payload = {}) {
+  const severity = normalizeAlertSeverity(payload.severity || ALERT_SEVERITIES.MEDIUM);
+  const sourceKey = String(payload.sourceKey || payload.source || "scanner").slice(0, 120);
+  const dedupeKey = payload.dedupeKey ? String(payload.dedupeKey).slice(0, 190) : null;
+  return createOrRefreshAlertWithDb(db, {
+    type: ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR,
+    title: String(payload.title || "Suspicious scan behavior detected").slice(0, 180),
+    message: String(payload.message || "Repeated scan anomalies were detected.").slice(0, 1000),
+    severity,
+    audienceRole: "staff",
+    relatedVehicleId: payload.relatedVehicleId || null,
+    relatedQrId: payload.qrValue || null,
+    relatedGateId: payload.gate || null,
+    relatedScanLogId: payload.scanLogId || null,
+    dedupeKey,
+    source: payload.source || "scanner",
+    metadata: {
+      source_key: sourceKey,
+      actor: payload.actorName || null,
+      gate: payload.gate || null,
+      qr_value: payload.qrValue || null,
+      count: payload.count || null,
+      window_minutes: SUSPICIOUS_WINDOW_MINUTES,
+      reason: payload.reason || null
+    }
+  });
+}
+
+async function evaluateSuspiciousScanSignals(db, payload = {}) {
+  const qrValue = payload.qrValue ? String(payload.qrValue).trim() : "";
+  const gate = payload.gate ? String(payload.gate).trim() : "";
+  const source = payload.source ? String(payload.source).trim() : "scanner";
+  const actorName = payload.actorName ? String(payload.actorName).trim() : "system";
+  const result = String(payload.result || "").toUpperCase();
+  const duplicateScan = Boolean(payload.duplicateScan);
+  const deniedReason = String(payload.deniedReason || "").trim();
+  const scanLogId = Number(payload.scanLogId) || null;
+  const sourceKey = `${source}|${gate || "-"}|${actorName || "-"}`;
+  const windowStart = new Date(Date.now() - (SUSPICIOUS_WINDOW_MINUTES * 60 * 1000));
+
+  if (INVALID_SCAN_RESULTS.has(result)) {
+    const [[sourceFailedCountRow]] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM scan_logs
+       WHERE scanned_at >= ?
+         AND scan_source = ?
+         AND COALESCE(gate_id, gate, '') = ?
+         AND result IN ('INVALID', 'REVOKED', 'EXPIRED')`,
+      [windowStart, source, gate || ""]
+    );
+    const sourceFailedCount = Number(sourceFailedCountRow?.total || 0);
+    if (sourceFailedCount >= SUSPICIOUS_FAILED_SCAN_THRESHOLD) {
+      await createSuspiciousScanAlert(db, {
+        title: "Repeated failed scans at gate",
+        message: `${sourceFailedCount} invalid/revoked/expired scans were recorded within ${SUSPICIOUS_WINDOW_MINUTES} minutes at ${gate || "Unknown Gate"}.`,
+        severity: sourceFailedCount >= SUSPICIOUS_FAILED_SCAN_THRESHOLD + 2 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
+        qrValue,
+        gate,
+        source,
+        sourceKey,
+        actorName,
+        scanLogId,
+        count: sourceFailedCount,
+        reason: "failed-scan-burst",
+        dedupeKey: `SUSP_FAILED_SOURCE:${sourceKey}`
+      });
+    }
+
+    if (qrValue) {
+      const [[invalidTokenCountRow]] = await db.query(
+        `SELECT COUNT(*) AS total
+         FROM scan_logs
+         WHERE scanned_at >= ?
+           AND qr_value = ?
+           AND result IN ('INVALID', 'REVOKED', 'EXPIRED')`,
+        [windowStart, qrValue]
+      );
+      const invalidTokenCount = Number(invalidTokenCountRow?.total || 0);
+      if (invalidTokenCount >= SUSPICIOUS_FAILED_SCAN_THRESHOLD) {
+        await createSuspiciousScanAlert(db, {
+          title: "Repeated invalid attempts for same QR",
+          message: `QR reference ${qrValue} has ${invalidTokenCount} failed attempts in ${SUSPICIOUS_WINDOW_MINUTES} minutes.`,
+          severity: invalidTokenCount >= SUSPICIOUS_FAILED_SCAN_THRESHOLD + 2 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
+          qrValue,
+          gate,
+          source,
+          sourceKey,
+          actorName,
+          scanLogId,
+          count: invalidTokenCount,
+          reason: "same-qr-invalid-burst",
+          dedupeKey: `SUSP_INVALID_QR:${qrValue}`
+        });
+      }
+    }
+  }
+
+  if (qrValue) {
+    const [[repeatQrCountRow]] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM scan_logs
+       WHERE scanned_at >= ?
+         AND qr_value = ?`,
+      [windowStart, qrValue]
+    );
+    const repeatQrCount = Number(repeatQrCountRow?.total || 0);
+    if (repeatQrCount >= SUSPICIOUS_REPEAT_QR_THRESHOLD) {
+      await createSuspiciousScanAlert(db, {
+        title: "Repeated QR scan burst",
+        message: `QR reference ${qrValue} was scanned ${repeatQrCount} times in ${SUSPICIOUS_WINDOW_MINUTES} minutes.`,
+        severity: repeatQrCount >= SUSPICIOUS_REPEAT_QR_THRESHOLD + 3 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
+        qrValue,
+        gate,
+        source,
+        sourceKey,
+        actorName,
+        scanLogId,
+        count: repeatQrCount,
+        reason: "repeat-qr-burst",
+        dedupeKey: `SUSP_REPEAT_QR:${qrValue}`
+      });
+    }
+  }
+
+  if (duplicateScan && qrValue) {
+    await createSuspiciousScanAlert(db, {
+      title: "Duplicate scan blocked",
+      message: `Duplicate scan for QR ${qrValue} was blocked by cooldown protection.`,
+      severity: ALERT_SEVERITIES.LOW,
+      qrValue,
+      gate,
+      source,
+      sourceKey,
+      actorName,
+      scanLogId,
+      reason: "duplicate-scan-blocked",
+      dedupeKey: `SUSP_DUPLICATE:${qrValue}:${sourceKey}`
+    });
+  }
+
+  if (deniedReason) {
+    await createSuspiciousScanAlert(db, {
+      title: "Entry attempt after denial",
+      message: deniedReason,
+      severity: ALERT_SEVERITIES.MEDIUM,
+      qrValue,
+      gate,
+      source,
+      sourceKey,
+      actorName,
+      scanLogId,
+      reason: "denied-entry-repeat",
+      dedupeKey: `SUSP_DENIED:${qrValue || sourceKey}`
+    });
+  }
+}
+
 function mapPendingAutoEntry(row) {
   if (!row) return null;
   return {
@@ -555,6 +1395,17 @@ function mapPendingAutoEntry(row) {
 
 async function expireStalePendingAutoEntries(db = pool) {
   const cutoff = new Date(Date.now() - (AUTO_PENDING_EXPIRY_MINUTES * 60 * 1000));
+  const [rows] = await db.query(
+    `SELECT id
+     FROM auto_scan_queue
+     WHERE status = 'PENDING'
+       AND created_at < ?
+     FOR UPDATE`,
+    [cutoff]
+  );
+  const expiredIds = rows.map((row) => Number(row.id)).filter((id) => Number.isInteger(id) && id > 0);
+  if (!expiredIds.length) return [];
+
   await db.query(
     `UPDATE auto_scan_queue
      SET
@@ -565,6 +1416,11 @@ async function expireStalePendingAutoEntries(db = pool) {
        AND created_at < ?`,
     [cutoff]
   );
+
+  for (const expiredId of expiredIds) {
+    await resolvePendingApprovalAlert(db, expiredId, "system-expiry");
+  }
+  return expiredIds;
 }
 
 async function getPendingAutoEntryBySticker(stickerId, db = pool, lock = false) {
@@ -640,7 +1496,11 @@ async function createPendingAutoEntryWithDb(db, payload) {
     [insertResult.insertId]
   );
 
-  return rows.length > 0 ? mapPendingAutoEntry(rows[0]) : null;
+  const entry = rows.length > 0 ? mapPendingAutoEntry(rows[0]) : null;
+  if (entry) {
+    await createPendingApprovalAlert(db, entry, payload.requestedByGuard || "system");
+  }
+  return entry;
 }
 
 async function listPendingAutoEntries(limit = 25, db = pool) {
@@ -930,6 +1790,8 @@ async function getRecentMovementLogs(db = pool, limit = 80) {
 }
 
 async function getDashboardData() {
+  await evaluateZoneCapacityAlerts(pool, "admin-dashboard");
+  const alertMetrics = await getOperationalAlertMetrics(pool);
   const [[studentsCount]] = await pool.query("SELECT COUNT(*) AS total FROM students");
   const [[vehiclesCount]] = await pool.query("SELECT COUNT(*) AS total FROM vehicles");
   const [[stickersCount]] = await pool.query(
@@ -982,6 +1844,11 @@ async function getDashboardData() {
       todayExits: todayExits.total,
       currentlyInside: currentlyInside.total,
       overstayAlerts: overstayAlertCount,
+      invalidQrAttemptsToday: alertMetrics.invalid_qr_today,
+      fullParkingZones: alertMetrics.full_parking_zones,
+      lowSlotWarnings: alertMetrics.low_slot_warnings,
+      pendingApprovals: alertMetrics.pending_approvals,
+      suspiciousScans: alertMetrics.suspicious_scans,
       overstayLimitHours: OVERSTAY_LIMIT_HOURS
     },
     movementLogs,
@@ -1078,6 +1945,8 @@ async function getReportsData(filters) {
 }
 
 async function getGuardDashboardData() {
+  await evaluateZoneCapacityAlerts(pool, "guard-dashboard");
+  const alertMetrics = await getOperationalAlertMetrics(pool);
   const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
   const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
   const parkingSlotOverview = await getParkingSlotOverview();
@@ -1135,8 +2004,11 @@ async function getGuardDashboardData() {
       todayExits: Number(todayExits?.total || 0),
       currentlyInside: insideVehicles.length,
       overstayAlerts: overstayAlerts.length,
-      pendingApprovals: Number(pendingQueue?.total || 0),
-      invalidScans: Number(invalidScans?.total || 0)
+      pendingApprovals: Number(alertMetrics.pending_approvals || pendingQueue?.total || 0),
+      invalidScans: Number(alertMetrics.invalid_qr_today || invalidScans?.total || 0),
+      fullParkingZones: Number(alertMetrics.full_parking_zones || 0),
+      lowSlotWarnings: Number(alertMetrics.low_slot_warnings || 0),
+      suspiciousScans: Number(alertMetrics.suspicious_scans || 0)
     },
     insideVehicles,
     overstayAlerts,
@@ -1231,11 +2103,25 @@ async function assignParkingSlot(db, stickerId, slotId) {
   }
 
   const slot = slotRows[0];
-  if (slot.status !== "available") {
-    throw new Error("Selected parking slot is not available.");
-  }
-  if (slot.current_sticker_id) {
-    throw new Error("Selected parking slot is already occupied.");
+  if (slot.status !== "available" || slot.current_sticker_id) {
+    const [[zoneState]] = await db.query(
+      `SELECT
+         COUNT(*) AS total_slots,
+         SUM(CASE WHEN status = 'available' AND current_sticker_id IS NULL THEN 1 ELSE 0 END) AS available_slots
+       FROM parking_slots
+       WHERE zone = ?`,
+      [slot.zone || "General"]
+    );
+    const availableInZone = Number(zoneState?.available_slots || 0);
+    if (availableInZone <= 0) {
+      throw new Error(`Zone ${slot.zone || "General"} is already full. Please choose another zone.`);
+    }
+    if (slot.status !== "available") {
+      throw new Error("Selected parking slot is disabled.");
+    }
+    if (slot.current_sticker_id) {
+      throw new Error("Selected parking slot is already occupied.");
+    }
   }
 
   await db.query(
@@ -1359,6 +2245,28 @@ async function resolveScan(token, gate = "Main Gate") {
       scanSource: "scanner",
       status: normalizeScanStatus("INVALID")
     });
+    await createInvalidQrAlert(pool, {
+      result: "INVALID",
+      reason: "QR token not found in registered stickers.",
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      scanLogId: scanLog?.id || null
+    });
+    await evaluateSuspiciousScanSignals(pool, {
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      result: "INVALID",
+      scanLogId: scanLog?.id || null
+    });
+    broadcastNotificationsUpdated("invalid-qr", {
+      gate_id: gate,
+      qr_value: token,
+      result: "INVALID"
+    });
     return {
       ...verification,
       scan_log_id: scanLog?.id || null,
@@ -1382,6 +2290,29 @@ async function resolveScan(token, gate = "Main Gate") {
         status: normalizeScanStatus("REVOKED")
       }
     );
+    await createInvalidQrAlert(pool, {
+      result: "REVOKED",
+      reason: "Sticker is revoked and no longer allowed for entry.",
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+      scanLogId: scanLog?.id || null
+    });
+    await evaluateSuspiciousScanSignals(pool, {
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      result: "REVOKED",
+      scanLogId: scanLog?.id || null
+    });
+    broadcastNotificationsUpdated("invalid-qr", {
+      gate_id: gate,
+      qr_value: token,
+      result: "REVOKED"
+    });
     return {
       ...verification,
       scan_log_id: scanLog?.id || null,
@@ -1405,6 +2336,29 @@ async function resolveScan(token, gate = "Main Gate") {
         status: normalizeScanStatus("EXPIRED")
       }
     );
+    await createInvalidQrAlert(pool, {
+      result: "EXPIRED",
+      reason: "Sticker has expired and requires renewal.",
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+      scanLogId: scanLog?.id || null
+    });
+    await evaluateSuspiciousScanSignals(pool, {
+      qrValue: token,
+      gate,
+      source: "scanner",
+      actorName: "system",
+      result: "EXPIRED",
+      scanLogId: scanLog?.id || null
+    });
+    broadcastNotificationsUpdated("invalid-qr", {
+      gate_id: gate,
+      qr_value: token,
+      result: "EXPIRED"
+    });
     return {
       ...verification,
       scan_log_id: scanLog?.id || null,
@@ -1423,6 +2377,19 @@ async function resolveScan(token, gate = "Main Gate") {
     const duplicateInfo = getDuplicateScanInfo(lastMovement);
     if (duplicateInfo.duplicate) {
       await connection.rollback();
+      await evaluateSuspiciousScanSignals(pool, {
+        qrValue: token,
+        gate,
+        source: "scanner",
+        actorName: "system",
+        result: "VALID",
+        duplicateScan: true,
+        deniedReason: `Duplicate scan blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
+      });
+      broadcastNotificationsUpdated("duplicate-scan-blocked", {
+        gate_id: gate,
+        qr_value: token
+      });
       return {
         ...verification,
         action: lastMovement.action,
@@ -1461,6 +2428,12 @@ async function resolveScan(token, gate = "Main Gate") {
       await releaseParkingSlot(connection, sticker.id);
     }
     await connection.commit();
+    await evaluateZoneCapacityAlerts(pool, "resolve-scan");
+    broadcastNotificationsUpdated("movement-recorded", {
+      movement_action: action,
+      gate_id: gate,
+      qr_value: token
+    });
 
     return {
       ...verification,
@@ -1501,6 +2474,32 @@ async function verifyAndLog(token, gate = "Manual Verification") {
       status: normalizeScanStatus(verification.result)
     }
   );
+
+  if (!verification.ok && INVALID_SCAN_RESULTS.has(String(verification.result || "").toUpperCase())) {
+    await createInvalidQrAlert(pool, {
+      result: verification.result || "INVALID",
+      reason: noteByResult[verification.result] || verification.message || "Invalid manual verification attempt.",
+      qrValue: token,
+      gate,
+      source: "manual",
+      actorName: "system",
+      relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+      scanLogId: scanLog?.id || null
+    });
+    await evaluateSuspiciousScanSignals(pool, {
+      qrValue: token,
+      gate,
+      source: "manual",
+      actorName: "system",
+      result: verification.result || "INVALID",
+      scanLogId: scanLog?.id || null
+    });
+    broadcastNotificationsUpdated("manual-invalid-verification", {
+      gate_id: gate,
+      qr_value: token,
+      result: verification.result || "INVALID"
+    });
+  }
 
   return {
     ...verification,
@@ -1573,6 +2572,22 @@ app.get("/admin/records", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   } catch (error) {
     console.error("Admin records page error:", error);
     res.status(500).send("An error occurred loading gate records.");
+  }
+});
+
+app.get("/admin/alerts", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "admin-alerts-page");
+    const alertSummary = await getOperationalAlertMetrics(pool);
+    const alertList = await listAlertsForUser(req.authUser, { limit: 30, offset: 0, status: "all" }, pool);
+    res.render("admin_alerts", {
+      alertSummary,
+      initialAlerts: alertList.rows,
+      initialTotal: alertList.total
+    });
+  } catch (error) {
+    console.error("Admin alerts page error:", error);
+    res.status(500).send("An error occurred loading alerts.");
   }
 });
 
@@ -1761,6 +2776,143 @@ app.get("/api/dashboard-stats", requireRole(USER_ROLES.ADMIN), async (req, res) 
   } catch (error) {
     console.error("Dashboard stats API error:", error);
     res.status(500).json({ ok: false, message: "Failed to fetch dashboard stats." });
+  }
+});
+
+// API: notification center summary for current user
+app.get("/api/notifications/summary", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "notification-summary");
+    const summary = await getNotificationSummaryForUser(req.authUser, pool);
+    const operational = await getOperationalAlertMetrics(pool);
+    res.json({
+      ok: true,
+      summary,
+      operational,
+      server_time: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Notification summary error:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Failed to load notification summary.",
+      summary: {
+        total: 0,
+        active_total: 0,
+        unread_total: 0,
+        invalid_active: 0,
+        full_zone_active: 0,
+        low_slot_active: 0,
+        pending_active: 0,
+        suspicious_active: 0
+      }
+    });
+  }
+});
+
+// API: notification listing with filters
+app.get("/api/notifications", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const listResult = await listAlertsForUser(req.authUser, {
+      status: req.query.status,
+      type: req.query.type,
+      severity: req.query.severity,
+      readState: req.query.read_state,
+      query: req.query.q,
+      from: req.query.from,
+      to: req.query.to,
+      limit: req.query.limit,
+      offset: req.query.offset
+    }, pool);
+
+    res.json({
+      ok: true,
+      ...listResult
+    });
+  } catch (error) {
+    console.error("Notification list error:", error);
+    res.status(500).json({
+      ok: false,
+      message: "Failed to load notifications.",
+      rows: [],
+      total: 0
+    });
+  }
+});
+
+// API: mark notification as read for current user
+app.post("/api/notifications/:id/read", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const alertId = Number(req.params.id);
+  if (!Number.isInteger(alertId) || alertId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid notification id." });
+  }
+
+  try {
+    await markAlertReadForUser(pool, alertId, req.authUser?.id);
+    const summary = await getNotificationSummaryForUser(req.authUser, pool);
+    broadcastNotificationsUpdated("notification-read", {
+      alert_id: alertId,
+      by_user: req.authUser?.username || "user"
+    });
+    return res.json({ ok: true, alert_id: alertId, summary });
+  } catch (error) {
+    console.error("Notification read error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to mark notification as read." });
+  }
+});
+
+// API: mark all visible notifications as read for current user
+app.post("/api/notifications/read-all", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const affected = await markAllAlertsReadForUser(pool, req.authUser);
+    const summary = await getNotificationSummaryForUser(req.authUser, pool);
+    broadcastNotificationsUpdated("notification-read-all", {
+      by_user: req.authUser?.username || "user",
+      affected
+    });
+    return res.json({ ok: true, affected, summary });
+  } catch (error) {
+    console.error("Notification read-all error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to mark all notifications as read." });
+  }
+});
+
+// API: resolve alert (operational state change)
+app.post("/api/notifications/:id/resolve", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  const alertId = Number(req.params.id);
+  if (!Number.isInteger(alertId) || alertId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid notification id." });
+  }
+
+  try {
+    const [rows] = await pool.query("SELECT id, status FROM alerts WHERE id = ? LIMIT 1", [alertId]);
+    if (!rows.length) {
+      return res.status(404).json({ ok: false, message: "Notification not found." });
+    }
+    if (rows[0].status === ALERT_STATUS.RESOLVED) {
+      await markAlertReadForUser(pool, alertId, req.authUser?.id);
+      return res.json({ ok: true, already_resolved: true, alert_id: alertId });
+    }
+
+    await pool.query(
+      `UPDATE alerts
+       SET
+         status = 'resolved',
+         resolved_at = NOW(),
+         resolved_by = ?
+       WHERE id = ?`,
+      [getAuthActorName(req), alertId]
+    );
+    await markAlertReadForUser(pool, alertId, req.authUser?.id);
+    const summary = await getNotificationSummaryForUser(req.authUser, pool);
+    broadcastNotificationsUpdated("notification-resolved", {
+      alert_id: alertId,
+      by_user: req.authUser?.username || "user"
+    });
+    return res.json({ ok: true, alert_id: alertId, summary });
+  } catch (error) {
+    console.error("Notification resolve error:", error);
+    return res.status(500).json({ ok: false, message: "Failed to resolve notification." });
   }
 });
 
@@ -2270,6 +3422,67 @@ app.get("/scanner/auto", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, 
   });
 });
 
+// API: live SSE stream for notification center updates
+app.get("/api/notifications/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  const clientId = `${Date.now()}-${++notificationSseClientCounter}`;
+  const heartbeatTimer = setInterval(() => {
+    writeSseEvent(res, "ping", { ts: new Date().toISOString() });
+  }, AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000);
+
+  notificationSseClients.set(clientId, {
+    id: clientId,
+    username: req.authUser?.username || "user",
+    role: req.authUser?.role || "guard",
+    userId: req.authUser?.id || null,
+    res,
+    heartbeatTimer
+  });
+
+  writeSseEvent(res, "connected", {
+    ok: true,
+    client_id: clientId,
+    keepalive_seconds: AUTO_SCAN_SSE_KEEPALIVE_SECONDS,
+    server_time: new Date().toISOString()
+  });
+
+  try {
+    const summary = await getNotificationSummaryForUser(req.authUser, pool);
+    writeSseEvent(res, "notifications-summary", {
+      summary,
+      server_time: new Date().toISOString()
+    });
+  } catch (error) {
+    writeSseEvent(res, "notifications-summary", {
+      summary: {
+        total: 0,
+        active_total: 0,
+        unread_total: 0,
+        invalid_active: 0,
+        full_zone_active: 0,
+        low_slot_active: 0,
+        pending_active: 0,
+        suspicious_active: 0
+      },
+      message: error.message || "Unable to load notification summary.",
+      server_time: new Date().toISOString()
+    });
+  }
+
+  const closeHandler = () => {
+    removeNotificationSseClient(clientId);
+  };
+  req.on("close", closeHandler);
+  req.on("aborted", closeHandler);
+});
+
 // API: live SSE stream for guard queue + phone heartbeat updates
 app.get("/api/auto-scan/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
@@ -2441,6 +3654,29 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
           status: normalizeScanStatus(verification.result || "INVALID")
         }
       );
+      await createInvalidQrAlert(pool, {
+        result: verification.result || "INVALID",
+        reason: verification.message || "Automatic camera verification failed.",
+        qrValue: token,
+        gate,
+        source: "camera_phone",
+        actorName: guardName,
+        relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+        scanLogId: scanLog?.id || null
+      });
+      await evaluateSuspiciousScanSignals(pool, {
+        qrValue: token,
+        gate,
+        source: "camera_phone",
+        actorName: guardName,
+        result: verification.result || "INVALID",
+        scanLogId: scanLog?.id || null
+      });
+      broadcastNotificationsUpdated("auto-invalid-verification", {
+        gate_id: gate,
+        qr_value: token,
+        result: verification.result || "INVALID"
+      });
 
       return res.json({
         ...verification,
@@ -2459,13 +3695,26 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      await expireStalePendingAutoEntries(connection);
+      const expiredPendingIds = await expireStalePendingAutoEntries(connection);
       await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [sticker.id]);
 
       const lastMovement = await getLastValidMovement(sticker.id, connection);
       const duplicateInfo = getDuplicateScanInfo(lastMovement);
       if (duplicateInfo.duplicate) {
         await connection.rollback();
+        await evaluateSuspiciousScanSignals(pool, {
+          qrValue: token,
+          gate,
+          source: "camera_phone",
+          actorName: guardName,
+          result: "VALID",
+          duplicateScan: true,
+          deniedReason: `Duplicate phone scan blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
+        });
+        broadcastNotificationsUpdated("duplicate-scan-blocked", {
+          gate_id: gate,
+          qr_value: token
+        });
         return res.json({
           ok: false,
           result: "VALID",
@@ -2523,6 +3772,16 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
           });
 
           await connection.commit();
+          if (expiredPendingIds.length > 0) {
+            broadcastNotificationsUpdated("pending-entry-expired", {
+              expired_pending_ids: expiredPendingIds
+            });
+          }
+          broadcastNotificationsUpdated("pending-entry-created", {
+            pending_entry_id: queuedEntry?.id || null,
+            gate_id: gate,
+            qr_value: token
+          });
           broadcastAutoScanSse("pending-entry-created", {
             pending_entry_id: queuedEntry?.id || null,
             pending_entry: queuedEntry || null,
@@ -2593,6 +3852,17 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
 
       await releaseParkingSlot(connection, sticker.id);
       await connection.commit();
+      if (expiredPendingIds.length > 0) {
+        broadcastNotificationsUpdated("pending-entry-expired", {
+          expired_pending_ids: expiredPendingIds
+        });
+      }
+      await evaluateZoneCapacityAlerts(pool, guardName || "auto-exit");
+      broadcastNotificationsUpdated("movement-recorded", {
+        movement_action: "EXIT",
+        gate_id: gate,
+        qr_value: token
+      });
       broadcastAutoScanSse("pending-entry-sync", {
         reason: "exit-recorded",
         gate_id: gate,
@@ -2662,6 +3932,26 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
   try {
     const verification = await getVerificationState(token);
     if (!verification.ok) {
+      await createInvalidQrAlert(pool, {
+        result: verification.result || "INVALID",
+        reason: verification.message || "Entry confirmation failed: sticker no longer valid.",
+        qrValue: token,
+        gate,
+        source: "camera_phone",
+        actorName: guardName
+      });
+      await evaluateSuspiciousScanSignals(pool, {
+        qrValue: token,
+        gate,
+        source: "camera_phone",
+        actorName: guardName,
+        result: verification.result || "INVALID"
+      });
+      broadcastNotificationsUpdated("auto-confirm-invalid", {
+        gate_id: gate,
+        qr_value: token,
+        result: verification.result || "INVALID"
+      });
       return res.status(400).json({
         ok: false,
         message: verification.message,
@@ -2679,6 +3969,19 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
       const duplicateInfo = getDuplicateScanInfo(lastMovement);
       if (duplicateInfo.duplicate) {
         await connection.rollback();
+        await evaluateSuspiciousScanSignals(pool, {
+          qrValue: token,
+          gate,
+          source: "camera_phone",
+          actorName: guardName,
+          result: "VALID",
+          duplicateScan: true,
+          deniedReason: `Duplicate entry confirm blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
+        });
+        broadcastNotificationsUpdated("duplicate-scan-blocked", {
+          gate_id: gate,
+          qr_value: token
+        });
         return res.status(400).json({
           ok: false,
           duplicate_scan: true,
@@ -2691,6 +3994,18 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
 
       if (lastMovement && lastMovement.action === "ENTRY") {
         await connection.rollback();
+        await evaluateSuspiciousScanSignals(pool, {
+          qrValue: token,
+          gate,
+          source: "camera_phone",
+          actorName: guardName,
+          result: "VALID",
+          deniedReason: "Vehicle is already marked as inside during auto entry confirmation."
+        });
+        broadcastNotificationsUpdated("entry-denied-already-inside", {
+          gate_id: gate,
+          qr_value: token
+        });
         return res.status(400).json({
           ok: false,
           duplicate_movement: true,
@@ -2728,6 +4043,12 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
         }
       );
       await connection.commit();
+      await evaluateZoneCapacityAlerts(pool, guardName || "auto-confirm-entry");
+      broadcastNotificationsUpdated("movement-recorded", {
+        movement_action: "ENTRY",
+        gate_id: gate,
+        qr_value: token
+      });
 
       return res.json({
         ok: true,
@@ -2765,7 +4086,12 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
 app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   const limit = Number(req.query.limit) || 25;
   try {
-    await expireStalePendingAutoEntries();
+    const expiredPendingIds = await expireStalePendingAutoEntries();
+    if (expiredPendingIds.length > 0) {
+      broadcastNotificationsUpdated("pending-entry-expired", {
+        expired_pending_ids: expiredPendingIds
+      });
+    }
     const rows = await listPendingAutoEntries(limit);
     res.json({
       ok: true,
@@ -2796,7 +4122,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await expireStalePendingAutoEntries(connection);
+    const expiredPendingIds = await expireStalePendingAutoEntries(connection);
 
     const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
     if (!pendingEntry) {
@@ -2821,7 +4147,17 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
          WHERE id = ?`,
         [guardName, entryId]
       );
+      await resolvePendingApprovalAlert(connection, entryId, guardName);
       await connection.commit();
+      if (expiredPendingIds.length > 0) {
+        broadcastNotificationsUpdated("pending-entry-expired", {
+          expired_pending_ids: expiredPendingIds
+        });
+      }
+      broadcastNotificationsUpdated("pending-entry-rejected", {
+        pending_entry_id: entryId,
+        reason: "missing-token-data"
+      });
       broadcastAutoScanSse("pending-entry-updated", {
         pending_entry_id: entryId,
         status: "REJECTED",
@@ -2843,7 +4179,34 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
          WHERE id = ?`,
         [guardName, verification.message || "Sticker is not valid anymore.", entryId]
       );
+      await resolvePendingApprovalAlert(connection, entryId, guardName);
+      await createInvalidQrAlert(connection, {
+        result: verification.result || "INVALID",
+        reason: verification.message || "Pending entry was rejected: sticker no longer valid.",
+        qrValue: pendingEntry.qr_value,
+        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        source: pendingEntry.scan_source || "camera_phone",
+        actorName: guardName,
+        relatedVehicleId: pendingEntry.vehicle_id || null
+      });
+      await evaluateSuspiciousScanSignals(connection, {
+        qrValue: pendingEntry.qr_value,
+        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        source: pendingEntry.scan_source || "camera_phone",
+        actorName: guardName,
+        result: verification.result || "INVALID",
+        deniedReason: "Pending entry was denied because sticker is no longer valid."
+      });
       await connection.commit();
+      if (expiredPendingIds.length > 0) {
+        broadcastNotificationsUpdated("pending-entry-expired", {
+          expired_pending_ids: expiredPendingIds
+        });
+      }
+      broadcastNotificationsUpdated("pending-entry-rejected", {
+        pending_entry_id: entryId,
+        reason: "sticker-invalid"
+      });
       broadcastAutoScanSse("pending-entry-updated", {
         pending_entry_id: entryId,
         status: "REJECTED",
@@ -2867,7 +4230,25 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
          WHERE id = ?`,
         [guardName, entryId]
       );
+      await resolvePendingApprovalAlert(connection, entryId, guardName);
+      await evaluateSuspiciousScanSignals(connection, {
+        qrValue: pendingEntry.qr_value,
+        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        source: pendingEntry.scan_source || "camera_phone",
+        actorName: guardName,
+        result: "VALID",
+        deniedReason: "Pending entry rejected because vehicle is already marked inside."
+      });
       await connection.commit();
+      if (expiredPendingIds.length > 0) {
+        broadcastNotificationsUpdated("pending-entry-expired", {
+          expired_pending_ids: expiredPendingIds
+        });
+      }
+      broadcastNotificationsUpdated("pending-entry-rejected", {
+        pending_entry_id: entryId,
+        reason: "already-inside"
+      });
       broadcastAutoScanSse("pending-entry-updated", {
         pending_entry_id: entryId,
         status: "REJECTED",
@@ -2916,8 +4297,20 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
        WHERE id = ?`,
       [finalGate, guardName, assignedSlot.id, scanLog?.id || null, entryId]
     );
+    await resolvePendingApprovalAlert(connection, entryId, guardName);
 
     await connection.commit();
+    if (expiredPendingIds.length > 0) {
+      broadcastNotificationsUpdated("pending-entry-expired", {
+        expired_pending_ids: expiredPendingIds
+      });
+    }
+    await evaluateZoneCapacityAlerts(pool, guardName || "pending-confirm");
+    broadcastNotificationsUpdated("pending-entry-confirmed", {
+      pending_entry_id: entryId,
+      gate_id: finalGate,
+      slot_code: assignedSlot.slot_code
+    });
     broadcastAutoScanSse("pending-entry-updated", {
       pending_entry_id: entryId,
       status: "CONFIRMED",
@@ -2968,7 +4361,7 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADM
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await expireStalePendingAutoEntries(connection);
+    const expiredPendingIds = await expireStalePendingAutoEntries(connection);
     const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
     if (!pendingEntry) {
       await connection.rollback();
@@ -2992,7 +4385,16 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADM
        WHERE id = ?`,
       [guardName, reason || "Cancelled by guard monitor.", entryId]
     );
+    await resolvePendingApprovalAlert(connection, entryId, guardName);
     await connection.commit();
+    if (expiredPendingIds.length > 0) {
+      broadcastNotificationsUpdated("pending-entry-expired", {
+        expired_pending_ids: expiredPendingIds
+      });
+    }
+    broadcastNotificationsUpdated("pending-entry-cancelled", {
+      pending_entry_id: entryId
+    });
     broadcastAutoScanSse("pending-entry-updated", {
       pending_entry_id: entryId,
       status: "CANCELLED",
@@ -3106,6 +4508,45 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
   try {
     const verification = await getVerificationState(token);
     if (!verification.ok) {
+      const invalidScanLog = await insertScanLog(
+        verification.sticker?.id || null,
+        verification.result || "INVALID",
+        "VERIFY",
+        gate || "Manual Gate",
+        verification.message || "Manual movement rejected: invalid sticker.",
+        {
+          gateId: gate || "Manual Gate",
+          qrValue: token,
+          studentId: verification.sticker?.student_id_ref || null,
+          vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+          assignedByGuard: getAuthActorName(req),
+          scanSource: "manual",
+          status: normalizeScanStatus(verification.result || "INVALID")
+        }
+      );
+      await createInvalidQrAlert(pool, {
+        result: verification.result || "INVALID",
+        reason: verification.message || "Manual movement rejected due to invalid sticker.",
+        qrValue: token,
+        gate: gate || "Manual Gate",
+        source: "manual",
+        actorName: getAuthActorName(req),
+        relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
+        scanLogId: invalidScanLog?.id || null
+      });
+      await evaluateSuspiciousScanSignals(pool, {
+        qrValue: token,
+        gate: gate || "Manual Gate",
+        source: "manual",
+        actorName: getAuthActorName(req),
+        result: verification.result || "INVALID",
+        scanLogId: invalidScanLog?.id || null
+      });
+      broadcastNotificationsUpdated("manual-invalid-movement", {
+        gate_id: gate || "Manual Gate",
+        qr_value: token,
+        result: verification.result || "INVALID"
+      });
       return res.json({ ok: false, message: verification.message, movement_saved: false });
     }
 
@@ -3117,6 +4558,19 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
       const lastMovement = await getLastValidMovement(verification.sticker.id, connection);
       if (lastMovement && lastMovement.action === selectedAction) {
         await connection.rollback();
+        await evaluateSuspiciousScanSignals(pool, {
+          qrValue: token,
+          gate: gate || "Manual Gate",
+          source: "manual",
+          actorName: getAuthActorName(req),
+          result: "VALID",
+          deniedReason: `Manual ${selectedAction} denied: last movement is already ${selectedAction}.`
+        });
+        broadcastNotificationsUpdated("manual-duplicate-movement-blocked", {
+          gate_id: gate || "Manual Gate",
+          qr_value: token,
+          action: selectedAction
+        });
         return res.json({
           ok: false,
           movement_saved: false,
@@ -3161,6 +4615,12 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
       }
 
       await connection.commit();
+      await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "manual-movement");
+      broadcastNotificationsUpdated("movement-recorded", {
+        movement_action: selectedAction,
+        gate_id: gate || "Manual Gate",
+        qr_value: token
+      });
 
       res.json({
         ok: true,
@@ -3211,6 +4671,12 @@ app.post("/api/force-exit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       );
       await releaseParkingSlot(connection, sticker_id);
       await connection.commit();
+      await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "force-exit");
+      broadcastNotificationsUpdated("movement-recorded", {
+        movement_action: "EXIT",
+        gate_id: gate || "Admin Console",
+        sticker_id
+      });
 
       res.json({
         ok: true,

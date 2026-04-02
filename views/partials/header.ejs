@@ -70,6 +70,7 @@
     "/admin": "Admin Dashboard",
     "/admin/slots": "Available Slots",
     "/admin/updates": "Latest Updates",
+    "/admin/alerts": "Notifications & Alerts",
     "/admin/records": "Gate Records",
     "/guard": "Guard Dashboard",
     "/admin/users": "User Management",
@@ -88,6 +89,7 @@
       { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto", "/guard"] },
       { href: "/admin/slots", label: "Available Slots", active: ["/admin/slots"] },
       { href: "/admin/updates", label: "Latest Updates", active: ["/admin/updates"] },
+      { href: "/admin/alerts", label: "Alerts", active: ["/admin/alerts"] },
       { href: "/admin/records", label: "Gate Records", active: ["/admin/records"] },
       { href: "/reports", label: "Reports", active: ["/reports"] },
       { href: "/admin/users", label: "Users", active: ["/admin/users"] }
@@ -105,6 +107,7 @@
     "/guard": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.2 8.5-7 10-3.8-1.5-7-5-7-10V6l7-3Z"></path><path d="m9.5 12 1.8 1.8L15 10.3"></path></svg>',
     "/admin/slots": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8" rx="1.5"></rect><rect x="13" y="3" width="8" height="8" rx="1.5"></rect><rect x="3" y="13" width="8" height="8" rx="1.5"></rect><rect x="13" y="13" width="8" height="8" rx="1.5"></rect></svg>',
     "/admin/updates": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.5L4.8 15a1 1 0 0 0 .8 1.5h12.8a1 1 0 0 0 .8-1.5L18 12.5V9a6 6 0 0 0-6-6Z"></path><path d="M9.5 18a2.5 2.5 0 0 0 5 0"></path></svg>',
+    "/admin/alerts": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path><path d="M10 18a2 2 0 0 0 4 0"></path></svg>',
     "/admin/records": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
     "/admin/users": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path><circle cx="9.5" cy="7" r="3"></circle><path d="M17 11a3 3 0 1 0 0-6"></path><path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path></svg>',
     "/students": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path><circle cx="12" cy="12" r="1.5"></circle></svg>',
@@ -115,7 +118,7 @@
   };
 %>
 
-  <body class="page-<%= pageSlug %>">
+  <body class="page-<%= pageSlug %>" data-role="<%= roleNow %>">
     <div class="app-shell">
       <!-- Top Navigation -->
       <nav class="top-nav">
@@ -129,6 +132,15 @@
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
               </svg>
             </button>
+            <% if (roleNow === "admin" || roleNow === "guard") { %>
+            <button class="icon-btn notification-btn" id="notificationBell" title="Notifications" aria-label="Notifications">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path>
+                <path d="M10 18a2 2 0 0 0 4 0"></path>
+              </svg>
+              <span id="notificationUnreadBadge" class="notification-unread-badge" style="display:none;">0</span>
+            </button>
+            <% } %>
             <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
             <span class="role-chip"><%= roleLabel %></span>
             <a href="/logout" class="icon-btn signout-btn" title="Sign out" aria-label="Sign out">
@@ -152,6 +164,34 @@
           <% }) %>
         </div>
       </nav>
+      <% if (roleNow === "admin" || roleNow === "guard") { %>
+      <div id="notificationPanel" class="notification-panel" aria-hidden="true">
+        <div class="notification-panel-head">
+          <div>
+            <h3>Notifications</h3>
+            <p id="notificationPanelMeta">Loading latest alerts...</p>
+          </div>
+          <button type="button" class="icon-btn" id="notificationCloseBtn" aria-label="Close notifications">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12"></path>
+              <path d="M18 6 6 18"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="notification-filter-row">
+          <button type="button" class="notification-filter-btn is-active" data-notify-filter="all">All</button>
+          <button type="button" class="notification-filter-btn" data-notify-filter="unread">Unread</button>
+          <button type="button" class="notification-filter-btn" data-notify-filter="high">High</button>
+        </div>
+        <div class="notification-panel-actions">
+          <button type="button" class="btn-sm" id="notificationMarkAllBtn">Mark all read</button>
+          <% if (roleNow === "admin") { %>
+            <a href="/admin/alerts" class="link-btn">Open Alerts Page</a>
+          <% } %>
+        </div>
+        <div id="notificationPanelList" class="notification-panel-list"></div>
+      </div>
+      <% } %>
 
       <div class="main-shell">
 
@@ -192,5 +232,247 @@
 
               if (toggleBtn) toggleBtn.addEventListener('click', handleToggle);
               if (mobileToggleBtn) mobileToggleBtn.addEventListener('click', handleToggle);
+
+              const notificationBell = document.getElementById('notificationBell');
+              const notificationPanel = document.getElementById('notificationPanel');
+              const notificationCloseBtn = document.getElementById('notificationCloseBtn');
+              const notificationPanelMeta = document.getElementById('notificationPanelMeta');
+              const notificationPanelList = document.getElementById('notificationPanelList');
+              const notificationUnreadBadge = document.getElementById('notificationUnreadBadge');
+              const notificationMarkAllBtn = document.getElementById('notificationMarkAllBtn');
+              const notificationFilterButtons = Array.from(document.querySelectorAll('.notification-filter-btn[data-notify-filter]'));
+              let currentNotifyFilter = 'all';
+              let notifyEventSource = null;
+              let notifyReconnectTimer = null;
+
+              const escapeHtml = (value) => String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+              const getSeverityClass = (severity) => {
+                const safe = String(severity || 'low').toLowerCase();
+                if (safe === 'critical' || safe === 'high') return 'sev-high';
+                if (safe === 'medium') return 'sev-medium';
+                return 'sev-low';
+              };
+
+              const getFilterQueryParams = () => {
+                if (currentNotifyFilter === 'unread') {
+                  return '?limit=20&read_state=unread';
+                }
+                if (currentNotifyFilter === 'high') {
+                  return '?limit=20&severity=high';
+                }
+                return '?limit=20';
+              };
+
+              const setUnreadBadge = (value) => {
+                if (!notificationUnreadBadge) return;
+                const count = Number(value || 0);
+                if (!Number.isFinite(count) || count <= 0) {
+                  notificationUnreadBadge.style.display = 'none';
+                  notificationUnreadBadge.textContent = '0';
+                  return;
+                }
+                notificationUnreadBadge.style.display = '';
+                notificationUnreadBadge.textContent = count > 99 ? '99+' : String(count);
+              };
+
+              const renderNotificationRow = (row) => {
+                const isUnread = !row.is_read;
+                const severityClass = getSeverityClass(row.severity);
+                const statusClass = String(row.status || '').toLowerCase() === 'resolved' ? 'state-resolved' : 'state-active';
+                const createdAt = row.created_at ? new Date(row.created_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : '-';
+                return `
+                  <article class="notification-row ${isUnread ? 'is-unread' : ''}">
+                    <div class="notification-row-main">
+                      <p class="notification-row-title">
+                        <span class="notify-severity-dot ${severityClass}"></span>
+                        ${escapeHtml(row.title || 'Alert')}
+                      </p>
+                      <p class="notification-row-message">${escapeHtml(row.message || '-')}</p>
+                      <p class="notification-row-meta">
+                        <span class="notification-chip ${statusClass}">${escapeHtml(row.status || 'active')}</span>
+                        <span class="notification-chip">${escapeHtml(row.type || 'ALERT')}</span>
+                        <span class="notification-chip">${escapeHtml((row.severity || 'low').toUpperCase())}</span>
+                        <span>${escapeHtml(createdAt)}</span>
+                      </p>
+                    </div>
+                    <div class="notification-row-actions">
+                      ${isUnread ? `<button type="button" class="btn-sm notification-read-btn" data-alert-id="${row.id}">Read</button>` : ''}
+                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm danger notification-resolve-btn" data-alert-id="${row.id}">Resolve</button>` : ''}
+                    </div>
+                  </article>
+                `;
+              };
+
+              const applyFilterButtonState = () => {
+                notificationFilterButtons.forEach((button) => {
+                  const isActive = button.dataset.notifyFilter === currentNotifyFilter;
+                  button.classList.toggle('is-active', isActive);
+                  button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                });
+              };
+
+              const fetchNotificationSummary = async () => {
+                if (!notificationBell) return;
+                try {
+                  const response = await fetch('/api/notifications/summary', { credentials: 'same-origin', cache: 'no-store' });
+                  const data = await response.json();
+                  if (!response.ok || !data.ok) return;
+                  setUnreadBadge(data.summary?.unread_total || 0);
+                  if (notificationPanelMeta) {
+                    const activeCount = Number(data.summary?.active_total || 0);
+                    notificationPanelMeta.textContent = `${activeCount} active alert(s)`;
+                  }
+                } catch (_error) {
+                  // Non-fatal
+                }
+              };
+
+              const wireNotificationButtons = () => {
+                if (!notificationPanelList) return;
+                notificationPanelList.querySelectorAll('.notification-read-btn').forEach((btn) => {
+                  btn.addEventListener('click', async () => {
+                    const alertId = btn.getAttribute('data-alert-id');
+                    if (!alertId) return;
+                    try {
+                      await fetch(`/api/notifications/${alertId}/read`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin'
+                      });
+                    } catch (_error) {}
+                    await Promise.all([fetchNotificationSummary(), fetchNotificationList()]);
+                  });
+                });
+
+                notificationPanelList.querySelectorAll('.notification-resolve-btn').forEach((btn) => {
+                  btn.addEventListener('click', async () => {
+                    const alertId = btn.getAttribute('data-alert-id');
+                    if (!alertId) return;
+                    try {
+                      await fetch(`/api/notifications/${alertId}/resolve`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin'
+                      });
+                    } catch (_error) {}
+                    await Promise.all([fetchNotificationSummary(), fetchNotificationList()]);
+                  });
+                });
+              };
+
+              const fetchNotificationList = async () => {
+                if (!notificationPanelList) return;
+                try {
+                  const response = await fetch(`/api/notifications${getFilterQueryParams()}`, { credentials: 'same-origin', cache: 'no-store' });
+                  const data = await response.json();
+                  if (!response.ok || !data.ok) {
+                    notificationPanelList.innerHTML = '<div class="empty-state"><p>Unable to load notifications.</p></div>';
+                    return;
+                  }
+                  const rows = Array.isArray(data.rows) ? data.rows : [];
+                  if (!rows.length) {
+                    notificationPanelList.innerHTML = '<div class="empty-state"><p>No notifications for this filter.</p></div>';
+                    return;
+                  }
+                  notificationPanelList.innerHTML = rows.map(renderNotificationRow).join('');
+                  wireNotificationButtons();
+                } catch (_error) {
+                  notificationPanelList.innerHTML = '<div class="empty-state"><p>Unable to load notifications.</p></div>';
+                }
+              };
+
+              const openNotificationPanel = () => {
+                if (!notificationPanel) return;
+                notificationPanel.classList.add('open');
+                notificationPanel.setAttribute('aria-hidden', 'false');
+                fetchNotificationList();
+              };
+
+              const closeNotificationPanel = () => {
+                if (!notificationPanel) return;
+                notificationPanel.classList.remove('open');
+                notificationPanel.setAttribute('aria-hidden', 'true');
+              };
+
+              const connectNotificationEvents = () => {
+                if (!notificationBell || !window.EventSource) return;
+                if (notifyEventSource) {
+                  notifyEventSource.close();
+                  notifyEventSource = null;
+                }
+                const source = new EventSource('/api/notifications/events');
+                notifyEventSource = source;
+                source.addEventListener('notifications-updated', async () => {
+                  await fetchNotificationSummary();
+                  if (notificationPanel && notificationPanel.classList.contains('open')) {
+                    await fetchNotificationList();
+                  }
+                });
+                source.addEventListener('notifications-summary', async () => {
+                  await fetchNotificationSummary();
+                });
+                source.onerror = () => {
+                  if (notifyEventSource) {
+                    notifyEventSource.close();
+                    notifyEventSource = null;
+                  }
+                  if (notifyReconnectTimer) clearTimeout(notifyReconnectTimer);
+                  notifyReconnectTimer = window.setTimeout(connectNotificationEvents, 3500);
+                };
+              };
+
+              if (notificationBell && notificationPanel) {
+                notificationBell.addEventListener('click', () => {
+                  if (notificationPanel.classList.contains('open')) {
+                    closeNotificationPanel();
+                    return;
+                  }
+                  openNotificationPanel();
+                });
+              }
+              if (notificationCloseBtn) {
+                notificationCloseBtn.addEventListener('click', closeNotificationPanel);
+              }
+              document.addEventListener('click', (event) => {
+                if (!notificationPanel || !notificationBell) return;
+                const target = event.target;
+                if (!(target instanceof Element)) return;
+                if (target.closest('#notificationPanel') || target.closest('#notificationBell')) return;
+                closeNotificationPanel();
+              });
+
+              notificationFilterButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                  currentNotifyFilter = button.dataset.notifyFilter || 'all';
+                  applyFilterButtonState();
+                  fetchNotificationList();
+                });
+              });
+              applyFilterButtonState();
+
+              if (notificationMarkAllBtn) {
+                notificationMarkAllBtn.addEventListener('click', async () => {
+                  try {
+                    await fetch('/api/notifications/read-all', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'same-origin'
+                    });
+                  } catch (_error) {}
+                  await Promise.all([fetchNotificationSummary(), fetchNotificationList()]);
+                });
+              }
+
+              if (notificationBell) {
+                fetchNotificationSummary();
+                connectNotificationEvents();
+                window.setInterval(fetchNotificationSummary, 15000);
+              }
             });
           </script>

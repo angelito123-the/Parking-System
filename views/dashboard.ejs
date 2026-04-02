@@ -78,6 +78,34 @@
     </div>
   </section>
 
+  <section class="panel alert-summary-panel">
+    <div class="section-head">
+      <h2>Security Alerts Snapshot</h2>
+      <p>Operational notifications for QR validation, zone capacity, pending approvals, and suspicious activity.</p>
+    </div>
+    <div class="alert-summary-grid">
+      <article class="alert-summary-card tone-danger">
+        <p class="alert-summary-label">Invalid QR Attempts Today</p>
+        <p id="metricInvalidQrAttempts" class="alert-summary-value"><%= safeMetrics.invalidQrAttemptsToday || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-warning">
+        <p class="alert-summary-label">Full Parking Zones</p>
+        <p id="metricFullParkingZones" class="alert-summary-value"><%= safeMetrics.fullParkingZones || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-info">
+        <p class="alert-summary-label">Pending Approvals</p>
+        <p id="metricPendingApprovals" class="alert-summary-value"><%= safeMetrics.pendingApprovals || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-strong">
+        <p class="alert-summary-label">Suspicious Scans</p>
+        <p id="metricSuspiciousScans" class="alert-summary-value"><%= safeMetrics.suspiciousScans || 0 %></p>
+      </article>
+    </div>
+    <div class="alert-summary-footer">
+      <a href="/admin/alerts" class="btn-sm">Open Notifications & Alerts</a>
+    </div>
+  </section>
+
   <section class="panel admin-overview-panel">
     <div class="section-head">
       <h2>Overview of Inside Vehicles</h2>
@@ -214,6 +242,10 @@
     const metricVehicles = document.getElementById("metricVehicles");
     const metricInside = document.getElementById("metricInside");
     const metricOverstay = document.getElementById("metricOverstay");
+    const metricInvalidQrAttempts = document.getElementById("metricInvalidQrAttempts");
+    const metricFullParkingZones = document.getElementById("metricFullParkingZones");
+    const metricPendingApprovals = document.getElementById("metricPendingApprovals");
+    const metricSuspiciousScans = document.getElementById("metricSuspiciousScans");
     const overstayListEl = document.getElementById("overstayAlertList");
     const overstayLimitMetaEl = document.getElementById("overstayLimitMeta");
     const overstayNoticeEl = document.getElementById("overstayNotice");
@@ -386,6 +418,10 @@
         if (metricStudents) metricStudents.textContent = metrics.students ?? "-";
         if (metricVehicles) metricVehicles.textContent = metrics.vehicles ?? "-";
         if (metricInside) metricInside.textContent = metrics.currentlyInside ?? "-";
+        if (metricInvalidQrAttempts) metricInvalidQrAttempts.textContent = metrics.invalidQrAttemptsToday ?? "-";
+        if (metricFullParkingZones) metricFullParkingZones.textContent = metrics.fullParkingZones ?? "-";
+        if (metricPendingApprovals) metricPendingApprovals.textContent = metrics.pendingApprovals ?? "-";
+        if (metricSuspiciousScans) metricSuspiciousScans.textContent = metrics.suspiciousScans ?? "-";
 
         const vehicles = Array.isArray(data.insideVehicles) ? data.insideVehicles : [];
         const overstayRows = Array.isArray(data.overstayAlerts)
