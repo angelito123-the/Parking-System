@@ -1,10 +1,10 @@
-const CACHE_NAME = 'naap-parking-v4';
+const CACHE_NAME = 'naap-parking-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/login',
   '/scanner',
   '/scanner/auto',
-  '/styles.css',
+  '/styles.css?v=20260402b',
   '/manifest.json',
   '/offline-sync.js',
   '/js/qr-behavior-classifier.js',

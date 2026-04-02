@@ -96,6 +96,9 @@
       window.addEventListener("pageshow", () => {
         isNavigating = false;
         body.classList.remove("page-transitioning");
+        if (body.classList.contains("page-reports") && window.scrollX !== 0) {
+          window.scrollTo({ left: 0, top: window.scrollY });
+        }
       });
     })();
   </script>
