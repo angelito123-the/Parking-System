@@ -5842,3 +5842,12 @@ body.page-reports .reports-filters-actions {
   }
 }
 
+@media (min-width: 1081px) {
+  .top-nav-links {
+    overflow-x: visible !important;
+    overflow-y: visible;
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+}
+
