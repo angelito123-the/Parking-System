@@ -1,213 +1,256 @@
-<%- include("partials/header") %>
-  <% const rowsSafe=Array.isArray(rows) ? rows : []; const gateStatsSafe=Array.isArray(gateStats) ? gateStats : [];
-    const studentStatsSafe=Array.isArray(studentStats) ? studentStats : []; const hourStatsSafe=Array.isArray(hourStats)
-    ? hourStats : []; %>
+﻿<%- include("partials/header") %>
+<%
+  const gateStatsSafe = Array.isArray(gateStats) ? gateStats : [];
+  const studentStatsSafe = Array.isArray(studentStats) ? studentStats : [];
+  const hourStatsSafe = Array.isArray(hourStats) ? hourStats : [];
+  const summarySafe = typeof summary === "object" && summary
+    ? summary
+    : { totalScans: 0, validScans: 0, totalEntries: 0, totalExits: 0, uniqueStudents: 0 };
 
-    <section class="dashboard-hero">
-      <div class="hero-greeting">
-        <h2>Analytics</h2>
-        <h1>System Reports</h1>
+  const busiestHour = hourStatsSafe.length
+    ? hourStatsSafe.reduce((best, item) => Number(item.total || 0) > Number(best.total || 0) ? item : best, hourStatsSafe[0])
+    : null;
+  const busiestHourLabel = busiestHour ? `${busiestHour.hour_slot || "-"} (${busiestHour.total || 0})` : "No data";
+
+  const mostUsedGate = gateStatsSafe.length
+    ? gateStatsSafe.reduce((best, item) => Number(item.total || 0) > Number(best.total || 0) ? item : best, gateStatsSafe[0])
+    : null;
+  const mostUsedGateLabel = mostUsedGate ? `${mostUsedGate.gate || "Unspecified"} (${mostUsedGate.total || 0})` : "No data";
+%>
+
+<section class="dashboard-hero">
+  <div class="hero-greeting">
+    <h2>Analytics</h2>
+    <h1>Parking Analytics Dashboard</h1>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card">
+      <h3>Total Scans</h3>
+      <p><%= summarySafe.totalScans || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Valid Scans</h3>
+      <p><%= summarySafe.validScans || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Entries</h3>
+      <p><%= summarySafe.totalEntries || 0 %></p>
+    </div>
+    <div class="hero-card">
+      <h3>Exits</h3>
+      <p><%= summarySafe.totalExits || 0 %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+      <h3>Busiest Hour</h3>
+      <p style="font-size:1rem;"><%= busiestHourLabel %></p>
+    </div>
+    <div class="hero-card" style="background: rgba(16, 185, 129, 0.22); border-color: rgba(110, 231, 183, 0.45);">
+      <h3>Most Used Gate</h3>
+      <p style="font-size:1rem;"><%= mostUsedGateLabel %></p>
+    </div>
+  </div>
+</section>
+
+<div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
+  <section class="panel">
+    <div class="section-head">
+      <h2>Filters and Export</h2>
+      <p>Analytics-only view. Detailed per-scan logs are in <a href="/admin/records" class="link-btn">Gate Records</a>.</p>
+    </div>
+
+    <form method="get" action="/reports" class="filters-grid">
+      <div>
+        <label for="reportFrom">From</label>
+        <input id="reportFrom" type="date" name="from" value="<%= filters.from %>" style="border:1px solid var(--line);" />
       </div>
-      <div class="hero-cards">
-        <div class="hero-card">
-          <h3>Total Scans</h3>
-          <p><%= summary.totalScans %></p>
-        </div>
-        <div class="hero-card">
-          <h3>Valid Scans</h3>
-          <p><%= summary.validScans %></p>
-        </div>
-        <div class="hero-card">
-          <h3>Total Entries</h3>
-          <p><%= summary.totalEntries %></p>
-        </div>
-        <div class="hero-card">
-          <h3>Total Exits</h3>
-          <p><%= summary.totalExits %></p>
-        </div>
-        <div class="hero-card" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
-          <h3>Unique Students</h3>
-          <p><%= summary.uniqueStudents %></p>
-        </div>
+      <div>
+        <label for="reportTo">To</label>
+        <input id="reportTo" type="date" name="to" value="<%= filters.to %>" style="border:1px solid var(--line);" />
       </div>
-    </section>
+      <div>
+        <label for="reportGate">Gate</label>
+        <select id="reportGate" name="gate" style="border:1px solid var(--line);">
+          <option value="ALL" <%= filters.gate === "ALL" ? "selected" : "" %>>All Gates</option>
+          <% gateStatsSafe.forEach((item) => { %>
+            <% const gateName = item.gate || "Unspecified"; %>
+            <option value="<%= gateName %>" <%= filters.gate === gateName ? "selected" : "" %>><%= gateName %></option>
+          <% }) %>
+        </select>
+      </div>
 
-    <div class="overlap-wrapper" style="display: grid; gap: 3rem;">
-      <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
-        <div class="section-head">
-          <h2 style="font-size: 1.25rem;">Data Filters & Export</h2>
-          <p>Filter scan history and review operational metrics.</p>
-        </div>
-        <form method="get" action="/reports" class="filters-grid">
-          <div>
-            <label>From</label>
-            <input type="date" name="from" value="<%= filters.from %>" style="border: 1px solid var(--line);" />
-          </div>
-          <div>
-            <label>To</label>
-            <input type="date" name="to" value="<%= filters.to %>" style="border: 1px solid var(--line);" />
-          </div>
-          <div>
-            <label>Gate</label>
-            <select name="gate" style="border: 1px solid var(--line);">
-              <option value="ALL" <%=filters.gate==="ALL" ? "selected" : "" %>>All Gates</option>
-              <% gateStatsSafe.forEach(item=> { %>
-                <% const gateName=item.gate || "Unspecified" ; %>
-                  <option value="<%= gateName %>" <%=filters.gate===gateName ? "selected" : "" %>><%= gateName %></option>
+      <div class="filters-actions">
+        <button type="submit" style="background:var(--blue-mid); color:#fff;">Apply Filters</button>
+        <a class="link-btn" href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">Export CSV</a>
+        <a class="link-btn" href="/admin/records">Open Gate Records</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="dashboard-grid">
+    <article class="panel">
+      <div class="section-head">
+        <h2>Hourly Traffic</h2>
+        <p>Busiest time windows in the selected period.</p>
+      </div>
+      <% if (!hourStatsSafe.length) { %>
+        <div class="empty-state"><p>No hourly data available for current filters.</p></div>
+      <% } else { %>
+        <div style="height:280px;"><canvas id="hourlyTrafficChart"></canvas></div>
+      <% } %>
+    </article>
+
+    <article class="panel">
+      <div class="section-head">
+        <h2>Gate Usage Share</h2>
+        <p>Distribution of scan activity by gate.</p>
+      </div>
+      <% if (!gateStatsSafe.length) { %>
+        <div class="empty-state"><p>No gate usage data for current filters.</p></div>
+      <% } else { %>
+        <div style="height:280px;"><canvas id="gateShareChart"></canvas></div>
+      <% } %>
+    </article>
+  </section>
+
+  <section class="dashboard-grid">
+    <article class="panel">
+      <div class="section-head">
+        <h2>Top Students</h2>
+        <p>Most frequently scanned students in the selected period.</p>
+      </div>
+      <% if (!studentStatsSafe.length) { %>
+        <div class="empty-state"><p>No student scan data found.</p></div>
+      <% } else { %>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Student Number</th>
+                <th>Name</th>
+                <th>Total Scans</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% studentStatsSafe.forEach((item) => { %>
+                <tr>
+                  <td><strong><%= item.student_number || "-" %></strong></td>
+                  <td><%= item.full_name || "Unknown Student" %></td>
+                  <td><strong><%= item.total_scans || 0 %></strong></td>
+                </tr>
               <% }) %>
-            </select>
-          </div>
-          <div class="filters-actions">
-            <button type="submit" style="background: var(--blue-mid); color: #fff;">Apply Filters</button>
-            <a class="link-btn"
-              href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">
-              ⬇ Export CSV
-            </a>
-          </div>
-        </form>
-      </section>
-
-      <section class="dashboard-grid">
-        <article class="panel">
-          <div class="section-head">
-            <h2>Top Students</h2>
-            <p>Most frequently scanned students.</p>
-          </div>
-          <% if (studentStatsSafe.length===0) { %>
-            <div class="empty-state">
-              <div class="empty-state-icon">📊</div>
-              <p>No scan data found.</p>
-            </div>
-            <% } else { %>
-              <div class="table-wrap desktop-only-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Student Number</th>
-                      <th>Name</th>
-                      <th>Total Scans</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% studentStatsSafe.forEach(item=> { %>
-                      <tr>
-                        <td><strong><%= item.student_number %></strong></td>
-                        <td><%= item.full_name %></td>
-                        <td><strong><%= item.total_scans %></strong></td>
-                      </tr>
-                      <% }) %>
-                  </tbody>
-                </table>
-              </div>
-              <!-- Mobile Cards for Top Students -->
-              <div class="mobile-data-list">
-                <% studentStatsSafe.forEach(item => { %>
-                  <div class="mobile-data-card">
-                    <div class="card-header">
-                      <div class="card-title"><%= item.full_name %></div>
-                      <span class="badge" style="background:var(--blue-soft); color:var(--blue-mid);"><%= item.total_scans %> Scans</span>
-                    </div>
-                    <div class="card-body">
-                      <div class="card-item">🆔 <strong>ID:</strong> <%= item.student_number %></div>
-                    </div>
-                  </div>
-                <% }) %>
-              </div>
-              <% } %>
-        </article>
-
-        <article class="panel">
-          <div class="section-head">
-            <h2>Gate and Hour Trends</h2>
-            <p>Traffic distribution snapshots.</p>
-          </div>
-          <div class="mini-list">
-            <h4>By Gate</h4>
-            <% if (gateStatsSafe.length===0) { %>
-              <div class="empty-state"><p>No gate data.</p></div>
-              <% } else { %>
-                <% gateStatsSafe.forEach(item=> { %>
-                  <div class="mini-row">
-                    <span><%= item.gate || "Unspecified" %></span>
-                    <strong><%= item.total %></strong>
-                  </div>
-                  <% }) %>
-              <% } %>
-          </div>
-          <div class="mini-list" style="margin-top:1.5rem;">
-            <h4>By Hour</h4>
-            <% if (hourStatsSafe.length===0) { %>
-              <div class="empty-state"><p>No hourly data.</p></div>
-              <% } else { %>
-                <% hourStatsSafe.forEach(item=> { %>
-                  <div class="mini-row">
-                    <span><%= item.hour_slot %></span>
-                    <strong><%= item.total %></strong>
-                  </div>
-                  <% }) %>
-              <% } %>
-          </div>
-        </article>
-      </section>
-
-      <section class="panel" style="border:none; box-shadow:none; padding:0; background:transparent;">
-        <div class="section-head">
-          <h2 style="font-size: 1.25rem;">Detailed Scan Records</h2>
-          <p>Total: <strong><%= rowsSafe.length %></strong> records.</p>
+            </tbody>
+          </table>
         </div>
-        <% if (rowsSafe.length===0) { %>
-          <div class="empty-state">
-            <div class="empty-state-icon">📋</div>
-            <p>No scan records found.</p>
-          </div>
-          <% } else { %>
-            <div class="table-wrap desktop-only-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date/Time</th>
-                    <th>Student</th>
-                    <th>Plate</th>
-                    <th>Sticker</th>
-                    <th>Result</th>
-                    <th>Movement</th>
-                    <th>Gate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% rowsSafe.forEach(row=> { %>
-                    <tr>
-                      <td style="color: var(--muted); font-size:0.8rem;"><%= new Date(row.scanned_at).toLocaleString('en-US', { hour:'numeric', minute:'numeric', month:'short', day:'numeric' }) %></td>
-                      <td><strong><%= row.student_number || "-" %></strong><br><small><%= row.full_name || "" %></small></td>
-                      <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= row.plate_number || "-" %></span></td>
-                      <td><%= row.sticker_code || "-" %></td>
-                      <td><span class="badge badge-<%= (row.result || " INVALID").toLowerCase() %>"><%= row.result || "-" %></span></td>
-                      <td><span class="badge badge-action"><%= row.action || "-" %></span></td>
-                      <td><%= row.gate || "-" %></td>
-                    </tr>
-                    <% }) %>
-                </tbody>
-              </table>
-            </div>
+      <% } %>
+    </article>
 
-            <!-- Mobile-Ready Cards for Detailed Records -->
-            <div class="mobile-data-list">
-              <% rowsSafe.forEach(row => { %>
-                <div class="mobile-data-card">
-                  <div class="card-header">
-                    <div class="card-title"><%= row.full_name || "Guest" %></div>
-                    <span class="badge badge-action"><%= row.action %></span>
-                  </div>
-                  <div class="card-body">
-                    <div class="card-item">🚗 <strong>Plate:</strong> <%= row.plate_number || "-" %></div>
-                    <div class="card-item">🛡️ <strong>Status:</strong> <span class="badge badge-<%= (row.result || 'INVALID').toLowerCase() %>"><%= row.result %></span></div>
-                    <div class="card-item">📅 <strong>Time:</strong> <%= new Date(row.scanned_at).toLocaleTimeString() %></div>
-                  </div>
-                </div>
+    <article class="panel">
+      <div class="section-head">
+        <h2>Hourly Breakdown Table</h2>
+        <p>Operational reference for guard and admin scheduling.</p>
+      </div>
+      <% if (!hourStatsSafe.length) { %>
+        <div class="empty-state"><p>No hourly breakdown to display.</p></div>
+      <% } else { %>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Hour Slot</th>
+                <th>Total Scans</th>
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% const totalHourly = hourStatsSafe.reduce((sum, item) => sum + Number(item.total || 0), 0); %>
+              <% hourStatsSafe.forEach((item) => { %>
+                <% const count = Number(item.total || 0); %>
+                <% const percent = totalHourly > 0 ? ((count / totalHourly) * 100).toFixed(1) : "0.0"; %>
+                <tr>
+                  <td><strong><%= item.hour_slot || "-" %></strong></td>
+                  <td><%= count %></td>
+                  <td><%= percent %>%</td>
+                </tr>
               <% }) %>
-            </div>
-            <% } %>
-      </section>
-    </div> <!-- overlap-wrapper end -->
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </article>
+  </section>
+</div>
 
-    <%- include("partials/footer") %>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+  (() => {
+    const hourData = <%- JSON.stringify(hourStatsSafe) %>;
+    const gateData = <%- JSON.stringify(gateStatsSafe) %>;
+
+    if (Array.isArray(hourData) && hourData.length && document.getElementById("hourlyTrafficChart")) {
+      const labels = hourData.map((item) => item.hour_slot || "-");
+      const values = hourData.map((item) => Number(item.total || 0));
+      const ctx = document.getElementById("hourlyTrafficChart").getContext("2d");
+      new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Scans",
+            data: values,
+            backgroundColor: "rgba(37, 99, 235, 0.65)",
+            borderColor: "rgba(29, 78, 216, 1)",
+            borderWidth: 1,
+            borderRadius: 8,
+            maxBarThickness: 34
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0 } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    if (Array.isArray(gateData) && gateData.length && document.getElementById("gateShareChart")) {
+      const labels = gateData.map((item) => item.gate || "Unspecified");
+      const values = gateData.map((item) => Number(item.total || 0));
+      const ctx = document.getElementById("gateShareChart").getContext("2d");
+      new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: [
+              "rgba(37, 99, 235, 0.75)",
+              "rgba(16, 185, 129, 0.75)",
+              "rgba(245, 158, 11, 0.75)",
+              "rgba(190, 24, 93, 0.75)",
+              "rgba(99, 102, 241, 0.75)"
+            ],
+            borderColor: "rgba(255,255,255,0.55)",
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: "bottom",
+              labels: { boxWidth: 12, boxHeight: 12 }
+            }
+          }
+        }
+      });
+    }
+  })();
+</script>
+
+<%- include("partials/footer") %>
+
