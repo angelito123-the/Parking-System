@@ -339,7 +339,23 @@ function isExpired(expiresAt) {
 function toDateOnly(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function normalizeDateOnlyInput(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  return toDateOnly(text);
+}
+
+function isSchemaCompatibilityError(error) {
+  if (!error || typeof error !== "object") return false;
+  const code = String(error.code || "");
+  return code === "ER_BAD_FIELD_ERROR" || code === "ER_NO_SUCH_TABLE" || code === "ER_BAD_TABLE_ERROR";
 }
 
 function escapeCsv(value) {
@@ -1807,11 +1823,11 @@ function buildReportFilters(query) {
     fromDate = new Date(today);
     fromDate.setDate(fromDate.getDate() - 29);
   } else if (safePreset === "custom") {
-    const parsedFrom = toDateOnly(query.from);
-    const parsedTo = toDateOnly(query.to);
+    const parsedFrom = normalizeDateOnlyInput(query.from);
+    const parsedTo = normalizeDateOnlyInput(query.to);
     if (parsedFrom && parsedTo) {
-      fromDate = new Date(parsedFrom);
-      toDate = new Date(parsedTo);
+      fromDate = new Date(`${parsedFrom}T00:00:00`);
+      toDate = new Date(`${parsedTo}T00:00:00`);
     } else {
       fromDate = new Date(today);
       fromDate.setDate(fromDate.getDate() - 6);
@@ -2718,6 +2734,16 @@ async function getReportsData(filters) {
       { total: 0, available: 0, occupied: 0, disabled: 0 }
     );
   };
+  const runQueryWithFallback = async (query, params, fallbackRows, label) => {
+    try {
+      const [rows] = await pool.query(query, params);
+      return rows;
+    } catch (error) {
+      if (!isSchemaCompatibilityError(error)) throw error;
+      console.warn(`[reports] ${label} fallback due to schema mismatch:`, error.message);
+      return fallbackRows;
+    }
+  };
 
   const fetchMovementEvents = async (rangeFrom, rangeTo) => {
     const studentWhere = [
@@ -2762,35 +2788,79 @@ async function getReportsData(filters) {
     let visitorEvents = [];
 
     if (safeFilters.pass_type !== "visitor") {
-      const [rows] = await pool.query(
-        `SELECT
-           sl.id,
-           sl.scanned_at AS event_time,
-           sl.action,
-           COALESCE(sl.gate, 'Unspecified') AS gate,
-           COALESCE(ps.zone, sl.assigned_area, 'Unassigned') AS zone,
-           COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') AS vehicle_type,
-           'student' AS pass_type,
-           COALESCE(st.student_number, 'Unknown') AS identity_number,
-           COALESCE(st.full_name, 'Unknown Student') AS identity_name,
-           COALESCE(v.plate_number, '-') AS plate_number,
-           COALESCE(sl.sticker_id, sl.vehicle_id, sl.student_id, sl.id) AS entity_id,
-           DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
-           DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot
-         FROM scan_logs sl
-         LEFT JOIN stickers s ON s.id = sl.sticker_id
-         LEFT JOIN vehicles v ON v.id = COALESCE(sl.vehicle_id, s.vehicle_id)
-         LEFT JOIN students st ON st.id = COALESCE(sl.student_id, v.student_id)
-         LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
-         WHERE ${studentWhere.join(" AND ")}
-         ORDER BY sl.scanned_at ASC, sl.id ASC`,
-        studentParams
-      );
-      studentEvents = rows;
+      try {
+        const [rows] = await pool.query(
+          `SELECT
+             sl.id,
+             sl.scanned_at AS event_time,
+             sl.action,
+             COALESCE(sl.gate, 'Unspecified') AS gate,
+             COALESCE(ps.zone, sl.assigned_area, 'Unassigned') AS zone,
+             COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') AS vehicle_type,
+             'student' AS pass_type,
+             COALESCE(st.student_number, 'Unknown') AS identity_number,
+             COALESCE(st.full_name, 'Unknown Student') AS identity_name,
+             COALESCE(v.plate_number, '-') AS plate_number,
+             COALESCE(sl.sticker_id, sl.vehicle_id, sl.student_id, sl.id) AS entity_id,
+             DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
+             DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot
+           FROM scan_logs sl
+           LEFT JOIN stickers s ON s.id = sl.sticker_id
+           LEFT JOIN vehicles v ON v.id = COALESCE(sl.vehicle_id, s.vehicle_id)
+           LEFT JOIN students st ON st.id = COALESCE(sl.student_id, v.student_id)
+           LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+           WHERE ${studentWhere.join(" AND ")}
+           ORDER BY sl.scanned_at ASC, sl.id ASC`,
+          studentParams
+        );
+        studentEvents = rows;
+      } catch (error) {
+        if (!isSchemaCompatibilityError(error)) throw error;
+        console.warn("[reports] fallback to legacy student movement query:", error.message);
+        const legacyWhere = [
+          "sl.result = 'VALID'",
+          "sl.action IN ('ENTRY', 'EXIT')",
+          "DATE(sl.scanned_at) BETWEEN ? AND ?"
+        ];
+        const legacyParams = [rangeFrom, rangeTo];
+        if (safeFilters.gate !== "ALL") {
+          legacyWhere.push("COALESCE(sl.gate, 'Unspecified') = ?");
+          legacyParams.push(safeFilters.gate);
+        }
+        if (safeFilters.vehicle_type !== "ALL") {
+          legacyWhere.push("COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') = ?");
+          legacyParams.push(safeFilters.vehicle_type);
+        }
+        studentEvents = await runQueryWithFallback(
+          `SELECT
+             sl.id,
+             sl.scanned_at AS event_time,
+             sl.action,
+             COALESCE(sl.gate, 'Unspecified') AS gate,
+             COALESCE(NULLIF(TRIM(v.model), ''), 'Unknown') AS vehicle_type,
+             'student' AS pass_type,
+             COALESCE(st.student_number, 'Unknown') AS identity_number,
+             COALESCE(st.full_name, 'Unknown Student') AS identity_name,
+             COALESCE(v.plate_number, '-') AS plate_number,
+             COALESCE(sl.sticker_id, sl.id) AS entity_id,
+             DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
+             DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot,
+             'Unassigned' AS zone
+           FROM scan_logs sl
+           LEFT JOIN stickers s ON s.id = sl.sticker_id
+           LEFT JOIN vehicles v ON v.id = s.vehicle_id
+           LEFT JOIN students st ON st.id = v.student_id
+           WHERE ${legacyWhere.join(" AND ")}
+           ORDER BY sl.scanned_at ASC, sl.id ASC`,
+          legacyParams,
+          [],
+          "legacy student movement"
+        );
+      }
     }
 
     if (safeFilters.pass_type !== "student") {
-      const [rows] = await pool.query(
+      visitorEvents = await runQueryWithFallback(
         `SELECT
            vsl.id,
            vsl.scanned_at AS event_time,
@@ -2810,9 +2880,10 @@ async function getReportsData(filters) {
          LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
          WHERE ${visitorWhere.join(" AND ")}
          ORDER BY vsl.scanned_at ASC, vsl.id ASC`,
-        visitorParams
+        visitorParams,
+        [],
+        "visitor movement"
       );
-      visitorEvents = rows;
     }
 
     return [...studentEvents, ...visitorEvents]
@@ -2833,7 +2904,7 @@ async function getReportsData(filters) {
   const [events, optionSets, parkingSlotOverview, todayEvents] = await Promise.all([
     fetchMovementEvents(safeFilters.from, safeFilters.to),
     Promise.all([
-      pool.query(
+      runQueryWithFallback(
         `SELECT gate
          FROM (
            SELECT DISTINCT COALESCE(gate, 'Unspecified') AS gate FROM scan_logs
@@ -2841,32 +2912,85 @@ async function getReportsData(filters) {
            SELECT DISTINCT COALESCE(gate, 'Unspecified') AS gate FROM visitor_scan_logs
          ) g
          WHERE gate IS NOT NULL AND gate <> ''
-         ORDER BY gate ASC`
+         ORDER BY gate ASC`,
+        [],
+        [],
+        "gate options (union)"
       ),
-      pool.query(
+      runQueryWithFallback(
         `SELECT DISTINCT COALESCE(zone, 'General') AS zone
          FROM parking_slots
-         ORDER BY zone ASC`
+         ORDER BY zone ASC`,
+        [],
+        [],
+        "zone options"
       ),
-      pool.query(
+      runQueryWithFallback(
         `SELECT vehicle_type
          FROM (
            SELECT DISTINCT COALESCE(NULLIF(TRIM(model), ''), 'Unknown') AS vehicle_type FROM vehicles
            UNION
            SELECT DISTINCT COALESCE(NULLIF(TRIM(vehicle_type), ''), 'Unknown') AS vehicle_type FROM visitor_passes
          ) v
-         ORDER BY vehicle_type ASC`
+         ORDER BY vehicle_type ASC`,
+        [],
+        [],
+        "vehicle options (union)"
       )
     ]),
-    getParkingSlotOverview(),
+    getParkingSlotOverview().catch(async (error) => {
+      if (!isSchemaCompatibilityError(error)) throw error;
+      console.warn("[reports] parking slot overview fallback:", error.message);
+      const legacySlots = await runQueryWithFallback(
+        `SELECT id, slot_code, zone, status, current_sticker_id
+         FROM parking_slots
+         ORDER BY zone ASC, slot_code ASC`,
+        [],
+        [],
+        "parking slot legacy overview"
+      );
+      const slots = legacySlots.map((row) => ({
+        id: row.id,
+        slot_code: row.slot_code,
+        zone: row.zone,
+        status: row.status,
+        occupancy: row.status !== "available"
+          ? "disabled"
+          : row.current_sticker_id
+          ? "occupied"
+          : "available"
+      }));
+      return { slots, summary: reduceSlotSummary(slots) };
+    }),
     fetchMovementEvents(todayDate, todayDate)
   ]);
 
-  const [gateRows, zoneRows, vehicleRows] = optionSets.map((result) => (Array.isArray(result) ? result[0] || [] : []));
+  const [gateRows, zoneRows, vehicleRows] = optionSets.map((result) => (Array.isArray(result) ? result : []));
+  const resolvedGateRows = gateRows.length
+    ? gateRows
+    : await runQueryWithFallback(
+      `SELECT DISTINCT COALESCE(gate, 'Unspecified') AS gate
+       FROM scan_logs
+       WHERE gate IS NOT NULL AND gate <> ''
+       ORDER BY gate ASC`,
+      [],
+      [],
+      "gate options (legacy)"
+    );
+  const resolvedVehicleRows = vehicleRows.length
+    ? vehicleRows
+    : await runQueryWithFallback(
+      `SELECT DISTINCT COALESCE(NULLIF(TRIM(model), ''), 'Unknown') AS vehicle_type
+       FROM vehicles
+       ORDER BY vehicle_type ASC`,
+      [],
+      [],
+      "vehicle options (legacy)"
+    );
   const filterOptions = {
-    gates: gateRows.map((row) => asString(row.gate, "Unspecified")),
+    gates: resolvedGateRows.map((row) => asString(row.gate, "Unspecified")),
     zones: zoneRows.map((row) => asString(row.zone, "General")),
-    vehicleTypes: vehicleRows.map((row) => asString(row.vehicle_type, "Unknown")),
+    vehicleTypes: resolvedVehicleRows.map((row) => asString(row.vehicle_type, "Unknown")),
     passTypes: [
       { value: "all", label: "All Pass Types" },
       { value: "student", label: "Students" },
