@@ -41,6 +41,17 @@
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
+  <style>
+    html,
+    body {
+      background: #eaf1f9;
+    }
+
+    html[data-theme="dark"],
+    html[data-theme="dark"] body {
+      background: #0e1826;
+    }
+  </style>
 </head>
 <%
   const pathNow = typeof currentPath === "string" ? currentPath : "";
@@ -72,21 +83,95 @@
   const navLinksByRole = {
     admin: [
       { href: "/admin", label: "Dashboard", active: ["/", "/admin"] },
+      { href: "/students", label: "Students & Vehicles", active: ["/students", "/vehicles"] },
+      { href: "/stickers", label: "Stickers", active: ["/stickers"] },
+      { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto", "/guard"] },
       { href: "/admin/slots", label: "Available Slots", active: ["/admin/slots"] },
       { href: "/admin/updates", label: "Latest Updates", active: ["/admin/updates"] },
       { href: "/admin/records", label: "Gate Records", active: ["/admin/records"] },
-      { href: "/admin/users", label: "Users", active: ["/admin/users"] },
-      { href: "/students", label: "Students & Vehicles", active: ["/students", "/vehicles"] },
-      { href: "/stickers", label: "Stickers", active: ["/stickers"] },
       { href: "/reports", label: "Reports", active: ["/reports"] },
-      { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto", "/guard"] }
+      { href: "/admin/users", label: "Users", active: ["/admin/users"] }
     ],
     guard: [
       { href: "/guard", label: "Dashboard", active: ["/guard"] },
-      { href: "/scanner", label: "Gate Console", active: ["/scanner", "/scanner/auto"] }
+      { href: "/scanner", label: "Gate Console", active: ["/scanner"] },
+      { href: "/scanner/auto", label: "Phone Camera", active: ["/scanner/auto"] }
     ]
   };
   const navLinks = navLinksByRole[roleNow] || [];
+  const workflowByRole = {
+    admin: [
+      {
+        href: "/admin",
+        label: "Dashboard",
+        match: ["/", "/admin"],
+        hint: "Start by checking live metrics and pending alerts."
+      },
+      {
+        href: "/students",
+        label: "Students",
+        match: ["/students"],
+        hint: "Register or update student and vehicle records."
+      },
+      {
+        href: "/stickers",
+        label: "Stickers",
+        match: ["/stickers"],
+        hint: "Issue active QR stickers linked to vehicles."
+      },
+      {
+        href: "/scanner",
+        label: "Gate Check",
+        match: ["/scanner", "/scanner/auto", "/guard"],
+        hint: "Verify entries and exits, then assign parking."
+      },
+      {
+        href: "/admin/slots",
+        label: "Slots",
+        match: ["/admin/slots"],
+        hint: "Monitor availability and view per-slot activity."
+      },
+      {
+        href: "/admin/updates",
+        label: "Updates",
+        match: ["/admin/updates"],
+        hint: "Track latest gate movements and overstay alerts."
+      },
+      {
+        href: "/admin/records",
+        label: "Records",
+        match: ["/admin/records"],
+        hint: "Review historical logs for reports and audits."
+      }
+    ],
+    guard: [
+      {
+        href: "/guard",
+        label: "Monitor",
+        match: ["/guard"],
+        hint: "Watch queue health, occupancy, and active alerts."
+      },
+      {
+        href: "/scanner/auto",
+        label: "Capture QR",
+        match: ["/scanner/auto"],
+        hint: "Use phone camera mode to detect QR stickers automatically."
+      },
+      {
+        href: "/scanner",
+        label: "Confirm Entry",
+        match: ["/scanner"],
+        hint: "Review match results, assign slot, and save movement."
+      }
+    ]
+  };
+  const workflowSteps = workflowByRole[roleNow] || [];
+  const currentWorkflowIndex = workflowSteps.findIndex((step) => Array.isArray(step.match) && step.match.includes(pathNow));
+  const currentWorkflowStep = currentWorkflowIndex >= 0 ? workflowSteps[currentWorkflowIndex] : null;
+  const nextWorkflowStep =
+    currentWorkflowIndex >= 0 && currentWorkflowIndex < workflowSteps.length - 1
+      ? workflowSteps[currentWorkflowIndex + 1]
+      : null;
   const navIconFallback = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle></svg>';
   const navIconByHref = {
     "/admin": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>',
@@ -98,7 +183,8 @@
     "/students": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path><circle cx="12" cy="12" r="1.5"></circle></svg>',
     "/stickers": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a2 2 0 0 1 2 2v5h-2a2 2 0 0 0 0 4h2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3h2a2 2 0 0 0 0-4H4V6a2 2 0 0 1 2-2Z"></path><path d="M9 9h6"></path><path d="M9 15h6"></path></svg>',
     "/reports": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V9"></path><path d="M12 20V4"></path><path d="M19 20v-7"></path></svg>',
-    "/scanner": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"></path><path d="M20 8V6a2 2 0 0 0-2-2h-2"></path><path d="M4 16v2a2 2 0 0 0 2 2h2"></path><path d="M20 16v2a2 2 0 0 1-2 2h-2"></path><path d="M7 12h10"></path></svg>'
+    "/scanner": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2"></path><path d="M20 8V6a2 2 0 0 0-2-2h-2"></path><path d="M4 16v2a2 2 0 0 0 2 2h2"></path><path d="M20 16v2a2 2 0 0 1-2 2h-2"></path><path d="M7 12h10"></path></svg>',
+    "/scanner/auto": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"></rect><circle cx="12" cy="13" r="3"></circle><path d="M8 6l1.2-2h5.6L16 6"></path></svg>'
   };
 %>
 
@@ -139,6 +225,39 @@
           <% }) %>
         </div>
       </nav>
+
+      <% if (workflowSteps.length) { %>
+      <section class="workflow-rail" aria-label="Workflow guide">
+        <div class="workflow-rail-head">
+          <div>
+            <p class="workflow-rail-kicker"><%= roleLabel %> Flow</p>
+            <p class="workflow-rail-sub">
+              <%= currentWorkflowStep
+                ? currentWorkflowStep.hint
+                : "Support page. Use the workflow steps to jump back to operations." %>
+            </p>
+          </div>
+          <% if (nextWorkflowStep) { %>
+            <a href="<%= nextWorkflowStep.href %>" class="workflow-next-link">Next: <%= nextWorkflowStep.label %></a>
+          <% } else if (currentWorkflowStep) { %>
+            <span class="workflow-next-done">Final step</span>
+          <% } else { %>
+            <span class="workflow-next-done">Support page</span>
+          <% } %>
+        </div>
+        <div class="workflow-rail-steps">
+          <% workflowSteps.forEach((step, index) => { %>
+            <% const state = currentWorkflowIndex >= 0
+              ? (index < currentWorkflowIndex ? "done" : index === currentWorkflowIndex ? "current" : "upcoming")
+              : "upcoming"; %>
+            <a href="<%= step.href %>" class="workflow-rail-step is-<%= state %>">
+              <span class="workflow-rail-index"><%= index + 1 %></span>
+              <span class="workflow-rail-label"><%= step.label %></span>
+            </a>
+          <% }) %>
+        </div>
+      </section>
+      <% } %>
 
       <div class="main-shell">
 

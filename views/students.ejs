@@ -25,9 +25,19 @@
 </section>
 
 <div class="overlap-wrapper">
+  <section class="panel flow-assist-panel">
+    <div class="section-head">
+      <h2>Registration Flow</h2>
+      <p>Switch between creating records and managing existing students.</p>
+    </div>
+    <div class="flow-tabs" role="tablist" aria-label="Students workflow tabs">
+      <button type="button" class="flow-tab-btn is-active" data-flow-tab="register" aria-selected="true">1. Register</button>
+      <button type="button" class="flow-tab-btn" data-flow-tab="directory" aria-selected="false">2. Directory</button>
+    </div>
+  </section>
 
   <!-- section -->
-  <section class="reg-panel">
+  <section class="reg-panel" data-flow-view="register">
     <div class="section-head">
       <h2>New Registration</h2>
       <p>Register a student. You may also add their vehicle in the same step - vehicle fields are optional.</p>
@@ -90,7 +100,7 @@
   </section>
 
   <!-- section -->
-  <section class="directory-panel">
+  <section class="directory-panel" data-flow-view="directory">
     <div class="section-head">
       <h2>Student Directory</h2>
       <p>Click <strong>Edit</strong> on any student or vehicle to update their information.</p>
@@ -116,7 +126,7 @@
             <path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path>
           </svg>
         </div>
-        <p>No students registered yet. Use the form above to add one.</p>
+        <p>No students registered yet. Open the Register tab to add one.</p>
       </div>
     <% } %>
 
@@ -280,6 +290,42 @@
   .overlap-wrapper {
     display: grid;
     gap: 1.75rem;
+  }
+
+  .flow-assist-panel {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .flow-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .flow-tab-btn {
+    border: 1px solid var(--line-strong);
+    background: var(--surface-soft);
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 0.45rem 0.88rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+  }
+
+  .flow-tab-btn:hover {
+    border-color: rgba(37, 99, 235, 0.35);
+    color: var(--blue-mid);
+  }
+
+  .flow-tab-btn.is-active {
+    background: var(--blue-soft);
+    border-color: rgba(37, 99, 235, 0.36);
+    color: var(--blue-mid);
   }
 
   .reg-panel,
@@ -744,6 +790,35 @@
     form.style.display = isVisible ? 'none' : 'block';
     btn.textContent = isVisible ? 'Add Vehicle' : 'Cancel';
   }
+
+  (() => {
+    const tabButtons = Array.from(document.querySelectorAll(".flow-tab-btn[data-flow-tab]"));
+    const sections = Array.from(document.querySelectorAll("[data-flow-view]"));
+    if (!tabButtons.length || !sections.length) return;
+
+    const setFlowView = (view) => {
+      const target = view === "directory" ? "directory" : "register";
+      sections.forEach((section) => {
+        section.style.display = section.dataset.flowView === target ? "" : "none";
+      });
+      tabButtons.forEach((button) => {
+        const active = button.dataset.flowTab === target;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    };
+
+    tabButtons.forEach((button) => {
+      button.addEventListener("click", () => setFlowView(button.dataset.flowTab || "register"));
+    });
+
+    const params = new URLSearchParams(window.location.search);
+    const hashView = String(window.location.hash || "").replace("#", "").trim().toLowerCase();
+    const successParams = ["success", "vsuccess", "esuccess", "deleted", "vdeleted"];
+    const hasSuccess = successParams.some((key) => params.has(key));
+    const defaultView = hashView === "directory" || hasSuccess ? "directory" : "register";
+    setFlowView(defaultView);
+  })();
 
   // Search filter
   (() => {

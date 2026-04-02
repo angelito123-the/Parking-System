@@ -42,17 +42,24 @@
 <div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
   <section class="panel quick-links-panel">
     <div class="section-head">
-      <h2>Guard Tools</h2>
-      <p>Use the camera monitor and gate console to process entry and exit quickly.</p>
+      <h2>Guard Workflow</h2>
+      <p>Follow this sequence to process vehicles quickly with fewer errors.</p>
     </div>
-    <div class="quick-links-grid">
-      <a href="/scanner" class="quick-link-card">
-        <h3>Gate Console</h3>
-        <p>Entry and exit monitoring, manual movement, and pending confirmations.</p>
+    <div class="quick-links-grid workflow-grid">
+      <a href="/scanner/auto" class="quick-link-card workflow-card">
+        <span class="workflow-step">Step 1</span>
+        <h3>Open Phone Camera</h3>
+        <p>Start automatic QR capture at the gate camera station.</p>
       </a>
-      <a href="/scanner/auto" class="quick-link-card">
-        <h3>Phone Camera Scan</h3>
-        <p>Live camera mode for automatic QR detection at the gate.</p>
+      <a href="/scanner" class="quick-link-card workflow-card">
+        <span class="workflow-step">Step 2</span>
+        <h3>Confirm Entry and Assign Slot</h3>
+        <p>Review pending scans and approve parking slot assignment.</p>
+      </a>
+      <a href="/guard" class="quick-link-card workflow-card">
+        <span class="workflow-step">Step 3</span>
+        <h3>Monitor Queue and Alerts</h3>
+        <p>Track phone status, queue health, and overstay notifications.</p>
       </a>
     </div>
   </section>
@@ -112,9 +119,9 @@
     <div class="section-head">
       <h2>Current Occupancy</h2>
       <p>
-        <%= summary.available || 0 %> available ·
-        <%= summary.occupied || 0 %> occupied ·
-        <%= summary.disabled || 0 %> disabled ·
+        <%= summary.available || 0 %> available |
+        <%= summary.occupied || 0 %> occupied |
+        <%= summary.disabled || 0 %> disabled |
         <%= summary.total || 0 %> total
       </p>
     </div>
@@ -182,7 +189,7 @@
               <span class="badge badge-overstay">Overstay</span>
             </p>
             <p class="helper-text">
-              <%= item.plate_number || "-" %> · Slot <%= item.parking_slot || "-" %> ·
+              <%= item.plate_number || "-" %> | Slot <%= item.parking_slot || "-" %> |
               <%= item.overstay_label || "Over limit" %>
             </p>
           </div>
