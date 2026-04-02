@@ -51,14 +51,14 @@
   </div>
 </section>
 
-<div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
-  <section class="panel">
+<div class="overlap-wrapper reports-overlap">
+  <section class="panel reports-filter-panel">
     <div class="section-head">
       <h2>Filters and Export</h2>
       <p>Analytics-only view. Detailed per-scan logs are in <a href="/admin/records" class="link-btn">Gate Records</a>.</p>
     </div>
 
-    <form method="get" action="/reports" class="filters-grid">
+    <form method="get" action="/reports" class="filters-grid reports-filters-grid">
       <div>
         <label for="reportFrom">From</label>
         <input id="reportFrom" type="date" name="from" value="<%= filters.from %>" style="border:1px solid var(--line);" />
@@ -78,7 +78,7 @@
         </select>
       </div>
 
-      <div class="filters-actions">
+      <div class="filters-actions reports-filters-actions">
         <button type="submit" style="background:var(--blue-mid); color:#fff;">Apply Filters</button>
         <a class="link-btn" href="/reports?from=<%= filters.from %>&to=<%= filters.to %>&gate=<%= filters.gate %>&format=csv">Export CSV</a>
         <a class="link-btn" href="/admin/records">Open Gate Records</a>

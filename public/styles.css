@@ -4410,7 +4410,7 @@ body {
 .dashboard-hero,
 .overlap-wrapper,
 .container {
-  width: min(1320px, calc(100vw - 1.5rem));
+  width: min(1480px, calc(100vw - 1rem));
   margin-left: auto;
   margin-right: auto;
 }
@@ -5759,6 +5759,68 @@ tbody tr:hover {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+}
+
+/* Reports UX polish */
+.reports-overlap {
+  display: grid;
+  gap: 1rem;
+}
+
+body.page-reports .top-nav-links {
+  gap: 0.25rem !important;
+}
+
+body.page-reports .top-nav-links a {
+  padding: 0.42rem 0.68rem;
+}
+
+body.page-reports .hero-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+body.page-reports .hero-card {
+  min-width: 0;
+}
+
+body.page-reports .reports-filter-panel {
+  margin-bottom: 0;
+}
+
+body.page-reports .reports-filters-grid {
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+  gap: 0.85rem;
+  align-items: end;
+}
+
+body.page-reports .reports-filters-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 1320px) {
+  body.page-reports .reports-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.page-reports .reports-filters-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1080px) {
+  body.page-reports .top-nav-links a {
+    padding: 0.35rem 0.56rem;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 760px) {
+  body.page-reports .reports-filters-grid {
+    grid-template-columns: 1fr;
   }
 }
 
