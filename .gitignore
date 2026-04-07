@@ -1,3 +1,4 @@
 ﻿# Runtime scan proof images
 public/snapshots/
 node_modules/
+.env
