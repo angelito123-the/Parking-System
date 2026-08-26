@@ -36,7 +36,7 @@
       <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
       <span id="chipMlState" class="auto-chip state-idle">ML Detect: Warmup</span>
       <span id="chipRiskState" class="auto-chip state-idle">Risk: Unchecked</span>
-      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/1</span>
+      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/2</span>
       <span id="chipCooldownState" class="auto-chip state-idle">Cooldown: Ready</span>
     </div>
 
@@ -62,6 +62,19 @@
       </div>
 
       <p id="autoCameraStatus" class="auto-camera-status">Initializing rear camera...</p>
+      <div class="scanner-assist scanner-assist-auto">
+        <p id="autoScannerGuidance" class="scanner-guidance" role="status" aria-live="polite">
+          <span class="scanner-guidance-dot" aria-hidden="true"></span>
+          <span class="scanner-guidance-text">Start the camera to scan a QR code.</span>
+        </p>
+        <button id="autoScannerTorchBtn" class="scanner-torch-btn" type="button" aria-pressed="false" aria-label="Turn flashlight on" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 2h6l1 4-2 3v11a2 2 0 0 1-4 0V9L8 6l1-4Z"></path>
+            <path d="M10 6h4"></path>
+          </svg>
+          <span class="scanner-torch-label">Flashlight</span>
+        </button>
+      </div>
     </div>
 
     <p class="helper-text" style="margin-top:0.55rem;">
@@ -135,8 +148,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
 <script src="/js/qr-behavior-classifier.js"></script>
-<script src="/js/ml-qr-detector.js"></script>
+<script src="/js/ml-qr-detector.js?v=20260826-guide1"></script>
+<script src="/js/scanner-guidance.js?v=20260826-guide1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -145,8 +160,9 @@
     const deferEntryConfirmation = true;
     const HEARTBEAT_INTERVAL_MS = 6000;
     const HEARTBEAT_STORAGE_KEY = "naap_auto_scanner_device_id";
+    const enhancedScannerAvailable = typeof window.MLQrCodeScanner === "function" && typeof window.jsQR === "function";
 
-    const STABLE_READ_MIN_HITS = 1;
+    const STABLE_READ_MIN_HITS = 2;
     const STABLE_READ_WINDOW_MS = 2800;
     const LOCAL_DEDUP_FLOOR_MS = 2500;
 
@@ -155,6 +171,11 @@
     const resumeScannerBtn = document.getElementById("resumeScannerBtn");
     const cameraStatus = document.getElementById("autoCameraStatus");
     const processingOverlay = document.getElementById("processingOverlay");
+    const scannerGuidance = new window.ScannerGuidance({
+      cameraContainer: "autoQrReader",
+      guidanceElement: "autoScannerGuidance",
+      torchButton: "autoScannerTorchBtn"
+    });
 
     const chipAutoState = document.getElementById("chipAutoState");
     const chipCameraState = document.getElementById("chipCameraState");
@@ -568,18 +589,10 @@
     }
 
     function extractToken(decodedText) {
-      const raw = String(decodedText || "").trim();
-      if (!raw) return "";
-      try {
-        const url = new URL(raw);
-        const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length >= 2 && parts[0] === "verify") {
-          return parts[1];
-        }
-      } catch (_error) {
-        return raw;
+      if (window.QRTokenParser && typeof window.QRTokenParser.extract === "function") {
+        return window.QRTokenParser.extract(decodedText, window.location.href);
       }
-      return raw;
+      return String(decodedText || "").trim();
     }
 
     function captureSnapshotDataUrl() {
@@ -651,7 +664,11 @@
       const summary = pendingSlotOverview?.summary || { total: 0, available: 0, occupied: 0, disabled: 0 };
 
       if (!slots.length) {
-        autoSlotMap.innerHTML = '<div class="flash flash-error" style="margin:0;">No parking slots available right now.</div>';
+        autoSlotMap.innerHTML = window.NaapUiState.render("empty", {
+          title: "No available slots",
+          message: "No parking slots are available for this entry.",
+          compact: true
+        });
         autoSlotStatus.textContent = "No slots configured";
         confirmEntryBtn.disabled = true;
         return;
@@ -887,7 +904,7 @@
             ? lastRiskAssessment.reasons.slice(0, 3)
             : [],
           detection_confidence: Number(decodeMeta?.ml_confidence || decodeMeta?.confidence || 0),
-          detection_model: decodeMeta?.model || (window.MLQrCodeScanner ? "MLQrCodeScanner" : "html5-qrcode")
+          detection_model: decodeMeta?.model || (enhancedScannerAvailable ? "MLQrCodeScanner" : "html5-qrcode")
         };
 
         const data = await postJson("/api/auto-scan/detect", payload);
@@ -1102,6 +1119,8 @@
       if (!cameraStarted || processingScan) return;
       if (entryConfirmPanel.style.display !== "none") return;
 
+      scannerGuidance.detected();
+
       if (decodeMeta) {
         updateMlChip({
           confidence: decodeMeta.ml_confidence ?? decodeMeta.confidence,
@@ -1144,14 +1163,16 @@
 
     async function startCamera() {
       if (!html5QrCode) {
-        if (window.MLQrCodeScanner) {
+        if (enhancedScannerAvailable) {
           html5QrCode = new window.MLQrCodeScanner("autoQrReader", {
             targetFps: 24,
             confidenceThreshold: 0.35,
-            maxProcessWidth: 560,
-            perspectiveSize: 280,
+            maxProcessWidth: 720,
+            perspectiveSize: 320,
             lowConfidenceDecodeRatio: 0.58,
+            duplicateSuppressMs: 220,
             onMlMetrics: (metrics) => {
+              scannerGuidance.update(metrics);
               updateMlChip({
                 confidence: metrics?.confidence,
                 processMs: metrics?.processMs,
@@ -1167,13 +1188,13 @@
       }
 
       const config = {
-        fps: 20,
+        fps: 24,
         aspectRatio: 1.333333,
         disableFlip: false
       };
 
       const onFailure = () => {
-        // Keep scanning silently for unreadable frames.
+        scannerGuidance.unreadableFrame();
       };
 
       setCameraStatus("Requesting camera permission...");
@@ -1187,11 +1208,12 @@
           onFailure
         );
         cameraStarted = true;
+        scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Rear camera active", "ok");
         setChip(chipAutoState, "Auto-Scan Active", "live");
         setChip(chipCameraState, "Camera Ready", "live");
-        if (!window.MLQrCodeScanner) {
+        if (!enhancedScannerAvailable) {
           setChip(chipMlState, "ML Detect: Fallback", "warning");
         }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
@@ -1214,16 +1236,18 @@
         const rear = devices.find((d) => /back|rear|environment/i.test(d.label)) || devices[0];
         await html5QrCode.start(rear.id, config, handleDecodedText, onFailure);
         cameraStarted = true;
+        scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Camera active", "ok");
         setChip(chipAutoState, "Auto-Scan Active", "live");
         setChip(chipCameraState, "Camera Ready", "live");
-        if (!window.MLQrCodeScanner) {
+        if (!enhancedScannerAvailable) {
           setChip(chipMlState, "ML Detect: Fallback", "warning");
         }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
       } catch (error) {
         cameraStarted = false;
+        scannerGuidance.stop();
         toggleCameraBtn.textContent = "Start Camera";
         const message = String(error && error.message ? error.message : error);
         const prettyMessage = /permission|denied/i.test(message)
@@ -1257,6 +1281,7 @@
 
       html5QrCode = null;
       cameraStarted = false;
+      scannerGuidance.stop();
       toggleCameraBtn.textContent = "Start Camera";
       setCameraStatus("Camera stopped");
       setChip(chipCameraState, "Camera Stopped", "idle");
@@ -1333,7 +1358,7 @@
             ? lastRiskAssessment.reasons.slice(0, 3)
             : [],
           detection_confidence: Number(latestMlMeta?.confidence || latestMlMeta?.ml_confidence || 0),
-          detection_model: latestMlMeta?.model || (window.MLQrCodeScanner ? "MLQrCodeScanner" : "html5-qrcode")
+          detection_model: latestMlMeta?.model || (enhancedScannerAvailable ? "MLQrCodeScanner" : "html5-qrcode")
         };
 
         const data = await postJson("/api/auto-scan/confirm-entry", payload);

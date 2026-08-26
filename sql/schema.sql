@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS scan_logs (
   snapshot_path VARCHAR(255) NULL,
   status VARCHAR(40) NULL,
   notes VARCHAR(255),
+  INDEX idx_scan_result_time_action (result, scanned_at, action),
+  INDEX idx_scan_sticker_movement (sticker_id, result, action, scanned_at),
+  INDEX idx_scan_time_id (scanned_at, id),
   CONSTRAINT fk_scan_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
   CONSTRAINT fk_scan_slot FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL,
   CONSTRAINT fk_scan_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
@@ -147,4 +150,14 @@ CREATE TABLE IF NOT EXISTS auto_scan_heartbeats (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at)
+);
+
+CREATE TABLE IF NOT EXISTS scan_snapshots (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  storage_key VARCHAR(120) NOT NULL UNIQUE,
+  mime_type VARCHAR(40) NOT NULL,
+  image_data LONGBLOB NOT NULL,
+  byte_size INT UNSIGNED NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_scan_snapshots_created (created_at)
 );

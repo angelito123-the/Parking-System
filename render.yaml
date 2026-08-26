@@ -1,29 +1,29 @@
 services:
   - type: web
     name: naap-parking-management
-    env: node
+    runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: npm start
     autoDeploy: true
-    healthCheckPath: /login
+    healthCheckPath: /healthz
     envVars:
-      - key: NODE_VERSION
-        value: 20
+      - key: NODE_ENV
+        value: production
       - key: DB_HOST
         sync: false
       - key: DB_PORT
-        value: "3306"
+        sync: false
       - key: DB_USER
         sync: false
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME
         sync: false
+      - key: DB_SSL
+        value: "true"
       - key: SESSION_SECRET
-        sync: false
-      - key: APP_BASE_URL
-        sync: false
+        generateValue: true
       - key: ADMIN_USERNAME
         sync: false
       - key: ADMIN_PASSWORD

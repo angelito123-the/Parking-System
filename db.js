@@ -9,6 +9,7 @@ const port = Number(process.env.DB_PORT || process.env.MYSQLPORT || 3306);
 const user = process.env.DB_USER || process.env.MYSQLUSER || "root";
 const password = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || "";
 const database = process.env.DB_NAME || process.env.MYSQLDATABASE || "naap_parking";
+const useTls = /^(1|true|required)$/i.test(String(process.env.DB_SSL || ""));
 
 const pool = mysql.createPool({
   host,
@@ -20,7 +21,15 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   multipleStatements: true,
-  timezone: 'Z'
+  timezone: "Z",
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
+  ssl: useTls
+    ? {
+        minVersion: "TLSv1.2",
+        rejectUnauthorized: true
+      }
+    : undefined
 });
 
 async function ensureDatabaseSchema() {
@@ -37,10 +46,25 @@ async function ensureDatabaseSchema() {
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
   await ensureAutoScanHeartbeatMigrations();
+  await ensureSnapshotStorageMigrations();
   await ensureVisitorPassMigrations();
   await ensureAlertMigrations();
   await ensureUserMigrations();
   await ensureAnnouncementMigrations();
+}
+
+async function ensureSnapshotStorageMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scan_snapshots (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      storage_key VARCHAR(120) NOT NULL UNIQUE,
+      mime_type VARCHAR(40) NOT NULL,
+      image_data LONGBLOB NOT NULL,
+      byte_size INT UNSIGNED NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_scan_snapshots_created (created_at)
+    )
+  `);
 }
 
 async function tableExists(tableName) {
@@ -79,6 +103,28 @@ async function constraintExists(tableName, constraintName) {
     [database, tableName, constraintName]
   );
   return rows.length > 0;
+}
+
+async function indexExists(tableName, indexName) {
+  const [rows] = await pool.query(
+    `SELECT 1
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+       AND INDEX_NAME = ?
+     LIMIT 1`,
+    [database, tableName, indexName]
+  );
+  return rows.length > 0;
+}
+
+async function addIndexIfMissing(tableName, indexName, columnsSql) {
+  if (await indexExists(tableName, indexName)) return;
+  try {
+    await pool.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsSql})`);
+  } catch (error) {
+    if (error.errno !== 1061) throw error;
+  }
 }
 
 async function ensureUserMigrations() {
@@ -306,6 +352,10 @@ async function ensureScanLogMigrations() {
     }
   }
 
+  await addIndexIfMissing("scan_logs", "idx_scan_result_time_action", "result, scanned_at, action");
+  await addIndexIfMissing("scan_logs", "idx_scan_sticker_movement", "sticker_id, result, action, scanned_at");
+  await addIndexIfMissing("scan_logs", "idx_scan_time_id", "scanned_at, id");
+
   try {
     await pool.query(`
       UPDATE scan_logs sl
@@ -445,6 +495,8 @@ async function ensureVisitorPassMigrations() {
       )
     `);
 
+    await addIndexIfMissing("visitor_passes", "idx_visitor_pass_state_entry", "pass_state, last_entry_at");
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS visitor_scan_logs (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -469,6 +521,8 @@ async function ensureVisitorPassMigrations() {
         CONSTRAINT fk_visitor_scan_slot FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL
       )
     `);
+
+    await addIndexIfMissing("visitor_scan_logs", "idx_visitor_scan_time_id", "scanned_at, id");
 
     if (!(await columnExists("parking_slots", "current_visitor_pass_id"))) {
       await pool.query("ALTER TABLE parking_slots ADD COLUMN current_visitor_pass_id INT NULL AFTER current_sticker_id");
@@ -542,6 +596,8 @@ async function ensureAlertMigrations() {
         CONSTRAINT fk_alert_pending_entry FOREIGN KEY (related_pending_entry_id) REFERENCES auto_scan_queue(id) ON DELETE SET NULL
       )
     `);
+
+    await addIndexIfMissing("alerts", "idx_alert_status_type", "status, type");
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS alert_reads (

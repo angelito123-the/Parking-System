@@ -3,15 +3,21 @@ const express = require("express");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
-const QRCode = require("qrcode");
 const bcrypt = require("bcryptjs");
+const compression = require("compression");
 const session = require("express-session");
+const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
+const { generateBrandedQrPng } = require("./lib/branded-qr");
+const { serializeForScript } = require("./lib/serialize-for-script");
 require("dotenv").config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const APP_BASE_URL = process.env.APP_BASE_URL
+  || process.env.RENDER_EXTERNAL_URL
+  || `http://localhost:${PORT}`;
 const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 10);
 const AUTO_PENDING_EXPIRY_MINUTES = Math.max(
   5,
@@ -43,8 +49,13 @@ const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
   ? Math.max(0.5, rawOverstayLimitHours)
   : 4;
 const OVERSTAY_LIMIT_MINUTES = Math.max(1, Math.round(OVERSTAY_LIMIT_HOURS * 60));
-const SESSION_SECRET = process.env.SESSION_SECRET || "naap-parking-secret";
-const SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
+const configuredSessionSecret = String(process.env.SESSION_SECRET || "").trim();
+if (IS_PRODUCTION && configuredSessionSecret.length < 32) {
+  throw new Error("SESSION_SECRET must contain at least 32 characters in production.");
+}
+const SESSION_SECRET = configuredSessionSecret || "naap-parking-local-development-secret";
+const SNAPSHOT_DIR = path.join(__dirname, "storage", "snapshots");
+const LEGACY_PUBLIC_SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
 const USER_ROLES = Object.freeze({
   ADMIN: "admin",
@@ -132,18 +143,97 @@ let notificationSseClientCounter = 0;
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.set("trust proxy", true);
-app.use(express.static(path.join(__dirname, "public")));
-app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
-app.use(express.json({ limit: JSON_BODY_LIMIT }));
-app.use(session({
+app.set("view cache", IS_PRODUCTION);
+app.disable("x-powered-by");
+app.use(compression({
+  filter(req, res) {
+    if (req.path === "/api/notifications/events" || req.path === "/api/auto-scan/events") {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+const sessionStore = new MySQLStore({
+  clearExpired: true,
+  checkExpirationInterval: 15 * 60 * 1000,
+  expiration: 8 * 60 * 60 * 1000,
+  createDatabaseTable: true,
+  endConnectionOnClose: false
+}, pool);
+const sessionMiddleware = session({
+  name: "naap.sid",
   secret: SESSION_SECRET,
+  store: sessionStore,
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    maxAge: 8 * 60 * 60 * 1000  // 8 hours
+    secure: IS_PRODUCTION,
+    sameSite: "lax",
+    maxAge: 8 * 60 * 60 * 1000
+  }
+});
+app.get(
+  "/snapshots/:storageKey",
+  sessionMiddleware,
+  requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD),
+  async (req, res, next) => {
+    const storageKey = String(req.params.storageKey || "");
+    if (!/^[a-z0-9][a-z0-9._-]{0,119}$/i.test(storageKey) || path.basename(storageKey) !== storageKey) {
+      return res.status(404).send("Snapshot not found.");
+    }
+
+    try {
+      const [rows] = await pool.query(
+        "SELECT mime_type, image_data FROM scan_snapshots WHERE storage_key = ? LIMIT 1",
+        [storageKey]
+      );
+
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+
+      if (rows.length > 0) {
+        res.type(rows[0].mime_type || "application/octet-stream");
+        return res.send(rows[0].image_data);
+      }
+
+      const legacyPath = path.join(SNAPSHOT_DIR, storageKey);
+      try {
+        const imageBuffer = await fs.promises.readFile(legacyPath);
+        res.type(path.extname(storageKey));
+        return res.send(imageBuffer);
+      } catch (error) {
+        if (error.code === "ENOENT") return res.status(404).send("Snapshot not found.");
+        throw error;
+      }
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+app.use(express.static(path.join(__dirname, "public"), {
+  etag: true,
+  lastModified: true,
+  maxAge: IS_PRODUCTION ? "1d" : 0,
+  setHeaders(res, filePath) {
+    const filename = path.basename(filePath).toLowerCase();
+    if (filename === "sw.js" || filename === "manifest.json") {
+      res.setHeader("Cache-Control", "no-cache");
+    }
   }
 }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(sessionMiddleware);
+app.get("/healthz", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    return res.status(200).json({ ok: true });
+  } catch (_error) {
+    return res.status(503).json({ ok: false, database: "unavailable" });
+  }
+});
 function normalizeRole(rawRole) {
   const role = String(rawRole || "").trim().toLowerCase();
   return VALID_ROLES.has(role) ? role : null;
@@ -192,6 +282,13 @@ app.use((req, res, next) => {
   const user = getSessionUser(req);
   res.locals.currentUser = user;
   res.locals.currentRole = user?.role || null;
+  res.locals.serializeForScript = serializeForScript;
+  next();
+});
+app.use("/verify", (_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   next();
 });
 
@@ -853,7 +950,7 @@ async function createOrRefreshAlertWithDb(db, payload = {}) {
        metadata_json,
        resolved_at,
        resolved_by
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
     [
       type,
       title,
@@ -1092,66 +1189,55 @@ async function getNotificationSummaryForUser(user, db = pool) {
 }
 
 async function getOperationalAlertMetrics(db = pool) {
-  const [[invalidTodayRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[visitorInvalidTodayRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM visitor_scan_logs
-     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED', 'DENIED')
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[pendingRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM auto_scan_queue
-     WHERE status = 'PENDING'`
-  );
-  const [[visitorPendingRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM visitor_passes
-     WHERE approval_status = 'PENDING'
-       AND pass_state <> 'EXPIRED'`
-  );
-  const [[fullZoneRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM alerts
-     WHERE type = ?
-       AND status = 'active'`,
-    [ALERT_TYPES.FULL_PARKING_ZONE]
-  );
-  const [[lowZoneRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM alerts
-     WHERE type = ?
-       AND status = 'active'`,
-    [ALERT_TYPES.LOW_SLOT_WARNING]
-  );
-  const [[suspiciousRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM alerts
-     WHERE type = ?
-       AND status = 'active'`,
-    [ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR]
-  );
-  const [[visitorOverstayRow]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM alerts
-     WHERE type = ?
-       AND status = 'active'`,
-    [ALERT_TYPES.VISITOR_OVERSTAY]
+  const [totalsResult, alertCountsResult] = await Promise.all([
+    db.query(
+      `SELECT
+         (SELECT COUNT(*)
+          FROM scan_logs
+          WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
+            AND scanned_at >= CURDATE()
+            AND scanned_at < CURDATE() + INTERVAL 1 DAY) AS invalid_today,
+         (SELECT COUNT(*)
+          FROM visitor_scan_logs
+          WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED', 'DENIED')
+            AND scanned_at >= CURDATE()
+            AND scanned_at < CURDATE() + INTERVAL 1 DAY) AS visitor_invalid_today,
+         (SELECT COUNT(*)
+          FROM auto_scan_queue
+          WHERE status = 'PENDING') AS pending_queue,
+         (SELECT COUNT(*)
+          FROM visitor_passes
+          WHERE approval_status = 'PENDING'
+            AND pass_state <> 'EXPIRED') AS visitor_pending`
+    ),
+    db.query(
+      `SELECT type, COUNT(*) AS total
+       FROM alerts
+       WHERE status = 'active'
+         AND type IN (?, ?, ?, ?)
+       GROUP BY type`,
+      [
+        ALERT_TYPES.FULL_PARKING_ZONE,
+        ALERT_TYPES.LOW_SLOT_WARNING,
+        ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR,
+        ALERT_TYPES.VISITOR_OVERSTAY
+      ]
+    )
+  ]);
+
+  const totalsRow = totalsResult[0][0] || {};
+  const alertCountByType = new Map(
+    alertCountsResult[0].map((row) => [String(row.type), Number(row.total || 0)])
   );
 
   return {
-    invalid_qr_today: Number(invalidTodayRow?.total || 0) + Number(visitorInvalidTodayRow?.total || 0),
-    pending_approvals: Number(pendingRow?.total || 0) + Number(visitorPendingRow?.total || 0),
-    full_parking_zones: Number(fullZoneRow?.total || 0),
-    low_slot_warnings: Number(lowZoneRow?.total || 0),
-    suspicious_scans: Number(suspiciousRow?.total || 0),
-    visitor_overstay_alerts: Number(visitorOverstayRow?.total || 0),
-    visitor_pending_approvals: Number(visitorPendingRow?.total || 0)
+    invalid_qr_today: Number(totalsRow.invalid_today || 0) + Number(totalsRow.visitor_invalid_today || 0),
+    pending_approvals: Number(totalsRow.pending_queue || 0) + Number(totalsRow.visitor_pending || 0),
+    full_parking_zones: alertCountByType.get(ALERT_TYPES.FULL_PARKING_ZONE) || 0,
+    low_slot_warnings: alertCountByType.get(ALERT_TYPES.LOW_SLOT_WARNING) || 0,
+    suspicious_scans: alertCountByType.get(ALERT_TYPES.SUSPICIOUS_SCAN_BEHAVIOR) || 0,
+    visitor_overstay_alerts: alertCountByType.get(ALERT_TYPES.VISITOR_OVERSTAY) || 0,
+    visitor_pending_approvals: Number(totalsRow.visitor_pending || 0)
   };
 }
 
@@ -1411,6 +1497,33 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
     full_zone_count: fullCount,
     low_slot_zone_count: lowCount
   };
+}
+
+const OPERATIONAL_STATE_REFRESH_INTERVAL_MS = 5000;
+let operationalStateRefreshPromise = null;
+let operationalStateRefreshedAt = 0;
+
+async function refreshOperationalState(actorName = "system") {
+  if (operationalStateRefreshPromise) return operationalStateRefreshPromise;
+  if (Date.now() - operationalStateRefreshedAt < OPERATIONAL_STATE_REFRESH_INTERVAL_MS) return;
+
+  const refreshPromise = (async () => {
+    await expireStaleVisitorPasses(pool, actorName);
+    await Promise.all([
+      evaluateZoneCapacityAlerts(pool, actorName),
+      evaluateVisitorOverstayAlerts(pool, actorName)
+    ]);
+    operationalStateRefreshedAt = Date.now();
+  })();
+  operationalStateRefreshPromise = refreshPromise;
+
+  try {
+    await refreshPromise;
+  } finally {
+    if (operationalStateRefreshPromise === refreshPromise) {
+      operationalStateRefreshPromise = null;
+    }
+  }
 }
 
 async function createSuspiciousScanAlert(db, payload = {}) {
@@ -1797,11 +1910,49 @@ async function saveSnapshotDataUrl(snapshotDataUrl, prefix = "scan") {
     throw new Error("Snapshot image is too large. Please keep it under 3MB.");
   }
 
-  await fs.promises.mkdir(SNAPSHOT_DIR, { recursive: true });
   const filename = `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
-  const absolutePath = path.join(SNAPSHOT_DIR, filename);
-  await fs.promises.writeFile(absolutePath, imageBuffer);
+  const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+  await pool.query(
+    "INSERT INTO scan_snapshots (storage_key, mime_type, image_data, byte_size) VALUES (?, ?, ?, ?)",
+    [filename, mimeType, imageBuffer, imageBuffer.length]
+  );
   return `/snapshots/${filename}`;
+}
+
+async function preparePrivateSnapshotStorage() {
+  await fs.promises.mkdir(SNAPSHOT_DIR, { recursive: true });
+
+  let legacyEntries = [];
+  try {
+    legacyEntries = await fs.promises.readdir(LEGACY_PUBLIC_SNAPSHOT_DIR, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return 0;
+    throw error;
+  }
+
+  let migratedCount = 0;
+  for (const entry of legacyEntries) {
+    if (!entry.isFile()) continue;
+    const filename = path.basename(entry.name);
+    const sourcePath = path.join(LEGACY_PUBLIC_SNAPSHOT_DIR, filename);
+    const destinationPath = path.join(SNAPSHOT_DIR, filename);
+    try {
+      await fs.promises.access(destinationPath, fs.constants.F_OK);
+      console.warn(`Private snapshot migration skipped existing file: ${filename}`);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      await fs.promises.rename(sourcePath, destinationPath);
+      migratedCount += 1;
+    }
+  }
+
+  try {
+    await fs.promises.rmdir(LEGACY_PUBLIC_SNAPSHOT_DIR);
+  } catch (error) {
+    if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
+  }
+
+  return migratedCount;
 }
 
 function buildReportFilters(query) {
@@ -1875,31 +2026,6 @@ function buildReportFilters(query) {
     zone,
     pass_type: passType,
     vehicle_type: vehicleType
-  };
-}
-
-function buildWhereClause(filters) {
-  const where = ["DATE(event_time) BETWEEN ? AND ?"];
-  const params = [filters.from, filters.to];
-  if (filters.gate !== "ALL") {
-    where.push("gate = ?");
-    params.push(filters.gate);
-  }
-  if (filters.zone !== "ALL") {
-    where.push("zone = ?");
-    params.push(filters.zone);
-  }
-  if (filters.pass_type !== "all") {
-    where.push("pass_type = ?");
-    params.push(filters.pass_type);
-  }
-  if (filters.vehicle_type !== "ALL") {
-    where.push("vehicle_type = ?");
-    params.push(filters.vehicle_type);
-  }
-  return {
-    whereSql: where.join(" AND "),
-    params
   };
 }
 
@@ -2318,9 +2444,16 @@ async function getInsideVehiclesWithOverstay(db = pool, limit = 20) {
   });
 }
 
-async function getOverstayAlertCount(db = pool) {
+async function getInsideVehicleMetrics(db = pool) {
   const [[countRow]] = await db.query(
-    `SELECT COUNT(*) AS total
+    `SELECT
+       COUNT(*) AS total_inside,
+       COALESCE(SUM(
+         CASE
+           WHEN TIMESTAMPDIFF(MINUTE, movement.scanned_at, NOW()) > ? THEN 1
+           ELSE 0
+         END
+       ), 0) AS overstay_count
      FROM (
        SELECT sl.sticker_id, sl.action, sl.scanned_at
        FROM scan_logs sl
@@ -2337,11 +2470,13 @@ async function getOverstayAlertCount(db = pool) {
        WHERE sl.result = 'VALID'
          AND sl.action IN ('ENTRY', 'EXIT')
      ) movement
-     WHERE movement.action = 'ENTRY'
-       AND TIMESTAMPDIFF(MINUTE, movement.scanned_at, NOW()) > ?`,
+     WHERE movement.action = 'ENTRY'`,
     [OVERSTAY_LIMIT_MINUTES]
   );
-  return Number(countRow?.total || 0);
+  return {
+    total_inside: Number(countRow?.total_inside || 0),
+    overstay_count: Number(countRow?.overstay_count || 0)
+  };
 }
 
 async function getRecentMovementLogs(db = pool, limit = 80) {
@@ -2583,11 +2718,13 @@ async function getCurrentVisitorInsideRows(db = pool, limit = 40) {
 async function getVisitorModuleData(filters = {}, db = pool) {
   await expireStaleVisitorPasses(db, "visitor-module");
   await evaluateVisitorOverstayAlerts(db, "visitor-module");
-  const summary = await getVisitorSummaryMetrics(db);
-  const pendingApprovals = await getPendingVisitorPasses(db, 50);
-  const passes = await listVisitorPasses(filters, db);
-  const logs = await listVisitorScanLogs(filters, db);
-  const currentInside = await getCurrentVisitorInsideRows(db, 50);
+  const [summary, pendingApprovals, passes, logs, currentInside] = await Promise.all([
+    getVisitorSummaryMetrics(db),
+    getPendingVisitorPasses(db, 50),
+    listVisitorPasses(filters, db),
+    listVisitorScanLogs(filters, db),
+    getCurrentVisitorInsideRows(db, 50)
+  ]);
   return {
     summary,
     pendingApprovals,
@@ -2598,64 +2735,69 @@ async function getVisitorModuleData(filters = {}, db = pool) {
   };
 }
 
+async function getDashboardEntityCounts(db = pool) {
+  const [[row]] = await db.query(
+    `SELECT
+       (SELECT COUNT(*) FROM students) AS students,
+       (SELECT COUNT(*) FROM vehicles) AS vehicles,
+       (SELECT COUNT(*) FROM stickers WHERE status = 'active') AS active_stickers`
+  );
+  return {
+    students: Number(row?.students || 0),
+    vehicles: Number(row?.vehicles || 0),
+    active_stickers: Number(row?.active_stickers || 0)
+  };
+}
+
+async function getTodayMovementCounts(db = pool) {
+  const [[row]] = await db.query(
+    `SELECT
+       COALESCE(SUM(CASE WHEN action = 'ENTRY' THEN 1 ELSE 0 END), 0) AS entries,
+       COALESCE(SUM(CASE WHEN action = 'EXIT' THEN 1 ELSE 0 END), 0) AS exits
+     FROM scan_logs
+     WHERE result = 'VALID'
+       AND scanned_at >= CURDATE()
+       AND scanned_at < CURDATE() + INTERVAL 1 DAY`
+  );
+  return {
+    entries: Number(row?.entries || 0),
+    exits: Number(row?.exits || 0)
+  };
+}
+
 async function getDashboardData() {
-  await evaluateZoneCapacityAlerts(pool, "admin-dashboard");
-  await evaluateVisitorOverstayAlerts(pool, "admin-dashboard");
-  await expireStaleVisitorPasses(pool, "admin-dashboard");
-  const alertMetrics = await getOperationalAlertMetrics(pool);
-  const visitorMetrics = await getVisitorSummaryMetrics(pool);
-  const [[studentsCount]] = await pool.query("SELECT COUNT(*) AS total FROM students");
-  const [[vehiclesCount]] = await pool.query("SELECT COUNT(*) AS total FROM vehicles");
-  const [[stickersCount]] = await pool.query(
-    "SELECT COUNT(*) AS total FROM stickers WHERE status = 'active'"
-  );
-  const [[todayEntries]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result = 'VALID'
-       AND action = 'ENTRY'
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[todayExits]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result = 'VALID'
-       AND action = 'EXIT'
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[currentlyInside]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM (
-       SELECT latest.sticker_id, sl.action
-       FROM (
-         SELECT sticker_id, MAX(scanned_at) AS max_scanned_at
-         FROM scan_logs
-         WHERE result = 'VALID' AND sticker_id IS NOT NULL
-         GROUP BY sticker_id
-       ) latest
-       JOIN scan_logs sl
-         ON sl.sticker_id = latest.sticker_id
-        AND sl.scanned_at = latest.max_scanned_at
-       WHERE sl.result = 'VALID'
-     ) movement
-     WHERE movement.action = 'ENTRY'`
-  );
-  const movementLogs = await getRecentMovementLogs(pool, 80);
-  const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
+  await refreshOperationalState("admin-dashboard");
+  const [
+    alertMetrics,
+    visitorMetrics,
+    entityCounts,
+    todayMovement,
+    insideMetrics,
+    movementLogs,
+    insideVehicles,
+    parkingSlotOverview
+  ] = await Promise.all([
+    getOperationalAlertMetrics(pool),
+    getVisitorSummaryMetrics(pool),
+    getDashboardEntityCounts(pool),
+    getTodayMovementCounts(pool),
+    getInsideVehicleMetrics(pool),
+    getRecentMovementLogs(pool, 80),
+    getInsideVehiclesWithOverstay(pool, 20),
+    getParkingSlotOverview(pool)
+  ]);
   const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
-  const overstayAlertCount = await getOverstayAlertCount(pool);
-  const parkingSlotOverview = await getParkingSlotOverview();
   const parkingSlots = parkingSlotOverview.slots;
   const availableSlots = parkingSlots.filter((slot) => slot.is_selectable);
   return {
     metrics: {
-      students: studentsCount.total,
-      vehicles: vehiclesCount.total,
-      activeStickers: stickersCount.total,
-      todayEntries: todayEntries.total,
-      todayExits: todayExits.total,
-      currentlyInside: currentlyInside.total,
-      overstayAlerts: overstayAlertCount,
+      students: entityCounts.students,
+      vehicles: entityCounts.vehicles,
+      activeStickers: entityCounts.active_stickers,
+      todayEntries: todayMovement.entries,
+      todayExits: todayMovement.exits,
+      currentlyInside: insideMetrics.total_inside,
+      overstayAlerts: insideMetrics.overstay_count,
       invalidQrAttemptsToday: alertMetrics.invalid_qr_today,
       fullParkingZones: alertMetrics.full_parking_zones,
       lowSlotWarnings: alertMetrics.low_slot_warnings,
@@ -3301,42 +3443,8 @@ async function getReportsData(filters) {
 }
 
 async function getGuardDashboardData() {
-  await evaluateZoneCapacityAlerts(pool, "guard-dashboard");
-  await evaluateVisitorOverstayAlerts(pool, "guard-dashboard");
-  await expireStaleVisitorPasses(pool, "guard-dashboard");
-  const alertMetrics = await getOperationalAlertMetrics(pool);
-  const visitorMetrics = await getVisitorSummaryMetrics(pool);
-  const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
-  const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
-  const parkingSlotOverview = await getParkingSlotOverview();
-
-  const [[todayEntries]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result = 'VALID'
-       AND action = 'ENTRY'
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[todayExits]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result = 'VALID'
-       AND action = 'EXIT'
-       AND DATE(scanned_at) = CURDATE()`
-  );
-  const [[pendingQueue]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM auto_scan_queue
-     WHERE status = 'PENDING'`
-  );
-  const [[invalidScans]] = await pool.query(
-    `SELECT COUNT(*) AS total
-     FROM scan_logs
-     WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
-       AND DATE(scanned_at) = CURDATE()`
-  );
-
-  const [visitorLogs] = await pool.query(
+  await refreshOperationalState("guard-dashboard");
+  const visitorLogsPromise = pool.query(
     `SELECT
        vsl.scanned_at,
        vsl.action,
@@ -3353,16 +3461,34 @@ async function getGuardDashboardData() {
      LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
      ORDER BY vsl.scanned_at DESC, vsl.id DESC
      LIMIT 40`
-  );
+  ).then(([rows]) => rows);
+  const [
+    alertMetrics,
+    visitorMetrics,
+    insideMetrics,
+    insideVehicles,
+    parkingSlotOverview,
+    todayMovement,
+    visitorLogs
+  ] = await Promise.all([
+    getOperationalAlertMetrics(pool),
+    getVisitorSummaryMetrics(pool),
+    getInsideVehicleMetrics(pool),
+    getInsideVehiclesWithOverstay(pool, 20),
+    getParkingSlotOverview(pool),
+    getTodayMovementCounts(pool),
+    visitorLogsPromise
+  ]);
+  const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
 
   return {
     metrics: {
-      todayEntries: Number(todayEntries?.total || 0),
-      todayExits: Number(todayExits?.total || 0),
-      currentlyInside: insideVehicles.length,
-      overstayAlerts: overstayAlerts.length,
-      pendingApprovals: Number(alertMetrics.pending_approvals || pendingQueue?.total || 0),
-      invalidScans: Number(alertMetrics.invalid_qr_today || invalidScans?.total || 0),
+      todayEntries: todayMovement.entries,
+      todayExits: todayMovement.exits,
+      currentlyInside: insideMetrics.total_inside,
+      overstayAlerts: insideMetrics.overstay_count,
+      pendingApprovals: Number(alertMetrics.pending_approvals || 0),
+      invalidScans: Number(alertMetrics.invalid_qr_today || 0),
       fullParkingZones: Number(alertMetrics.full_parking_zones || 0),
       lowSlotWarnings: Number(alertMetrics.low_slot_warnings || 0),
       suspiciousScans: Number(alertMetrics.suspicious_scans || 0),
@@ -3837,65 +3963,6 @@ async function resolveScan(token, gate = "Main Gate") {
   }
 }
 
-async function verifyAndLog(token, gate = "Manual Verification") {
-  const verification = await getVerificationState(token);
-  const stickerId = verification.sticker ? verification.sticker.id : null;
-  const noteByResult = {
-    VALID: "Manual verification viewed",
-    INVALID: "Token not found",
-    REVOKED: "Sticker is not active",
-    EXPIRED: "Sticker expired"
-  };
-
-  const scanLog = await insertScanLog(
-    stickerId,
-    verification.result,
-    "VERIFY",
-    gate,
-    noteByResult[verification.result] || "Manual verification",
-    {
-      gateId: gate,
-      qrValue: token,
-      studentId: verification.sticker?.student_id_ref || null,
-      vehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
-      scanSource: "manual",
-      status: normalizeScanStatus(verification.result)
-    }
-  );
-
-  if (!verification.ok && INVALID_SCAN_RESULTS.has(String(verification.result || "").toUpperCase())) {
-    await createInvalidQrAlert(pool, {
-      result: verification.result || "INVALID",
-      reason: noteByResult[verification.result] || verification.message || "Invalid manual verification attempt.",
-      qrValue: token,
-      gate,
-      source: "manual",
-      actorName: "system",
-      relatedVehicleId: verification.sticker?.vehicle_id_ref || verification.sticker?.vehicle_id || null,
-      scanLogId: scanLog?.id || null
-    });
-    await evaluateSuspiciousScanSignals(pool, {
-      qrValue: token,
-      gate,
-      source: "manual",
-      actorName: "system",
-      result: verification.result || "INVALID",
-      scanLogId: scanLog?.id || null
-    });
-    broadcastNotificationsUpdated("manual-invalid-verification", {
-      gate_id: gate,
-      qr_value: token,
-      result: verification.result || "INVALID"
-    });
-  }
-
-  return {
-    ...verification,
-    scan_log_id: scanLog?.id || null,
-    scanned_at: scanLog?.scanned_at || null
-  };
-}
-
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 app.get("/", requireAuth, (req, res) => {
@@ -3931,9 +3998,11 @@ app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 
 app.get("/admin/updates", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const insideVehicles = await getInsideVehiclesWithOverstay(pool, 30);
+    const [insideVehicles, movementLogs] = await Promise.all([
+      getInsideVehiclesWithOverstay(pool, 30),
+      getRecentMovementLogs(pool, 80)
+    ]);
     const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
-    const movementLogs = await getRecentMovementLogs(pool, 80);
     res.render("admin_updates", {
       insideVehicles,
       overstayAlerts,
@@ -3966,8 +4035,10 @@ app.get("/admin/records", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 app.get("/admin/alerts", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "admin-alerts-page");
-    const alertSummary = await getOperationalAlertMetrics(pool);
-    const alertList = await listAlertsForUser(req.authUser, { limit: 30, offset: 0, status: "all" }, pool);
+    const [alertSummary, alertList] = await Promise.all([
+      getOperationalAlertMetrics(pool),
+      listAlertsForUser(req.authUser, { limit: 30, offset: 0, status: "all" }, pool)
+    ]);
     res.render("admin_alerts", {
       alertSummary,
       initialAlerts: alertList.rows,
@@ -3979,7 +4050,7 @@ app.get("/admin/alerts", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   }
 });
 
-app.get("/guard", requireRole(USER_ROLES.GUARD, USER_ROLES.ADMIN), async (req, res) => {
+app.get("/guard", requireRole(USER_ROLES.GUARD), async (req, res) => {
   try {
     const data = await getGuardDashboardData();
     res.render("guard_dashboard", data);
@@ -4412,7 +4483,7 @@ app.get("/visitor-passes/:id/qr", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
     if (!rows.length) return res.status(404).send("Visitor pass not found.");
 
     const qrPayload = `${APP_BASE_URL}/verify/visitor/${rows[0].qr_token}`;
-    const png = await QRCode.toBuffer(qrPayload, { type: "png", width: 600 });
+    const png = await generateBrandedQrPng(qrPayload);
     res.type("png");
     return res.send(png);
   } catch (error) {
@@ -4424,8 +4495,10 @@ app.get("/visitor-passes/:id/qr", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
 app.get("/api/visitor-passes/summary", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
     await expireStaleVisitorPasses(pool, getAuthActorName(req) || "visitor-summary");
-    const summary = await getVisitorSummaryMetrics(pool);
-    const currentInside = await getCurrentVisitorInsideRows(pool, 50);
+    const [summary, currentInside] = await Promise.all([
+      getVisitorSummaryMetrics(pool),
+      getCurrentVisitorInsideRows(pool, 50)
+    ]);
     const overstayRows = currentInside.filter((row) => row.is_overstay);
     return res.json({
       ok: true,
@@ -4464,14 +4537,17 @@ app.get("/api/visitor-logs", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), as
 // API: inside vehicles (for dashboard auto-refresh)
 app.get("/api/inside-vehicles", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
-    const insideVehicles = await getInsideVehiclesWithOverstay(pool, 20);
+    const [insideVehicles, insideMetrics] = await Promise.all([
+      getInsideVehiclesWithOverstay(pool, 20),
+      getInsideVehicleMetrics(pool)
+    ]);
     const overstayAlerts = insideVehicles.filter((item) => item.is_overstay);
-    const overstayAlertCount = await getOverstayAlertCount(pool);
     res.json({
       ok: true,
       insideVehicles,
       overstayAlerts,
-      overstayAlertCount,
+      currentlyInside: insideMetrics.total_inside,
+      overstayAlertCount: insideMetrics.overstay_count,
       overstayLimitHours: OVERSTAY_LIMIT_HOURS,
       overstayLimitLabel: formatHoursLabel(OVERSTAY_LIMIT_HOURS)
     });
@@ -4495,9 +4571,11 @@ app.get("/api/dashboard-stats", requireRole(USER_ROLES.ADMIN), async (req, res) 
 // API: notification center summary for current user
 app.get("/api/notifications/summary", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
   try {
-    await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "notification-summary");
-    const summary = await getNotificationSummaryForUser(req.authUser, pool);
-    const operational = await getOperationalAlertMetrics(pool);
+    await refreshOperationalState(getAuthActorName(req) || "notification-summary");
+    const [summary, operational] = await Promise.all([
+      getNotificationSummaryForUser(req.authUser, pool),
+      getOperationalAlertMetrics(pool)
+    ]);
     res.json({
       ok: true,
       summary,
@@ -4781,16 +4859,22 @@ app.get("/api/parking-slot-history", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
 
 app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const [studentRows] = await pool.query(
-      "SELECT * FROM students ORDER BY created_at DESC, id DESC"
-    );
-    const [vehicleRows] = await pool.query(
-      `SELECT v.* FROM vehicles v ORDER BY v.created_at ASC, v.id ASC`
-    );
+    const [studentResult, vehicleResult] = await Promise.all([
+      pool.query("SELECT * FROM students ORDER BY created_at DESC, id DESC"),
+      pool.query("SELECT v.* FROM vehicles v ORDER BY v.created_at ASC, v.id ASC")
+    ]);
+    const studentRows = studentResult[0];
+    const vehicleRows = vehicleResult[0];
+    const vehiclesByStudent = new Map();
+    vehicleRows.forEach((vehicle) => {
+      const studentVehicles = vehiclesByStudent.get(vehicle.student_id) || [];
+      studentVehicles.push(vehicle);
+      vehiclesByStudent.set(vehicle.student_id, studentVehicles);
+    });
     // Attach vehicles array to each student
     const students = studentRows.map(s => ({
       ...s,
-      vehicles: vehicleRows.filter(v => v.student_id === s.id)
+      vehicles: vehiclesByStudent.get(s.id) || []
     }));
     const flash = req.query.success
       ? { type: "success", message: "Student saved successfully." }
@@ -4924,19 +5008,23 @@ app.post("/vehicles/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res)
 
 app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const [vehicles] = await pool.query(
-      `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
-       FROM vehicles v
-       JOIN students s ON s.id = v.student_id
-       ORDER BY v.id DESC`
-    );
-    const [stickers] = await pool.query(
-      `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number
-       FROM stickers st
-       JOIN vehicles v ON v.id = st.vehicle_id
-       JOIN students s ON s.id = v.student_id
-       ORDER BY st.created_at DESC, st.id DESC`
-    );
+    const [vehicleResult, stickerResult] = await Promise.all([
+      pool.query(
+        `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
+         FROM vehicles v
+         JOIN students s ON s.id = v.student_id
+         ORDER BY v.id DESC`
+      ),
+      pool.query(
+        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number
+         FROM stickers st
+         JOIN vehicles v ON v.id = st.vehicle_id
+         JOIN students s ON s.id = v.student_id
+         ORDER BY st.created_at DESC, st.id DESC`
+      )
+    ]);
+    const vehicles = vehicleResult[0];
+    const stickers = stickerResult[0];
     const flash = req.query.success
       ? { type: "success", message: "Sticker issued successfully." }
       : req.query.revoked
@@ -4983,7 +5071,7 @@ app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 
     const requestBaseUrl = `${req.protocol}://${req.get("host")}`;
     const verifyUrl = `${requestBaseUrl}/verify/${rows[0].qr_token}`;
-    const png = await QRCode.toBuffer(verifyUrl, { type: "png", width: 600 });
+    const png = await generateBrandedQrPng(verifyUrl);
     res.type("png");
     res.send(png);
   } catch (error) {
@@ -4994,18 +5082,27 @@ app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 
 app.get("/verify/:token", async (req, res) => {
   try {
-    // Get sticker info without logging automatically
     const verification = await getVerificationState(req.params.token);
+    const viewer = getSessionUser(req);
+    const canViewPrivateDetails = viewer?.role === USER_ROLES.ADMIN || viewer?.role === USER_ROLES.GUARD;
     let lastAction = null;
     let currentSlot = null;
     let parkingSlotOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
-    if (verification.ok && verification.sticker) {
+    if (canViewPrivateDetails && verification.ok && verification.sticker) {
        const lastMovement = await getLastValidMovement(verification.sticker.id);
        if (lastMovement) lastAction = lastMovement.action;
        currentSlot = await getCurrentParkingSlotBySticker(verification.sticker.id);
        parkingSlotOverview = await getParkingSlotOverview();
     }
-    const result = { ...verification, last_action: lastAction, current_slot: currentSlot };
+    const result = canViewPrivateDetails
+      ? { ...verification, last_action: lastAction, current_slot: currentSlot }
+      : {
+          ok: Boolean(verification.ok),
+          result: verification.ok ? "VALID" : "INVALID",
+          message: verification.ok
+            ? "This NAAP parking credential is active. Staff sign-in is required to view details."
+            : "This NAAP parking credential could not be verified. Please contact authorized staff."
+        };
     res.render("verify", { result, parkingSlotOverview });
   } catch (error) {
     console.error("Verify GET error:", error);
@@ -5013,7 +5110,7 @@ app.get("/verify/:token", async (req, res) => {
   }
 });
 
-app.post("/verify/:token/movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/verify/:token/movement", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const selectedAction = String(req.body.action || "").toUpperCase();
   const gate = req.body.gate || "Manual Verification";
   const slotId = req.body.slot_id ? Number(req.body.slot_id) : null;
@@ -5125,11 +5222,11 @@ app.post("/verify/:token/movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUA
   }
 });
 
-app.get("/scanner", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, res) => {
+app.get("/scanner", requireRole(USER_ROLES.GUARD), (req, res) => {
   res.render("scanner");
 });
 
-app.get("/scanner/auto", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), (req, res) => {
+app.get("/scanner/auto", requireRole(USER_ROLES.GUARD), (req, res) => {
   res.render("scanner_auto", {
     scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
   });
@@ -5197,7 +5294,7 @@ app.get("/api/notifications/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
 });
 
 // API: live SSE stream for guard queue + phone heartbeat updates
-app.get("/api/auto-scan/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.get("/api/auto-scan/events", requireRole(USER_ROLES.GUARD), async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -5255,7 +5352,7 @@ app.get("/api/auto-scan/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
 });
 
 // API: phone scanner heartbeat for guard queue health
-app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const gate = normalizeGateId(req.body.gate || req.body.gate_id || "Main Gate");
   const deviceId = normalizeAutoScanDeviceId(
     req.body.device_id || req.body.deviceId || req.headers["x-device-id"]
@@ -5286,7 +5383,7 @@ app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
 });
 
 // API: guard queue health snapshot (phone online/offline + last scan)
-app.get("/api/auto-scan/health", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.get("/api/auto-scan/health", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const limit = Number(req.query.limit) || 12;
   try {
     const snapshot = await getAutoScanHealthSnapshot(limit);
@@ -5301,7 +5398,7 @@ app.get("/api/auto-scan/health", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD)
 });
 
 // API: phone camera auto-detection (ENTRY requires guard confirmation, EXIT is auto-recorded)
-app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = normalizeGateId(req.body.gate || "Main Gate");
   const deviceId = normalizeAutoScanDeviceId(
@@ -5616,7 +5713,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD
 });
 
 // API: guard confirms ENTRY after auto-detection and slot selection
-app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
   const slotId = Number(req.body.slot_id);
@@ -5796,7 +5893,7 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.ADMIN, USER_ROLE
 });
 
 // API: pending phone-scanned ENTRY requests for laptop guard monitoring
-app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const limit = Number(req.query.limit) || 25;
   try {
     const expiredPendingIds = await expireStalePendingAutoEntries();
@@ -5819,7 +5916,7 @@ app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.ADMIN, USER_ROL
 });
 
 // API: guard confirms a pending phone-scanned ENTRY and assigns slot
-app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const entryId = Number(req.params.id);
   const slotId = Number(req.body.slot_id);
   const guardName = getAuthActorName(req);
@@ -6062,7 +6159,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.AD
 });
 
 // API: guard cancels a pending phone-scanned ENTRY request
-app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const entryId = Number(req.params.id);
   const guardName = getAuthActorName(req);
   const reason = String(req.body.reason || "Cancelled by guard monitor.").trim();
@@ -6125,7 +6222,7 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.ADM
 });
 
 // API: search students/vehicles by plate, name, or student number
-app.get("/api/gate-lookup", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.get("/api/gate-lookup", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const q = String(req.query.q || "").trim();
   if (!q) return res.json({ ok: false, message: "No query provided.", results: [] });
 
@@ -6268,7 +6365,7 @@ app.get("/api/parking-slot-overview", requireRole(USER_ROLES.ADMIN, USER_ROLES.G
 });
 
 // API: manually record ENTRY or EXIT for student sticker or visitor pass token
-app.post("/api/manual-movement", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/manual-movement", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const { action, gate, slot_id } = req.body;
   const selectedAction = String(action || "").toUpperCase();
@@ -6742,7 +6839,7 @@ app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   }
 });
 
-app.post("/api/scan", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/scan", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
   const { gate } = req.body;
   if (!token) return res.status(400).json({ ok: false, message: "Missing token" });
@@ -6757,7 +6854,7 @@ app.post("/api/scan", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (re
 });
 
 // PWA Offline Sync: Download active roster to local DB
-app.get("/api/sync-roster", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
   try {
     const [roster] = await pool.query(`
       SELECT
@@ -6783,7 +6880,7 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), asy
 });
 
 // PWA Offline Sync: Upload pending outbox to main DB
-app.post("/api/sync-queue", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
+app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const { movements } = req.body;
   if (!Array.isArray(movements) || movements.length === 0) {
     return res.json({ ok: true });
@@ -6865,7 +6962,12 @@ app.use((err, req, res, next) => {
 
 async function startServer() {
   try {
+    const migratedSnapshots = await preparePrivateSnapshotStorage();
+    if (migratedSnapshots > 0) {
+      console.log(`Moved ${migratedSnapshots} scan snapshot(s) to protected storage.`);
+    }
     await ensureDatabaseSchema();
+    await sessionStore.onReady();
     app.listen(PORT, () => {
       console.log(`NAAP Parking app running at ${APP_BASE_URL}`);
     });

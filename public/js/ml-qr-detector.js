@@ -63,6 +63,18 @@
     return out;
   }
 
+  function estimateMeanLuma(luma) {
+    if (!luma || !luma.length) return null;
+    const step = Math.max(1, Math.floor(luma.length / 4096));
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < luma.length; i += step) {
+      sum += luma[i];
+      count += 1;
+    }
+    return count ? Math.round(sum / count) : null;
+  }
+
   function normalizeContrast(luma) {
     let min = 255;
     let max = 0;
@@ -236,6 +248,18 @@
     };
   }
 
+  function expandRect(rect, frameWidth, frameHeight, paddingRatio = 0.14) {
+    const normalized = normalizeRect(rect, frameWidth, frameHeight);
+    const padX = normalized.width * Math.max(0, paddingRatio);
+    const padY = normalized.height * Math.max(0, paddingRatio);
+    return normalizeRect({
+      x: normalized.x - padX,
+      y: normalized.y - padY,
+      width: normalized.width + (padX * 2),
+      height: normalized.height + (padY * 2)
+    }, frameWidth, frameHeight);
+  }
+
   function decodeQrFromGray(gray, width, height) {
     if (!gray || !width || !height) return null;
     const candidateBinary = adaptiveThreshold(gray, width, height, 17, 6);
@@ -258,7 +282,7 @@
     let transitions = 0;
     let comparisons = 0;
 
-    for (let y = y0; y <= y1; y += 2) {
+    for (let y = y0; y < y1; y += 2) {
       const row = y * width;
       for (let x = x0; x < x1; x += 2) {
         const a = binary[row + x];
@@ -323,6 +347,7 @@
         lowConfidenceDecodeRatio: clamp(Number(options.lowConfidenceDecodeRatio) || 0.6, 0.2, 1),
         maxProcessWidth: Math.max(320, Math.min(960, Number(options.maxProcessWidth) || 640)),
         perspectiveSize: Math.max(160, Math.min(420, Number(options.perspectiveSize) || 280)),
+        duplicateSuppressMs: Math.max(120, Math.min(1500, Number(options.duplicateSuppressMs) || 260)),
         onMlMetrics: typeof options.onMlMetrics === "function" ? options.onMlMetrics : null
       };
 
@@ -379,8 +404,9 @@
       this.container.appendChild(this.video);
 
       const baseVideo = {
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, min: 15 }
       };
 
       let mediaConstraints = { video: baseVideo, audio: false };
@@ -395,6 +421,30 @@
       this.stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
       this.video.srcObject = this.stream;
       await this.video.play();
+
+      // Continuous autofocus materially improves reads from vehicle stickers at
+      // changing distances. Unsupported constraints are ignored safely.
+      const videoTrack = this.stream.getVideoTracks()[0] || null;
+      if (videoTrack && typeof videoTrack.getCapabilities === "function" && typeof videoTrack.applyConstraints === "function") {
+        try {
+          const capabilities = videoTrack.getCapabilities() || {};
+          const advanced = {};
+          if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
+            advanced.focusMode = "continuous";
+          }
+          if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes("continuous")) {
+            advanced.exposureMode = "continuous";
+          }
+          if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes("continuous")) {
+            advanced.whiteBalanceMode = "continuous";
+          }
+          if (Object.keys(advanced).length) {
+            await videoTrack.applyConstraints({ advanced: [advanced] });
+          }
+        } catch (_constraintError) {
+          // Camera still works when a browser rejects optional advanced modes.
+        }
+      }
 
       this.state = STATE.SCANNING;
       this.lastFrameAt = 0;
@@ -438,6 +488,42 @@
       this.rafId = requestAnimationFrame(tick);
     }
 
+    recordMetrics(confidence, started, details = {}) {
+      this.lastProcessDurationMs = performance.now() - started;
+      this.frameCounter += 1;
+      if (this.options.onMlMetrics) {
+        this.options.onMlMetrics({
+          confidence,
+          threshold: this.options.confidenceThreshold,
+          processMs: Math.round(this.lastProcessDurationMs),
+          fps: this.lastProcessDurationMs > 0 ? Math.round(1000 / this.lastProcessDurationMs) : 0,
+          usedDetector: !!this.detector,
+          ...details
+        });
+      }
+    }
+
+    emitDecoded(decodedText, now, confidence, model, preprocess) {
+      const text = String(decodedText || "").trim();
+      if (!text) return false;
+      if (text === this.lastDecodedText && (now - this.lastDecodedAt) < this.options.duplicateSuppressMs) {
+        return false;
+      }
+
+      this.lastDecodedText = text;
+      this.lastDecodedAt = now;
+
+      if (this.onSuccess) {
+        this.onSuccess(text, {
+          ml_confidence: Math.round(confidence * 1000) / 1000,
+          preprocess,
+          model,
+          process_ms: Math.round(this.lastProcessDurationMs)
+        });
+      }
+      return true;
+    }
+
     async processFrame(now) {
       if (!this.video || this.video.readyState < 2 || !this.rawCtx) return;
 
@@ -457,11 +543,6 @@
       this.rawCtx.drawImage(this.video, 0, 0, width, height);
 
       const started = performance.now();
-      const frame = this.rawCtx.getImageData(0, 0, width, height);
-      const luma = rgbToLuma(frame);
-      const normalized = normalizeContrast(luma);
-      const binary = adaptiveThreshold(normalized, width, height, 19, 7);
-
       let bestDetection = null;
       if (this.detector) {
         try {
@@ -472,6 +553,47 @@
           this.detector = null;
         }
       }
+
+      const nativeDecodedText = String(bestDetection?.detection?.rawValue || bestDetection?.detection?.raw_value || "").trim();
+      if (nativeDecodedText) {
+        const confidence = 0.98;
+        this.recordMetrics(confidence, started);
+        this.emitDecoded(nativeDecodedText, now, confidence, "BarcodeDetector-native", {
+          contrast_normalization: false,
+          adaptive_thresholding: false,
+          perspective_correction: false,
+          quiet_zone_padding: false
+        });
+        return;
+      }
+
+      const frame = this.rawCtx.getImageData(0, 0, width, height);
+
+      // Most well-lit QR codes decode directly. Return immediately so the more
+      // expensive contrast, threshold, crop, and perspective passes are only
+      // used for difficult frames.
+      let fastDecodeResult = null;
+      try {
+        fastDecodeResult = jsQR(frame.data, width, height, { inversionAttempts: "dontInvert" });
+      } catch (_fastDecodeError) {
+        fastDecodeResult = null;
+      }
+      if (fastDecodeResult?.data) {
+        const confidence = 0.9;
+        this.recordMetrics(confidence, started);
+        this.emitDecoded(fastDecodeResult.data, now, confidence, "jsQR-fast", {
+          contrast_normalization: false,
+          adaptive_thresholding: false,
+          perspective_correction: false,
+          quiet_zone_padding: false
+        });
+        return;
+      }
+
+      const luma = rgbToLuma(frame);
+      const brightness = estimateMeanLuma(luma);
+      const normalized = normalizeContrast(luma);
+      const binary = adaptiveThreshold(normalized, width, height, 19, 7);
 
       if (!bestDetection) {
         bestDetection = {
@@ -497,7 +619,7 @@
       const edgeDensity = estimateEdgeDensity(binary, width, height, bestDetection.rect);
       const edgeScore = clamp(edgeDensity / 0.42, 0, 1);
 
-      const confidence = clamp(
+      let confidence = clamp(
         (bestDetection.detectorScore * 0.38)
           + (areaRatio * 0.18)
           + (shapeScore * 0.14)
@@ -506,18 +628,11 @@
         0,
         1
       );
-
-      this.lastProcessDurationMs = performance.now() - started;
-      this.frameCounter += 1;
-      if (this.options.onMlMetrics) {
-        this.options.onMlMetrics({
-          confidence,
-          threshold: this.options.confidenceThreshold,
-          processMs: Math.round(this.lastProcessDurationMs),
-          fps: this.lastProcessDurationMs > 0 ? Math.round(1000 / this.lastProcessDurationMs) : 0,
-          usedDetector: !!this.detector
-        });
-      }
+      this.recordMetrics(confidence, started, {
+        brightness,
+        areaRatio: bestDetection.detection ? areaRatio : null,
+        detectedRegion: !!bestDetection.detection
+      });
 
       const lowConfidenceThreshold = this.options.confidenceThreshold * this.options.lowConfidenceDecodeRatio;
       const allowLowConfidenceAttempt = (this.frameCounter % 10 === 0) && confidence >= lowConfidenceThreshold;
@@ -537,7 +652,10 @@
       }
 
       if (!decodeResult) {
-        const crop = cropRect(normalized, width, height, bestDetection.rect);
+        // Preserve a quiet zone around the QR. Cropping directly on the native
+        // bounding box can remove the white border required by decoders.
+        const paddedRect = expandRect(bestDetection.rect, width, height, 0.16);
+        const crop = cropRect(normalized, width, height, paddedRect);
         decodeResult = decodeQrFromGray(crop.gray, crop.width, crop.height);
       }
 
@@ -548,25 +666,18 @@
 
       if (!decodeResult || !decodeResult.data) return;
 
-      const decodedText = String(decodeResult.data || "").trim();
-      if (!decodedText) return;
-      if (decodedText === this.lastDecodedText && (now - this.lastDecodedAt) < 850) return;
-
-      this.lastDecodedText = decodedText;
-      this.lastDecodedAt = now;
-
-      if (this.onSuccess) {
-        this.onSuccess(decodedText, {
-          ml_confidence: Math.round(confidence * 1000) / 1000,
-          preprocess: {
-            contrast_normalization: true,
-            adaptive_thresholding: true,
-            perspective_correction: !!bestDetection.corners
-          },
-          model: this.detector ? "BarcodeDetector+jsQR" : "jsQR-fallback",
-          process_ms: Math.round(this.lastProcessDurationMs)
-        });
-      }
+      this.emitDecoded(
+        decodeResult.data,
+        now,
+        confidence,
+        this.detector ? "BarcodeDetector+jsQR" : "jsQR-fallback",
+        {
+          contrast_normalization: true,
+          adaptive_thresholding: true,
+          perspective_correction: !!bestDetection.corners,
+          quiet_zone_padding: true
+        }
+      );
     }
 
     async pause() {

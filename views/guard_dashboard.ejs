@@ -28,7 +28,7 @@
       <h3>Inside Campus</h3>
       <p><%= safeMetrics.currentlyInside || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+    <div class="hero-card hero-card--danger">
       <h3>Alert Notifications</h3>
       <p><%= safeMetrics.overstayAlerts || 0 %></p>
     </div>
@@ -45,26 +45,42 @@
       <h2>Guard Workflow</h2>
       <p>Follow this sequence to process vehicles quickly with fewer errors.</p>
     </div>
-    <div class="quick-links-grid workflow-grid">
+    <div class="quick-links-grid workflow-grid guard-workflow-grid">
       <a href="/scanner/auto" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 1</span>
+        <span class="workflow-card-top">
+          <span class="workflow-step">1</span>
+          <span class="workflow-stage">Scan at gate</span>
+        </span>
         <h3>Open Phone Camera</h3>
         <p>Start automatic QR capture at the gate camera station.</p>
+        <span class="workflow-action">Open camera <span aria-hidden="true">→</span></span>
       </a>
       <a href="/scanner" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 2</span>
+        <span class="workflow-card-top">
+          <span class="workflow-step">2</span>
+          <span class="workflow-stage">Confirm access</span>
+        </span>
         <h3>Confirm Entry and Assign Slot</h3>
         <p>Review pending scans and approve parking slot assignment.</p>
+        <span class="workflow-action">Open gate console <span aria-hidden="true">→</span></span>
       </a>
       <a href="/visitor-passes" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 3</span>
+        <span class="workflow-card-top">
+          <span class="workflow-step">3</span>
+          <span class="workflow-stage">Manage visitors</span>
+        </span>
         <h3>Approve Visitor Passes</h3>
         <p>Handle visitor, parent, supplier, delivery, and temporary permit requests.</p>
+        <span class="workflow-action">Review visitor passes <span aria-hidden="true">→</span></span>
       </a>
       <a href="/guard" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 4</span>
+        <span class="workflow-card-top">
+          <span class="workflow-step">4</span>
+          <span class="workflow-stage">Monitor activity</span>
+        </span>
         <h3>Monitor Queue and Alerts</h3>
         <p>Track phone status, queue health, and overstay notifications.</p>
+        <span class="workflow-action">View dashboard <span aria-hidden="true">→</span></span>
       </a>
     </div>
   </section>
@@ -173,7 +189,7 @@
   <section class="panel">
     <div class="section-head">
       <h2>Current Occupancy</h2>
-      <p>
+      <p id="guardOccupancySummary">
         <%= summary.available || 0 %> available |
         <%= summary.occupied || 0 %> occupied |
         <%= summary.disabled || 0 %> disabled |
@@ -192,7 +208,7 @@
             <th>Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="guardOccupancyTableBody">
           <% if (!safeInsideVehicles.length) { %>
             <tr>
               <td colspan="6">
@@ -361,6 +377,8 @@
     const guardVisitorPending = document.getElementById("guardVisitorPending");
     const guardVisitorExpired = document.getElementById("guardVisitorExpired");
     const guardVisitorInside = document.getElementById("guardVisitorInside");
+    const guardOccupancySummary = document.getElementById("guardOccupancySummary");
+    const guardOccupancyTableBody = document.getElementById("guardOccupancyTableBody");
 
     const guardEntryModal = document.getElementById("guardEntryModal");
     const guardEntryCloseBtn = document.getElementById("guardEntryCloseBtn");
@@ -391,6 +409,7 @@
     let alertsRefreshTimer = null;
     let notificationEventSource = null;
     let notificationReconnectTimer = null;
+    let occupancyRefreshTimer = null;
 
     function escapeHtml(value) {
       return String(value == null ? "" : value)
@@ -436,6 +455,102 @@
       if (hours < 24) return `${hours}h ago`;
       const days = Math.floor(hours / 24);
       return `${days}d ago`;
+    }
+
+    function renderOccupancyTableRows(rows) {
+      if (!guardOccupancyTableBody) return;
+      if (!Array.isArray(rows) || !rows.length) {
+        guardOccupancyTableBody.innerHTML = `
+          <tr>
+            <td colspan="6">
+              <div class="empty-state">
+                <p>No vehicles currently inside.</p>
+              </div>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      guardOccupancyTableBody.innerHTML = rows.map((item) => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(item.full_name || "-")}</strong><br />
+            <small>${escapeHtml(item.student_number || "-")}</small>
+          </td>
+          <td>${escapeHtml(item.plate_number || "-")}</td>
+          <td>${escapeHtml(item.parking_slot || "-")}</td>
+          <td>${escapeHtml(item.entry_gate || "-")}</td>
+          <td>${escapeHtml(item.duration_label || "-")}</td>
+          <td>${item.is_overstay ? '<span class="badge badge-overstay">Overstay</span>' : '<span class="badge badge-inside">Inside</span>'}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderOccupancyState(message, type = "error") {
+      if (!guardOccupancyTableBody) return;
+      guardOccupancyTableBody.innerHTML = `
+        <tr>
+          <td colspan="6">
+            ${window.NaapUiState.render(type, {
+              title: type === "loading" ? "Loading occupancy" : type === "offline" ? "You are offline" : "Occupancy unavailable",
+              message: message || "Unable to load current occupancy.",
+              compact: true
+            })}
+          </td>
+        </tr>
+      `;
+    }
+
+    async function fetchCurrentOccupancy({ silent = false } = {}) {
+      if (!guardOccupancyTableBody) return;
+      if (!silent && !guardOccupancyTableBody.children.length) {
+        renderOccupancyState("Retrieving current vehicles and slot activity.", "loading");
+      }
+
+      try {
+        const [insideResp, slotResp] = await Promise.all([
+          fetch("/api/inside-vehicles", {
+            credentials: "same-origin",
+            cache: "no-store"
+          }),
+          fetch("/api/parking-slot-overview", {
+            credentials: "same-origin",
+            cache: "no-store"
+          })
+        ]);
+
+        const insideData = await insideResp.json().catch(() => ({ ok: false, message: "Invalid server response." }));
+        if (!insideResp.ok || !insideData.ok) {
+          throw new Error(insideData.message || `Unable to load occupancy (${insideResp.status})`);
+        }
+        const rows = Array.isArray(insideData.insideVehicles) ? insideData.insideVehicles : [];
+        renderOccupancyTableRows(rows);
+
+        if (guardOccupancySummary) {
+          const slotData = await slotResp.json().catch(() => ({ ok: false }));
+          if (slotResp.ok && slotData.ok && slotData.summary) {
+            const summary = slotData.summary || {};
+            guardOccupancySummary.textContent = `${summary.available || 0} available | ${summary.occupied || 0} occupied | ${summary.disabled || 0} disabled | ${summary.total || 0} total`;
+          } else {
+            guardOccupancySummary.textContent = `${rows.length} currently inside`;
+          }
+        }
+      } catch (error) {
+        if (!silent) {
+          renderOccupancyState(error.message || "Unable to load current occupancy.", navigator.onLine ? "error" : "offline");
+        } else {
+          console.warn("Occupancy refresh warning:", error.message);
+        }
+      }
+    }
+
+    function scheduleOccupancyRefresh(delayMs = 180) {
+      if (occupancyRefreshTimer) return;
+      occupancyRefreshTimer = window.setTimeout(async () => {
+        occupancyRefreshTimer = null;
+        await fetchCurrentOccupancy({ silent: true });
+      }, Math.max(60, Number(delayMs) || 180));
     }
 
     function applyHealthState(payload) {
@@ -608,7 +723,7 @@
         if (guardAlertsList) {
           guardAlertsList.innerHTML = rows.length
             ? rows.map(renderGuardAlert).join("")
-            : `<div class="empty-state" style="padding:1rem;"><p>No active operational alerts.</p></div>`;
+            : window.NaapUiState.render("empty", { title: "No active alerts", message: "Parking operations are currently clear.", compact: true });
         }
         if (guardAlertsMeta) {
           guardAlertsMeta.textContent = rows.length
@@ -617,7 +732,11 @@
         }
       } catch (error) {
         if (guardAlertsList) {
-          guardAlertsList.innerHTML = `<div class="empty-state" style="padding:1rem;"><p>${escapeHtml(error.message || "Unable to load alerts.")}</p></div>`;
+          guardAlertsList.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
+            title: navigator.onLine ? "Alerts unavailable" : "You are offline",
+            message: error.message || "Unable to load alerts.",
+            compact: true
+          });
         }
         if (guardAlertsMeta) guardAlertsMeta.textContent = error.message || "Unable to load alerts.";
       }
@@ -689,6 +808,7 @@
         if (isLiveConnected) return;
         fetchPendingEntries({ silent: true });
         fetchQueueHealth({ silent: true });
+        fetchCurrentOccupancy({ silent: true });
       }, 10000);
     }
 
@@ -757,16 +877,19 @@
 
       source.addEventListener("pending-entry-created", () => {
         scheduleQueueRefresh(60);
+        scheduleOccupancyRefresh(90);
         scheduleAlertRefresh(80);
       });
 
       source.addEventListener("pending-entry-updated", () => {
         scheduleQueueRefresh(80);
+        scheduleOccupancyRefresh(120);
         scheduleAlertRefresh(110);
       });
 
       source.addEventListener("pending-entry-sync", () => {
         scheduleQueueRefresh(100);
+        scheduleOccupancyRefresh(140);
       });
 
       source.addEventListener("error", () => {
@@ -843,7 +966,11 @@
       renderQuickSlotStrip(overview);
 
       if (!slots.length) {
-        guardSlotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">No parking slots are configured right now.</div>`;
+        guardSlotMap.innerHTML = window.NaapUiState.render("empty", {
+          title: "No parking slots",
+          message: "No parking slots are configured right now.",
+          compact: true
+        });
         guardSlotStatus.textContent = "No slots configured";
         guardEntryConfirmBtn.disabled = true;
         return;
@@ -948,7 +1075,11 @@
       guardEntryCancelBtn.disabled = false;
       if (guardSlotStatus) guardSlotStatus.textContent = "Loading slot map...";
       if (guardSlotQuickStrip) guardSlotQuickStrip.innerHTML = "";
-      if (guardSlotMap) guardSlotMap.innerHTML = '<div class="helper-text">Loading slot map...</div>';
+      if (guardSlotMap) guardSlotMap.innerHTML = window.NaapUiState.render("loading", {
+        title: "Loading slot map",
+        message: "Checking current slot availability.",
+        compact: true
+      });
 
       if (entry.snapshot_path) {
         guardEntrySnapshotWrap.style.display = "";
@@ -967,7 +1098,11 @@
         const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
         const hasAvailable = slots.some((slot) => slot.occupancy === "available");
         if (!slots.length) {
-          guardSlotMap.innerHTML = '<div class="flash flash-error" style="margin:0;">No slots configured.</div>';
+          guardSlotMap.innerHTML = window.NaapUiState.render("empty", {
+            title: "No available slots",
+            message: "No parking slots are configured for this entry.",
+            compact: true
+          });
           if (guardSlotStatus) guardSlotStatus.textContent = "No slots configured";
           guardEntryHint.textContent = "No available slots right now.";
           guardEntryConfirmBtn.disabled = true;
@@ -980,7 +1115,11 @@
         guardEntryConfirmBtn.disabled = !hasAvailable;
       } catch (error) {
         if (guardSlotMap) {
-          guardSlotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">${escapeHtml(error.message || "Unable to load slots.")}</div>`;
+          guardSlotMap.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
+            title: navigator.onLine ? "Slots unavailable" : "You are offline",
+            message: error.message || "Unable to load slots.",
+            compact: true
+          });
         }
         if (guardSlotStatus) guardSlotStatus.textContent = "Unable to load slots";
         guardEntryHint.textContent = error.message || "Unable to load slots.";
@@ -1077,7 +1216,10 @@
 
         showLiveAlert(`ENTRY confirmed for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`, "success", 5200);
         closeGuardEntryModal();
-        await fetchPendingEntries({ silent: true });
+        await Promise.all([
+          fetchPendingEntries({ silent: true }),
+          fetchCurrentOccupancy({ silent: true })
+        ]);
       } catch (error) {
         guardEntryHint.textContent = error.message || "Unable to confirm entry.";
         guardEntryConfirmBtn.disabled = false;
@@ -1104,7 +1246,10 @@
         }
         showLiveAlert("Pending request cancelled.", "warning", 4200);
         closeGuardEntryModal();
-        await fetchPendingEntries({ silent: true });
+        await Promise.all([
+          fetchPendingEntries({ silent: true }),
+          fetchCurrentOccupancy({ silent: true })
+        ]);
       } catch (error) {
         guardEntryHint.textContent = error.message || "Unable to cancel request.";
         guardEntryConfirmBtn.disabled = false;
@@ -1115,6 +1260,7 @@
     queueRefreshBtn?.addEventListener("click", () => {
       fetchPendingEntries({ silent: false });
       fetchQueueHealth({ silent: false });
+      fetchCurrentOccupancy({ silent: false });
       fetchGuardAlerts({ silent: false });
       fetchGuardAlertSummary();
       fetchVisitorPassSummary();
@@ -1147,12 +1293,17 @@
         clearTimeout(alertsRefreshTimer);
         alertsRefreshTimer = null;
       }
+      if (occupancyRefreshTimer) {
+        clearTimeout(occupancyRefreshTimer);
+        occupancyRefreshTimer = null;
+      }
     });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) return;
       if (!isLiveConnected) {
         fetchPendingEntries({ silent: true });
         fetchQueueHealth({ silent: true });
+        fetchCurrentOccupancy({ silent: true });
         connectLiveEvents();
       }
       if (!notificationEventSource) {
@@ -1160,14 +1311,21 @@
       }
     });
 
-    fetchPendingEntries({ silent: false });
-    fetchQueueHealth({ silent: false });
-    fetchGuardAlerts({ silent: false });
-    fetchGuardAlertSummary();
-    fetchVisitorPassSummary();
-    connectLiveEvents();
-    connectNotificationEvents();
+    const startGuardLiveUpdates = () => {
+      fetchPendingEntries({ silent: false });
+      fetchQueueHealth({ silent: false });
+      fetchGuardAlerts({ silent: false });
+      connectLiveEvents();
+      connectNotificationEvents();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(startGuardLiveUpdates, { timeout: 1000 });
+    } else {
+      window.setTimeout(startGuardLiveUpdates, 0);
+    }
     setInterval(() => {
+      if (document.hidden) return;
+      fetchCurrentOccupancy({ silent: true });
       fetchGuardAlerts({ silent: true });
       fetchGuardAlertSummary();
       fetchVisitorPassSummary();

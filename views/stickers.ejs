@@ -22,7 +22,7 @@
       <h3>Total Issued</h3>
       <p><%= stickers.length %></p>
     </div>
-    <div class="hero-card" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+    <div class="hero-card hero-card--primary">
       <h3>Active Stickers</h3>
       <p><%= stickers.filter(s => s.status === 'active').length %></p>
     </div>

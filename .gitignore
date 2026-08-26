@@ -1,4 +1,9 @@
 ﻿# Runtime scan proof images
+storage/snapshots/
 public/snapshots/
 node_modules/
 .env
+*.log
+.vscode/
+.vs/
+tools/ngrok.exe

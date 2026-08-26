@@ -1,17 +1,35 @@
 {
+  "id": "/",
   "name": "NAAP Parking System",
   "short_name": "NAAP Parking",
   "description": "Student vehicle control, QR sticker issuance, and gate verification.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f1f5f9",
-  "theme_color": "#003366",
+  "orientation": "any",
+  "background_color": "#11263f",
+  "theme_color": "#11263f",
+  "lang": "en",
+  "categories": ["business", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/icon.png",
-      "sizes": "192x192 512x512",
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

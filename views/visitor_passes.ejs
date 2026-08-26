@@ -27,28 +27,28 @@
   }
 %>
 
-<section class="dashboard-hero">
+<section class="dashboard-hero visitor-hero">
   <div class="hero-greeting">
     <h2>Access Control</h2>
     <h1>Visitor and Temporary Parking Passes</h1>
   </div>
-  <div class="hero-cards visitor-hero-cards">
-    <div class="hero-card">
+  <div class="hero-cards visitor-hero-cards" aria-label="Visitor pass overview">
+    <article class="hero-card visitor-stat-card visitor-stat-card--active">
       <h3>Active Passes</h3>
       <p><%= safeSummary.active_passes || 0 %></p>
-    </div>
-    <div class="hero-card" style="background: rgba(30, 64, 175, 0.2); border-color: rgba(147, 197, 253, 0.45);">
+    </article>
+    <article class="hero-card visitor-stat-card visitor-stat-card--pending">
       <h3>Pending Approvals</h3>
       <p><%= safeSummary.pending_approvals || 0 %></p>
-    </div>
-    <div class="hero-card" style="background: rgba(245, 158, 11, 0.2); border-color: rgba(252, 211, 77, 0.45);">
+    </article>
+    <article class="hero-card visitor-stat-card visitor-stat-card--expired">
       <h3>Expired Passes</h3>
       <p><%= safeSummary.expired_passes || 0 %></p>
-    </div>
-    <div class="hero-card" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(110, 231, 183, 0.45);">
+    </article>
+    <article class="hero-card visitor-stat-card visitor-stat-card--inside">
       <h3>Currently Inside</h3>
       <p><%= safeSummary.current_inside || 0 %></p>
-    </div>
+    </article>
   </div>
 </section>
 
@@ -265,7 +265,7 @@
       </label>
       <div class="visitor-filter-actions">
         <button type="submit" class="btn-sm">Apply Filters</button>
-        <a href="/visitor-passes" class="btn-sm danger">Reset</a>
+        <a href="/visitor-passes" class="btn-sm btn-reset">Reset</a>
       </div>
     </form>
 
@@ -321,7 +321,9 @@
               <td>
                 <div class="visitor-table-actions">
                   <a class="btn-sm" href="/visitor-passes/<%= row.id %>/qr" target="_blank" rel="noopener">QR</a>
-                  <a class="btn-sm" href="/scanner?q=<%= encodeURIComponent(row.pass_code || "") %>">Gate Console</a>
+                  <% if (String(currentRole || "").toLowerCase() === "guard") { %>
+                    <a class="btn-sm" href="/scanner?q=<%= encodeURIComponent(row.pass_code || "") %>">Gate Console</a>
+                  <% } %>
                   <% if (row.approval_status === "PENDING") { %>
                     <form method="POST" action="/visitor-passes/<%= row.id %>/approve" class="inline-form">
                       <button type="submit" class="btn-sm">Approve</button>

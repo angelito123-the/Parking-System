@@ -19,19 +19,19 @@
     <h1>Notifications & Alerts</h1>
   </div>
   <div class="hero-cards">
-    <div class="hero-card" style="background: rgba(190, 18, 60, 0.2); border-color: rgba(251, 113, 133, 0.46);">
+    <div class="hero-card hero-card--danger">
       <h3>Invalid QR Today</h3>
       <p id="alertsMetricInvalid"><%= safeSummary.invalid_qr_today || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(194, 65, 12, 0.2); border-color: rgba(253, 186, 116, 0.46);">
+    <div class="hero-card hero-card--warning">
       <h3>Full Zones</h3>
       <p id="alertsMetricFullZones"><%= safeSummary.full_parking_zones || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(30, 64, 175, 0.2); border-color: rgba(147, 197, 253, 0.46);">
+    <div class="hero-card hero-card--primary">
       <h3>Pending Approvals</h3>
       <p id="alertsMetricPending"><%= safeSummary.pending_approvals || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(124, 58, 237, 0.2); border-color: rgba(196, 181, 253, 0.46);">
+    <div class="hero-card hero-card--accent">
       <h3>Suspicious Scans</h3>
       <p id="alertsMetricSuspicious"><%= safeSummary.suspicious_scans || 0 %></p>
     </div>
@@ -97,7 +97,7 @@
       </label>
       <div class="alerts-filter-actions">
         <button type="submit" class="btn-sm">Apply Filters</button>
-        <button type="button" class="btn-sm danger" id="alertsResetFiltersBtn">Reset</button>
+        <button type="button" class="btn-sm btn-reset" id="alertsResetFiltersBtn">Reset</button>
       </div>
     </form>
   </section>
@@ -166,10 +166,8 @@
     const alertsMarkAllReadBtn = document.getElementById("alertsMarkAllReadBtn");
     const alertsRefreshBtn = document.getElementById("alertsRefreshBtn");
     const alertsList = document.getElementById("alertsList");
-    let currentAlerts = <%- JSON.stringify(safeInitialAlerts) %>;
-    let totalAlerts = Number(<%- JSON.stringify(safeInitialTotal) %>) || currentAlerts.length || 0;
-    let notifyEventSource = null;
-    let notifyReconnectTimer = null;
+    let currentAlerts = <%- serializeForScript(safeInitialAlerts) %>;
+    let totalAlerts = Number(<%- serializeForScript(safeInitialTotal) %>) || currentAlerts.length || 0;
     let isFetching = false;
     const defaultFilters = {
       status: "active",
@@ -255,7 +253,10 @@
     function renderAlerts() {
       if (!alertsList || !alertsMetaText) return;
       if (!currentAlerts.length) {
-        alertsList.innerHTML = `<div class="empty-state"><p>No alerts available for this filter.</p></div>`;
+        alertsList.innerHTML = window.NaapUiState.render("empty", {
+          title: "No alerts",
+          message: "No operational alerts match the current filter."
+        });
         alertsMetaText.textContent = "No alerts found for current filters.";
         return;
       }
@@ -313,7 +314,10 @@
         renderAlerts();
       } catch (error) {
         if (alertsList) {
-          alertsList.innerHTML = `<div class="empty-state"><p>${escapeHtml(error.message || "Unable to load alerts.")}</p></div>`;
+          alertsList.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
+            title: navigator.onLine ? "Alerts unavailable" : "You are offline",
+            message: error.message || "Unable to load alerts."
+          });
         }
         if (alertsMetaText) alertsMetaText.textContent = error.message || "Unable to load alerts.";
       } finally {
@@ -386,30 +390,6 @@
       applyFiltersFromForm();
     }
 
-    function connectNotificationEvents() {
-      if (typeof window.EventSource !== "function") return;
-      if (notifyEventSource) {
-        notifyEventSource.close();
-        notifyEventSource = null;
-      }
-      const source = new EventSource("/api/notifications/events");
-      notifyEventSource = source;
-
-      source.addEventListener("notifications-updated", async () => {
-        await Promise.all([fetchAlertSummary(), fetchAlerts()]);
-      });
-      source.addEventListener("notifications-summary", async () => {
-        await fetchAlertSummary();
-      });
-      source.addEventListener("error", () => {
-        if (notifyEventSource !== source) return;
-        source.close();
-        notifyEventSource = null;
-        if (notifyReconnectTimer) clearTimeout(notifyReconnectTimer);
-        notifyReconnectTimer = window.setTimeout(connectNotificationEvents, 3500);
-      });
-    }
-
     alertsFilterForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
       applyFiltersFromForm();
@@ -446,9 +426,9 @@
 
     applyFiltersFromForm();
     renderAlerts();
-    fetchAlertSummary();
-    fetchAlerts();
-    connectNotificationEvents();
+    window.addEventListener("naap:notifications-updated", async () => {
+      await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+    });
   })();
 </script>
 

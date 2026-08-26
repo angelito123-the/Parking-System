@@ -304,6 +304,59 @@
       color: #9a3412;
     }
 
+    .verify-grid.is-public {
+      grid-template-columns: minmax(0, 680px);
+      justify-content: center;
+    }
+
+    .privacy-card {
+      text-align: center;
+    }
+
+    .privacy-lock {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 0.8rem;
+      display: grid;
+      place-items: center;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      border-radius: 14px;
+      background: #eff6ff;
+    }
+
+    .privacy-lock svg {
+      width: 23px;
+      height: 23px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .privacy-card h2 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .privacy-card .verify-msg {
+      max-width: 470px;
+      margin: 0.45rem auto 0;
+    }
+
+    .privacy-login-link {
+      margin-top: 1rem;
+      display: inline-flex;
+      padding: 0.65rem 0.9rem;
+      color: #fff;
+      border-radius: 10px;
+      background: #2563eb;
+      font-size: 0.84rem;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
     @media (min-width: 860px) {
       .verify-grid {
         grid-template-columns: 340px 1fr;
@@ -316,7 +369,8 @@
     const vResult = result.result || "INVALID";
     const statusClass = result.ok ? "valid" : String(vResult).toLowerCase();
     const roleNow = String(currentRole || "").toLowerCase();
-    const canRecordMovement = roleNow === "admin" || roleNow === "guard";
+    const canViewPrivateDetails = roleNow === "admin" || roleNow === "guard";
+    const canRecordMovement = roleNow === "guard";
     const slotOverview = parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
     const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
     const grouped = slots.reduce((acc, slot) => {
@@ -333,7 +387,7 @@
       <p>Gate entry authorization and slot assignment panel</p>
     </header>
 
-    <div class="verify-grid">
+    <div class="verify-grid <%= canViewPrivateDetails ? "" : "is-public" %>">
       <section class="verify-card">
         <div class="status-chip <%= statusClass %>"><%= vResult %></div>
         <p class="verify-label">Verification Message</p>
@@ -356,7 +410,7 @@
           </div>
         <% } %>
 
-        <% if (result.sticker) { %>
+        <% if (canViewPrivateDetails && result.sticker) { %>
           <p class="verify-label" style="margin-top:0.9rem;">Student and Vehicle</p>
           <div class="info-list">
             <div class="info-row"><span class="k">Student</span><span class="v"><%= result.sticker.full_name || "-" %></span></div>
@@ -369,6 +423,7 @@
         <% } %>
       </section>
 
+      <% if (canViewPrivateDetails) { %>
       <section class="verify-card">
         <div class="map-head">
           <div>
@@ -424,8 +479,7 @@
 
         <% if (result.ok && !result.movement_saved && !canRecordMovement) { %>
           <p class="verify-msg" style="margin-top:0.95rem;">
-            Guard/Admin login is required to record ENTRY or EXIT.
-            <a href="/login">Sign in</a> to continue.
+            Only a guard account can record ENTRY or EXIT.
           </p>
         <% } %>
 
@@ -433,6 +487,19 @@
           <p class="verify-msg" style="margin-top:0.95rem;">Entry and exit controls are shown only for valid active stickers.</p>
         <% } %>
       </section>
+      <% } else { %>
+      <section class="verify-card privacy-card">
+        <div class="privacy-lock" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <rect x="5" y="10" width="14" height="10" rx="2"></rect>
+            <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+          </svg>
+        </div>
+        <h2>Personal details are protected</h2>
+        <p class="verify-msg">Student identity, vehicle information, current location, and parking availability are visible only to authorized staff.</p>
+        <a class="privacy-login-link" href="/login">Staff sign in</a>
+      </section>
+      <% } %>
     </div>
   </div>
 

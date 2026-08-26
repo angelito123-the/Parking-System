@@ -27,10 +27,29 @@ function openDB() {
 function dbTransaction(storeName, mode, callback) {
   return openDB().then(db => {
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, mode);
-      transaction.onerror = () => reject(transaction.error);
-      const request = callback(transaction.objectStore(storeName));
-      request.onsuccess = () => resolve(request.result);
+      let requestResult;
+      let settled = false;
+      const finish = (handler, value) => {
+        if (settled) return;
+        settled = true;
+        db.close();
+        handler(value);
+      };
+
+      let transaction;
+      try {
+        transaction = db.transaction(storeName, mode);
+        const request = callback(transaction.objectStore(storeName));
+        request.onsuccess = () => { requestResult = request.result; };
+        request.onerror = () => finish(reject, request.error || new Error('IndexedDB request failed.'));
+      } catch (error) {
+        finish(reject, error);
+        return;
+      }
+
+      transaction.oncomplete = () => finish(resolve, requestResult);
+      transaction.onerror = () => finish(reject, transaction.error || new Error('IndexedDB transaction failed.'));
+      transaction.onabort = () => finish(reject, transaction.error || new Error('IndexedDB transaction was aborted.'));
     });
   });
 }
@@ -38,6 +57,8 @@ function dbTransaction(storeName, mode, callback) {
 const OfflineManager = {
   isOnline: navigator.onLine,
   statusCallback: null,
+  rosterSyncPromise: null,
+  queueSyncPromise: null,
 
   init(statusCb) {
     this.statusCallback = statusCb;
@@ -63,25 +84,33 @@ const OfflineManager = {
 
   // ─── ROSTER SYNC (Download mode) ──────────────────────────────────────────
 
-  async syncRoster() {
-    if (!this.isOnline) return;
+  syncRoster() {
+    if (!this.isOnline) return Promise.resolve();
+    if (this.rosterSyncPromise) return this.rosterSyncPromise;
+    this.rosterSyncPromise = this.performRosterSync()
+      .finally(() => { this.rosterSyncPromise = null; });
+    return this.rosterSyncPromise;
+  },
+
+  async performRosterSync() {
     try {
       const response = await fetch('/api/sync-roster');
+      if (!response.ok) throw new Error(`Roster sync failed (${response.status}).`);
       const data = await response.json();
-      if (!data.ok) return;
+      if (!data.ok || !Array.isArray(data.roster)) throw new Error(data.message || 'Invalid roster response.');
 
       const db = await openDB();
-      const transaction = db.transaction('roster', 'readwrite');
-      const store = transaction.objectStore('roster');
-      
-      // Clear existing offline roster to prevent stale data
-      await new Promise(r => {
-        const req = store.clear();
-        req.onsuccess = () => r();
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction('roster', 'readwrite');
+        const store = transaction.objectStore('roster');
+        transaction.oncomplete = () => { db.close(); resolve(); };
+        transaction.onerror = () => { db.close(); reject(transaction.error || new Error('Roster storage failed.')); };
+        transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Roster storage was aborted.')); };
+        const clearRequest = store.clear();
+        clearRequest.onsuccess = () => {
+          data.roster.forEach(vehicle => store.put(vehicle));
+        };
       });
-
-      // Insert fresh data
-      data.roster.forEach(vehicle => store.put(vehicle));
       console.log(`Offline roster synced: ${data.roster.length} active vehicles.`);
     } catch (err) {
       console.error('Failed to sync roster:', err);
@@ -100,45 +129,30 @@ const OfflineManager = {
   async searchOfflineRoster(query) {
     const q = String(query).toLowerCase().trim();
     if (!q) return [];
-    
-    const db = await openDB();
-    const store = db.transaction('roster', 'readonly').objectStore('roster');
-    
-    return new Promise((resolve) => {
-      const results = [];
-      store.openCursor().onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          const v = cursor.value;
-          const match = 
-            (v.plate_number && v.plate_number.toLowerCase().includes(q)) ||
-            (v.student_number && v.student_number.toLowerCase().includes(q)) ||
-            (v.full_name && v.full_name.toLowerCase().includes(q));
-          
-          if (match && results.length < 10) results.push(v);
-          cursor.continue();
-        } else {
-          resolve(results);
-        }
-      };
-    });
+
+    const roster = await dbTransaction('roster', 'readonly', store => store.getAll());
+    return roster.filter(vehicle => (
+      String(vehicle.plate_number || '').toLowerCase().includes(q) ||
+      String(vehicle.student_number || '').toLowerCase().includes(q) ||
+      String(vehicle.full_name || '').toLowerCase().includes(q)
+    )).slice(0, 10);
   },
 
   // ─── OUTBOX SYNC (Upload mode) ────────────────────────────────────────────
 
   async queueMovement(token, action, gate, scannedAtMs) {
-    const timestamp = scannedAtMs || Date.now();
-    const actionUpper = action.toUpperCase();
+    const safeToken = String(token || '').trim();
+    const actionUpper = String(action || '').trim().toUpperCase();
+    const safeTimestamp = Number(scannedAtMs);
+    const timestamp = Number.isFinite(safeTimestamp) && safeTimestamp > 0 ? safeTimestamp : Date.now();
+    if (!safeToken) throw new Error('Cannot queue an offline movement without a QR token.');
+    if (!['ENTRY', 'EXIT'].includes(actionUpper)) throw new Error('Invalid offline movement action.');
 
     // Prevent duplicate offline queue buildup (15-second cooldown)
-    const db = await openDB();
-    const recent = await new Promise(res => {
-      const store = db.transaction('outbox', 'readonly').objectStore('outbox');
-      store.getAll().onsuccess = (e) => res(e.target.result);
-    });
+    const recent = await dbTransaction('outbox', 'readonly', store => store.getAll());
 
     const isDuplicate = recent.some(m => 
-      m.token === token && 
+      m.token === safeToken &&
       m.action === actionUpper &&
       (timestamp - (m.offline_timestamp || timestamp)) < 15000
     );
@@ -149,17 +163,13 @@ const OfflineManager = {
     }
 
     const movement = {
-      token,
+      token: safeToken,
       action: actionUpper,
-      gate,
+      gate: String(gate || 'Offline Scan').trim().slice(0, 80) || 'Offline Scan',
       offline_timestamp: timestamp
     };
     
-    await new Promise(res => {
-      const tx = db.transaction('outbox', 'readwrite');
-      tx.objectStore('outbox').add(movement);
-      tx.oncomplete = () => res();
-    });
+    await dbTransaction('outbox', 'readwrite', store => store.add(movement));
     
     // If online, immediately try to process the queue
     if (this.isOnline) {
@@ -167,14 +177,17 @@ const OfflineManager = {
     }
   },
 
-  async processQueue() {
-    if (!this.isOnline) return;
+  processQueue() {
+    if (!this.isOnline) return Promise.resolve();
+    if (this.queueSyncPromise) return this.queueSyncPromise;
+    this.queueSyncPromise = this.performQueueSync()
+      .catch(err => console.error('Failed to sync offline queue. Will retry next time online:', err))
+      .finally(() => { this.queueSyncPromise = null; });
+    return this.queueSyncPromise;
+  },
 
-    const db = await openDB();
-    const movements = await new Promise(res => {
-      const store = db.transaction('outbox', 'readonly').objectStore('outbox');
-      store.getAll().onsuccess = (e) => res(e.target.result);
-    });
+  async performQueueSync() {
+    const movements = await dbTransaction('outbox', 'readonly', store => store.getAll());
 
     if (movements.length === 0) return;
     console.log(`Processing ${movements.length} logged offline movements...`);
@@ -185,15 +198,21 @@ const OfflineManager = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ movements })
       });
+      if (!response.ok) throw new Error(`Queue sync failed (${response.status}).`);
       const data = await response.json();
-      
+      if (!data.ok) throw new Error(data.message || 'Server rejected the offline queue.');
+
       if (data.ok) {
         // Clear processed items from outbox
-        const transaction = db.transaction('outbox', 'readwrite');
-        const store = transaction.objectStore('outbox');
-        for (const m of movements) {
-          store.delete(m.id);
-        }
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction('outbox', 'readwrite');
+          const store = transaction.objectStore('outbox');
+          transaction.oncomplete = () => { db.close(); resolve(); };
+          transaction.onerror = () => { db.close(); reject(transaction.error || new Error('Queue cleanup failed.')); };
+          transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Queue cleanup was aborted.')); };
+          for (const movement of movements) store.delete(movement.id);
+        });
         console.log('Offline queue successfully synced to server.');
       }
     } catch (err) {

@@ -164,17 +164,54 @@
   }
 
   .analytics-v3-actions {
-    grid-column: span 2;
+    grid-column: 1 / -1;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.48rem;
+    gap: 0.65rem;
     align-items: center;
     justify-content: flex-start;
+    padding-top: 0.2rem;
   }
 
-  .analytics-v3-actions button {
+  .analytics-v3-actions .analytics-apply-btn {
+    min-height: 40px;
+    padding: 0.55rem 1rem !important;
     background: var(--blue-mid);
     color: #fff;
+    font-size: 0.8rem !important;
+    white-space: nowrap;
+  }
+
+  .analytics-v3-export-actions {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.42rem;
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--line);
+  }
+
+  .analytics-v3-actions-label {
+    margin-right: 0.1rem;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 750;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .analytics-v3-action-link {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.52rem 0.78rem;
+    border-radius: 9px;
+    background: var(--surface-soft);
+    font-size: 0.78rem;
+    font-weight: 650;
+    white-space: nowrap;
   }
 
   .analytics-v3-grid-2 {
@@ -289,6 +326,8 @@
     .analytics-v3-actions {
       grid-column: auto;
       width: 100%;
+      display: grid;
+      gap: 0.65rem;
     }
 
     .analytics-v3-actions button,
@@ -296,6 +335,21 @@
       width: 100%;
       text-align: center;
       justify-content: center;
+    }
+
+    .analytics-v3-export-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.45rem;
+      padding: 0.7rem 0 0;
+      border-top: 1px solid var(--line);
+      border-left: 0;
+    }
+
+    .analytics-v3-actions-label {
+      margin: 0;
+      text-align: left;
     }
 
     .analytics-v3-kpis {
@@ -446,10 +500,13 @@
       </label>
 
       <div class="analytics-v3-actions">
-        <button type="submit">Apply Filters</button>
-        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'csv' }) %>">Export Excel CSV</a>
-        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'analytics_csv' }) %>">Export Analytics CSV</a>
-        <a class="link-btn" href="/reports?<%= makeQuery({ format: 'print' }) %>" target="_blank" rel="noopener">Printable View</a>
+        <button type="submit" class="btn-sm analytics-apply-btn">Apply Filters</button>
+        <div class="analytics-v3-export-actions" aria-label="Export and print analytics">
+          <span class="analytics-v3-actions-label">Export &amp; share</span>
+          <a class="link-btn analytics-v3-action-link" href="/reports?<%= makeQuery({ format: 'csv' }) %>">Excel CSV</a>
+          <a class="link-btn analytics-v3-action-link" href="/reports?<%= makeQuery({ format: 'analytics_csv' }) %>">Analytics CSV</a>
+          <a class="link-btn analytics-v3-action-link" href="/reports?<%= makeQuery({ format: 'print' }) %>" target="_blank" rel="noopener">Print View</a>
+        </div>
       </div>
     </form>
   </section>
@@ -672,7 +729,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
   (() => {
-    const charts = <%- JSON.stringify(safeCharts || {}) %>;
+    const charts = <%- serializeForScript(safeCharts || {}) %>;
 
     const parseSeries = (rows, valueKey) => Array.isArray(rows)
       ? rows.map((row) => ({
@@ -825,7 +882,7 @@
     renderSlotTrend();
     renderOverstay();
 
-    const isPrintMode = <%- JSON.stringify(isPrintMode) %>;
+    const isPrintMode = <%- serializeForScript(isPrintMode) %>;
     if (isPrintMode) {
       window.requestAnimationFrame(() => {
         window.print();

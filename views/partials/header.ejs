@@ -1,14 +1,32 @@
+<%
+  const initialPath = typeof currentPath === "string" ? currentPath : "";
+  const needsOfflineScanner = initialPath === "/scanner" || initialPath === "/scanner/auto";
+  const fontStylesheetUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap";
+%>
 <!doctype html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f2942">
+  <meta name="theme-color" content="#11263f">
+  <meta name="application-name" content="NAAP Parking">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>NAAP Parking System</title>
-  <link rel="stylesheet" href="/styles.css?v=20260402d" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" as="style" href="<%= fontStylesheetUrl %>" />
+  <link rel="stylesheet" href="<%= fontStylesheetUrl %>" media="print" onload="this.media='all'" />
+  <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
+  <link rel="stylesheet" href="/styles.css?v=20260826-guide1" />
   <link rel="manifest" href="/manifest.json" />
-  <script src="/offline-sync.js"></script>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <script src="/js/ui-states.js?v=20260826-ui1"></script>
+  <% if (needsOfflineScanner) { %>
+  <script src="/offline-sync.js?v=20260826-debug1" defer></script>
+  <% } %>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -18,19 +36,24 @@
       });
     }
 
+    const updateNetworkIndicators = (isOnline) => {
+      const badge = document.getElementById('networkIndicator');
+      const mobileBadge = document.getElementById('mobileNetworkIndicator');
+      [badge, mobileBadge].forEach(el => {
+        if (el) {
+          el.textContent = isOnline ? 'Online' : 'Offline';
+          el.classList.toggle('is-online', isOnline);
+          el.classList.toggle('is-offline', !isOnline);
+        }
+      });
+    };
+
+    window.addEventListener('online', () => updateNetworkIndicators(true));
+    window.addEventListener('offline', () => updateNetworkIndicators(false));
     window.addEventListener('load', () => {
+      updateNetworkIndicators(navigator.onLine);
       if (window.OfflineManager) {
-        OfflineManager.init((isOnline) => {
-          const badge = document.getElementById('networkIndicator');
-          const mobileBadge = document.getElementById('mobileNetworkIndicator');
-          [badge, mobileBadge].forEach(el => {
-            if (el) {
-              el.textContent = isOnline ? 'Online' : 'Offline';
-              el.classList.toggle('is-online', isOnline);
-              el.classList.toggle('is-offline', !isOnline);
-            }
-          });
-        });
+        window.OfflineManager.init(updateNetworkIndicators);
       }
     });
   </script>
@@ -44,17 +67,17 @@
   <style>
     html,
     body {
-      background: #eaf1f9;
+      background: #f6f8fb;
     }
 
     html[data-theme="dark"],
     html[data-theme="dark"] body {
-      background: #0e1826;
+      background: #0b1220;
     }
   </style>
 </head>
 <%
-  const pathNow = typeof currentPath === "string" ? currentPath : "";
+  const pathNow = initialPath;
   const safeUser = typeof currentUser === "object" && currentUser ? currentUser : null;
   const roleNow = String(safeUser?.role || "").toLowerCase();
   const usernameNow = String(safeUser?.username || "User");
@@ -84,26 +107,35 @@
   const pageTitle = pageTitleMap[pathNow] || "NAAP Parking";
   const navLinksByRole = {
     admin: [
-      { href: "/admin", label: "Dashboard", active: ["/", "/admin"] },
-      { href: "/students", label: "Students", active: ["/students", "/vehicles"] },
-      { href: "/stickers", label: "Stickers", active: ["/stickers"] },
-      { href: "/scanner", label: "Gate", active: ["/scanner", "/scanner/auto", "/guard"] },
-      { href: "/visitor-passes", label: "Visitors", active: ["/visitor-passes"] },
-      { href: "/admin/slots", label: "Slots", active: ["/admin/slots"] },
-      { href: "/admin/updates", label: "Updates", active: ["/admin/updates"] },
-      { href: "/admin/alerts", label: "Alerts", active: ["/admin/alerts"] },
-      { href: "/admin/records", label: "Records", active: ["/admin/records"] },
-      { href: "/reports", label: "Analytics", active: ["/reports"] },
-      { href: "/admin/users", label: "Users", active: ["/admin/users"] }
+      { section: "Overview", href: "/admin", label: "Dashboard", active: ["/", "/admin"] },
+      { section: "Daily operations", href: "/students", label: "Students", active: ["/students", "/vehicles"] },
+      { section: "Daily operations", href: "/stickers", label: "Stickers", active: ["/stickers"] },
+      { section: "Daily operations", href: "/visitor-passes", label: "Visitors", active: ["/visitor-passes"] },
+      { section: "Daily operations", href: "/admin/slots", label: "Parking Slots", active: ["/admin/slots"] },
+      { section: "Daily operations", href: "/admin/updates", label: "Live Updates", active: ["/admin/updates"] },
+      { section: "Daily operations", href: "/admin/alerts", label: "Alerts", active: ["/admin/alerts"] },
+      { section: "Daily operations", href: "/admin/records", label: "Gate Records", active: ["/admin/records"] },
+      { section: "Administration", href: "/reports", label: "Reports", active: ["/reports"] },
+      { section: "Administration", href: "/admin/users", label: "User Accounts", active: ["/admin/users"] }
     ],
     guard: [
-      { href: "/guard", label: "Dashboard", active: ["/guard"] },
-      { href: "/scanner", label: "Gate Console", active: ["/scanner"] },
-      { href: "/scanner/auto", label: "Phone Camera", active: ["/scanner/auto"] },
-      { href: "/visitor-passes", label: "Visitor Passes", active: ["/visitor-passes"] }
+      { section: "Overview", href: "/guard", label: "Dashboard", active: ["/guard"] },
+      { section: "Gate operations", href: "/scanner", label: "Gate Console", active: ["/scanner"] },
+      { section: "Gate operations", href: "/scanner/auto", label: "Phone Camera", active: ["/scanner/auto"] },
+      { section: "Gate operations", href: "/visitor-passes", label: "Visitor Passes", active: ["/visitor-passes"] }
     ]
   };
   const navLinks = navLinksByRole[roleNow] || [];
+  const navSections = navLinks.reduce((sections, link) => {
+    const sectionLabel = link.section || "Navigation";
+    let section = sections.find((item) => item.label === sectionLabel);
+    if (!section) {
+      section = { label: sectionLabel, links: [] };
+      sections.push(section);
+    }
+    section.links.push(link);
+    return sections;
+  }, []);
   const navIconFallback = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle></svg>';
   const navIconByHref = {
     "/admin": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>',
@@ -123,12 +155,53 @@
 %>
 
   <body class="page-<%= pageSlug %>" data-role="<%= roleNow %>">
+    <div id="pageLoader" class="page-loader is-active" role="progressbar" aria-label="Loading page">
+      <span class="page-loader-bar"></span>
+    </div>
     <div class="app-shell">
-      <!-- Top Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-identity">
+          <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>">
+            <span class="sidebar-brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M6 20V5h7a5 5 0 0 1 0 10H9"></path>
+                <path d="M9 9h4a1 1 0 0 1 0 2H9"></path>
+              </svg>
+            </span>
+            <span class="sidebar-brand-copy">
+              <strong>NAAP Parking</strong>
+              <small>Management system</small>
+            </span>
+          </a>
+          <div class="sidebar-user" aria-label="Signed in as <%= usernameNow %>, <%= roleLabel %>">
+            <div class="avatar-dot"><%= avatarInitial %></div>
+            <div class="sidebar-user-copy">
+              <p class="user-label"><%= usernameNow %></p>
+              <p class="user-sub"><%= roleLabel %></p>
+            </div>
+          </div>
+        </div>
+        <nav class="side-nav" aria-label="Primary navigation">
+          <% navSections.forEach((section) => { %>
+            <div class="side-nav-group">
+              <p class="side-nav-group-label"><%= section.label %></p>
+              <% section.links.forEach((link) => { %>
+                <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
+                <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
+                  <span class="nav-link-icon" aria-hidden="true"><%- navIconByHref[link.href] || navIconFallback %></span>
+                  <span class="nav-link-label"><%= link.label %></span>
+                </a>
+              <% }) %>
+            </div>
+          <% }) %>
+        </nav>
+      </aside>
+      <div class="content-area">
       <nav class="top-nav">
         <div class="top-nav-upper">
-          <div class="brand">
-            <h1>NAAP Parking</h1>
+          <div class="top-nav-page-title">
+            <span>Parking operations</span>
+            <h2><%= pageTitle %></h2>
           </div>
           <div class="top-nav-actions">
             <button class="icon-btn theme-toggle" id="themeToggle" title="Toggle theme mode" aria-label="Toggle theme mode">
@@ -137,11 +210,17 @@
               </svg>
             </button>
             <% if (roleNow === "admin" || roleNow === "guard") { %>
-            <button class="icon-btn notification-btn" id="notificationBell" title="Notifications" aria-label="Notifications">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path>
-                <path d="M10 18a2 2 0 0 0 4 0"></path>
-              </svg>
+            <button class="notification-btn" id="notificationBell" title="Open notifications" aria-label="Open notifications" aria-haspopup="dialog" aria-expanded="false">
+              <span class="notification-btn-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path>
+                  <path d="M10 18a2 2 0 0 0 4 0"></path>
+                </svg>
+              </span>
+              <span class="notification-btn-copy">
+                <strong>Notifications</strong>
+                <small id="notificationTriggerMeta">View alerts</small>
+              </span>
               <span id="notificationUnreadBadge" class="notification-unread-badge" style="display:none;">0</span>
             </button>
             <% } %>
@@ -157,23 +236,21 @@
             <div class="avatar-dot top-nav-avatar"><%= avatarInitial %></div>
           </div>
         </div>
-
-        <div class="top-nav-links">
-          <% navLinks.forEach((link) => { %>
-            <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
-            <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>">
-              <span class="nav-link-icon" aria-hidden="true"><%- navIconByHref[link.href] || navIconFallback %></span>
-              <span><%= link.label %></span>
-            </a>
-          <% }) %>
-        </div>
       </nav>
       <% if (roleNow === "admin" || roleNow === "guard") { %>
-      <div id="notificationPanel" class="notification-panel" aria-hidden="true">
+      <div id="notificationPanel" class="notification-panel" role="dialog" aria-label="Notifications" aria-hidden="true">
         <div class="notification-panel-head">
-          <div>
-            <h3>Notifications</h3>
-            <p id="notificationPanelMeta">Loading latest alerts...</p>
+          <div class="notification-panel-heading">
+            <span class="notification-panel-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path>
+                <path d="M10 18a2 2 0 0 0 4 0"></path>
+              </svg>
+            </span>
+            <div>
+              <h3>Notifications</h3>
+              <p id="notificationPanelMeta">Checking active alerts...</p>
+            </div>
           </div>
           <button type="button" class="icon-btn" id="notificationCloseBtn" aria-label="Close notifications">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -182,18 +259,20 @@
             </svg>
           </button>
         </div>
-        <div class="notification-filter-row">
-          <button type="button" class="notification-filter-btn is-active" data-notify-filter="all">All</button>
-          <button type="button" class="notification-filter-btn" data-notify-filter="unread">Unread</button>
-          <button type="button" class="notification-filter-btn" data-notify-filter="high">High</button>
-        </div>
-        <div class="notification-panel-actions">
-          <button type="button" class="btn-sm" id="notificationMarkAllBtn">Mark all read</button>
-          <% if (roleNow === "admin") { %>
-            <a href="/admin/alerts" class="link-btn">Open Alerts Page</a>
-          <% } %>
+        <div class="notification-toolbar">
+          <div class="notification-filter-row" aria-label="Filter notifications">
+            <button type="button" class="notification-filter-btn is-active" data-notify-filter="all">All</button>
+            <button type="button" class="notification-filter-btn" data-notify-filter="unread">Unread</button>
+            <button type="button" class="notification-filter-btn" data-notify-filter="high">High priority</button>
+          </div>
+          <button type="button" class="notification-mark-all" id="notificationMarkAllBtn">Mark all read</button>
         </div>
         <div id="notificationPanelList" class="notification-panel-list"></div>
+        <% if (roleNow === "admin") { %>
+          <div class="notification-panel-footer">
+            <a href="/admin/alerts" class="notification-view-all">View all alerts <span aria-hidden="true">→</span></a>
+          </div>
+        <% } %>
       </div>
       <% } %>
 
@@ -243,11 +322,15 @@
               const notificationPanelMeta = document.getElementById('notificationPanelMeta');
               const notificationPanelList = document.getElementById('notificationPanelList');
               const notificationUnreadBadge = document.getElementById('notificationUnreadBadge');
+              const notificationTriggerMeta = document.getElementById('notificationTriggerMeta');
               const notificationMarkAllBtn = document.getElementById('notificationMarkAllBtn');
               const notificationFilterButtons = Array.from(document.querySelectorAll('.notification-filter-btn[data-notify-filter]'));
               let currentNotifyFilter = 'all';
               let notifyEventSource = null;
               let notifyReconnectTimer = null;
+              let notifySummaryInterval = null;
+              let notifyStartTimer = null;
+              let notificationUpdatesStarted = false;
 
               const escapeHtml = (value) => String(value == null ? '' : value)
                 .replace(/&/g, '&amp;')
@@ -274,15 +357,25 @@
               };
 
               const setUnreadBadge = (value) => {
-                if (!notificationUnreadBadge) return;
                 const count = Number(value || 0);
-                if (!Number.isFinite(count) || count <= 0) {
+                const safeCount = Number.isFinite(count) && count > 0 ? count : 0;
+                notificationBell?.classList.toggle('has-unread', safeCount > 0);
+                notificationBell?.setAttribute('aria-label', safeCount > 0
+                  ? `Open notifications, ${safeCount} unread`
+                  : 'Open notifications, no unread alerts');
+                if (notificationTriggerMeta) {
+                  notificationTriggerMeta.textContent = safeCount > 0
+                    ? `${safeCount > 99 ? '99+' : safeCount} unread`
+                    : 'All caught up';
+                }
+                if (!notificationUnreadBadge) return;
+                if (safeCount <= 0) {
                   notificationUnreadBadge.style.display = 'none';
                   notificationUnreadBadge.textContent = '0';
                   return;
                 }
                 notificationUnreadBadge.style.display = '';
-                notificationUnreadBadge.textContent = count > 99 ? '99+' : String(count);
+                notificationUnreadBadge.textContent = safeCount > 99 ? '99+' : String(safeCount);
               };
 
               const renderNotificationRow = (row) => {
@@ -372,22 +465,28 @@
 
               const fetchNotificationList = async () => {
                 if (!notificationPanelList) return;
+                notificationPanelList.setAttribute('aria-busy', 'true');
+                if (!notificationPanelList.children.length) {
+                  notificationPanelList.innerHTML = window.NaapUiState.render('loading', { title: 'Loading notifications', message: 'Checking for the latest operational alerts.', compact: true });
+                }
                 try {
                   const response = await fetch(`/api/notifications${getFilterQueryParams()}`, { credentials: 'same-origin', cache: 'no-store' });
                   const data = await response.json();
                   if (!response.ok || !data.ok) {
-                    notificationPanelList.innerHTML = '<div class="empty-state"><p>Unable to load notifications.</p></div>';
+                    notificationPanelList.innerHTML = window.NaapUiState.render('error', { title: 'Notifications unavailable', message: data.message || 'Please try again.', compact: true });
                     return;
                   }
                   const rows = Array.isArray(data.rows) ? data.rows : [];
                   if (!rows.length) {
-                    notificationPanelList.innerHTML = '<div class="empty-state"><p>No notifications for this filter.</p></div>';
+                    notificationPanelList.innerHTML = window.NaapUiState.render('empty', { title: 'All caught up', message: 'No notifications match this filter.', compact: true });
                     return;
                   }
                   notificationPanelList.innerHTML = rows.map(renderNotificationRow).join('');
                   wireNotificationButtons();
                 } catch (_error) {
-                  notificationPanelList.innerHTML = '<div class="empty-state"><p>Unable to load notifications.</p></div>';
+                  notificationPanelList.innerHTML = window.NaapUiState.render(navigator.onLine ? 'error' : 'offline', { title: navigator.onLine ? 'Notifications unavailable' : 'You are offline', message: navigator.onLine ? 'Please try again.' : 'Reconnect to receive new alerts.', compact: true });
+                } finally {
+                  notificationPanelList.removeAttribute('aria-busy');
                 }
               };
 
@@ -395,6 +494,7 @@
                 if (!notificationPanel) return;
                 notificationPanel.classList.add('open');
                 notificationPanel.setAttribute('aria-hidden', 'false');
+                notificationBell?.setAttribute('aria-expanded', 'true');
                 fetchNotificationList();
               };
 
@@ -402,17 +502,29 @@
                 if (!notificationPanel) return;
                 notificationPanel.classList.remove('open');
                 notificationPanel.setAttribute('aria-hidden', 'true');
+                notificationBell?.setAttribute('aria-expanded', 'false');
               };
 
-              const connectNotificationEvents = () => {
-                if (!notificationBell || !window.EventSource) return;
+              const closeNotificationEvents = () => {
+                if (notifyReconnectTimer) {
+                  window.clearTimeout(notifyReconnectTimer);
+                  notifyReconnectTimer = null;
+                }
                 if (notifyEventSource) {
                   notifyEventSource.close();
                   notifyEventSource = null;
                 }
+              };
+
+              const connectNotificationEvents = () => {
+                if (!notificationBell || !window.EventSource) return;
+                closeNotificationEvents();
                 const source = new EventSource('/api/notifications/events');
                 notifyEventSource = source;
-                source.addEventListener('notifications-updated', async () => {
+                source.addEventListener('notifications-updated', async (event) => {
+                  window.dispatchEvent(new CustomEvent('naap:notifications-updated', {
+                    detail: event.data || null
+                  }));
                   await fetchNotificationSummary();
                   if (notificationPanel && notificationPanel.classList.contains('open')) {
                     await fetchNotificationList();
@@ -427,7 +539,9 @@
                     notifyEventSource = null;
                   }
                   if (notifyReconnectTimer) clearTimeout(notifyReconnectTimer);
-                  notifyReconnectTimer = window.setTimeout(connectNotificationEvents, 3500);
+                  if (notificationUpdatesStarted && !document.hidden) {
+                    notifyReconnectTimer = window.setTimeout(connectNotificationEvents, 3500);
+                  }
                 };
               };
 
@@ -474,9 +588,34 @@
               }
 
               if (notificationBell) {
-                fetchNotificationSummary();
-                connectNotificationEvents();
-                window.setInterval(fetchNotificationSummary, 15000);
+                const startNotificationUpdates = () => {
+                  if (notificationUpdatesStarted) return;
+                  notificationUpdatesStarted = true;
+                  notifyStartTimer = null;
+                  fetchNotificationSummary();
+                  connectNotificationEvents();
+                  notifySummaryInterval = window.setInterval(() => {
+                    if (!document.hidden) fetchNotificationSummary();
+                  }, 15000);
+                };
+                const stopNotificationUpdates = () => {
+                  notificationUpdatesStarted = false;
+                  if (notifyStartTimer) {
+                    window.clearTimeout(notifyStartTimer);
+                    notifyStartTimer = null;
+                  }
+                  if (notifySummaryInterval) {
+                    window.clearInterval(notifySummaryInterval);
+                    notifySummaryInterval = null;
+                  }
+                  closeNotificationEvents();
+                };
+                notifyStartTimer = window.setTimeout(startNotificationUpdates, 350);
+                window.addEventListener('pagehide', stopNotificationUpdates);
+                window.addEventListener('beforeunload', stopNotificationUpdates);
+                window.addEventListener('pageshow', (event) => {
+                  if (event.persisted) startNotificationUpdates();
+                });
               }
             });
           </script>

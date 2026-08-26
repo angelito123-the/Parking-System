@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11263f">
+  <meta name="robots" content="noindex">
+  <title>Offline | NAAP Parking</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: #172033;
+      background: #f3f6fa;
+    }
+    .offline-card {
+      width: min(100%, 460px);
+      overflow: hidden;
+      border: 1px solid #dbe3ed;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: 0 18px 48px rgba(15, 35, 60, 0.12);
+    }
+    .offline-brand {
+      padding: 22px 24px;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      color: #ffffff;
+      background: #11263f;
+    }
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 12px;
+      background: linear-gradient(145deg, #3b82f6, #2563eb);
+    }
+    .brand-mark svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .offline-brand strong { display: block; font-size: 16px; letter-spacing: -.01em; }
+    .offline-brand span { display: block; margin-top: 2px; color: #a9bed4; font-size: 12px; }
+    .offline-content { padding: 30px 28px 28px; }
+    .network-state {
+      width: fit-content;
+      margin-bottom: 18px;
+      padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: #9f1239;
+      border: 1px solid #fecdd3;
+      border-radius: 999px;
+      background: #fff1f2;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .network-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #e11d48; }
+    .network-state.is-online { color: #166534; border-color: #bbf7d0; background: #f0fdf4; }
+    .network-state.is-online::before { background: #22c55e; }
+    h1 { margin: 0; color: #172033; font-size: clamp(24px, 6vw, 30px); line-height: 1.15; letter-spacing: -.035em; }
+    .lead { margin: 12px 0 0; color: #5f6f84; font-size: 15px; line-height: 1.65; }
+    .offline-note {
+      margin: 22px 0;
+      padding: 14px 15px;
+      color: #44546a;
+      border: 1px solid #dbe5f1;
+      border-radius: 11px;
+      background: #f7f9fc;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    button {
+      width: 100%;
+      min-height: 46px;
+      border: 0;
+      border-radius: 10px;
+      color: #ffffff;
+      background: #2563eb;
+      cursor: pointer;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 750;
+      box-shadow: 0 6px 14px rgba(37, 99, 235, .2);
+    }
+    button:hover { background: #1d4ed8; }
+    button:focus-visible { outline: 3px solid rgba(37,99,235,.3); outline-offset: 3px; }
+    .offline-footer { margin: 18px 0 0; color: #8290a3; font-size: 11px; text-align: center; }
+    @media (max-width: 480px) {
+      body { padding: 0; background: #ffffff; }
+      .offline-card { min-height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+      .offline-content { padding: 28px 22px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="offline-card">
+    <header class="offline-brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 20V5h7a5 5 0 0 1 0 10H9"></path><path d="M9 9h4a1 1 0 0 1 0 2H9"></path></svg>
+      </div>
+      <div><strong>NAAP Parking</strong><span>Management system</span></div>
+    </header>
+    <section class="offline-content" aria-labelledby="offlineTitle">
+      <div id="networkState" class="network-state" role="status">No connection</div>
+      <h1 id="offlineTitle">You’re currently offline</h1>
+      <p class="lead">This page needs a connection to securely load the latest parking information. Check your Wi-Fi or mobile data, then try again.</p>
+      <div class="offline-note">If the gate scanner was already open, keep that page open. Eligible offline scans remain on this device and sync when the connection returns.</div>
+      <button id="retryButton" type="button">Try again</button>
+      <p class="offline-footer">NAAP Parking System · Secure offline fallback</p>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const state = document.getElementById('networkState');
+      const retry = document.getElementById('retryButton');
+      const updateState = () => {
+        const online = navigator.onLine;
+        state.textContent = online ? 'Connection restored' : 'No connection';
+        state.classList.toggle('is-online', online);
+        retry.textContent = online ? 'Return to app' : 'Try again';
+      };
+      retry.addEventListener('click', () => window.location.reload());
+      window.addEventListener('online', updateState);
+      window.addEventListener('offline', updateState);
+      updateState();
+    })();
+  </script>
+</body>
+</html>

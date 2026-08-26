@@ -21,15 +21,15 @@
       <h3>Total Records</h3>
       <p id="recordsMetricTotal"><%= safeSummary.total %></p>
     </div>
-    <div class="hero-card" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(110, 231, 183, 0.4);">
+    <div class="hero-card hero-card--success">
       <h3>Valid Records</h3>
       <p id="recordsMetricValid"><%= safeSummary.valid %></p>
     </div>
-    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+    <div class="hero-card hero-card--primary">
       <h3>Entries</h3>
       <p id="recordsMetricEntries"><%= safeSummary.entries %></p>
     </div>
-    <div class="hero-card" style="background: rgba(245, 158, 11, 0.22); border-color: rgba(252, 211, 77, 0.45);">
+    <div class="hero-card hero-card--warning">
       <h3>Exits</h3>
       <p id="recordsMetricExits"><%= safeSummary.exits %></p>
     </div>
@@ -134,7 +134,7 @@
     const metricValid = document.getElementById("recordsMetricValid");
     const metricEntries = document.getElementById("recordsMetricEntries");
     const metricExits = document.getElementById("recordsMetricExits");
-    const initialMovementLogs = <%- JSON.stringify(safeMovementLogs) %>;
+    const initialMovementLogs = <%- serializeForScript(safeMovementLogs) %>;
     let rowsCache = Array.isArray(initialMovementLogs) ? initialMovementLogs : [];
 
     function escapeHtml(value) {

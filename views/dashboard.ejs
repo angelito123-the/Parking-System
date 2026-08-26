@@ -27,11 +27,11 @@
       <h3>Registered Vehicles</h3>
       <p id="metricVehicles"><%= safeMetrics.vehicles || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+    <div class="hero-card hero-card--primary">
       <h3>Currently Inside</h3>
       <p id="metricInside"><%= safeMetrics.currentlyInside || 0 %></p>
     </div>
-    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+    <div class="hero-card hero-card--danger">
       <h3>Overstay Alerts</h3>
       <p id="metricOverstay"><%= safeMetrics.overstayAlerts || safeOverstayAlerts.length || 0 %></p>
     </div>
@@ -40,47 +40,81 @@
 
 <div class="overlap-wrapper" style="display:grid; gap:1.35rem;">
   <section class="panel quick-links-panel">
-    <div class="section-head">
-      <h2>Daily Workflow</h2>
-      <p>Follow this order to keep operations smooth from registration to gate audit.</p>
+    <div class="section-head workflow-heading">
+      <div>
+        <span class="workflow-eyebrow">Operations guide</span>
+        <h2>Daily workflow</h2>
+      </div>
+      <p>Set up access first, manage parking activity throughout the day, then review the gate record.</p>
     </div>
-    <div class="quick-links-grid workflow-grid">
-      <a href="/students" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 1</span>
-        <h3>Register Student & Vehicle</h3>
-        <p>Create or update student and vehicle details.</p>
-      </a>
-      <a href="/stickers" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 2</span>
-        <h3>Issue QR Sticker</h3>
-        <p>Generate a valid sticker linked to the vehicle.</p>
-      </a>
-      <a href="/visitor-passes" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 3</span>
-        <h3>Manage Visitor Passes</h3>
-        <p>Create temporary permits, approve requests, and monitor visitor entry/exit.</p>
-      </a>
-      <a href="/scanner" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 4</span>
-        <h3>Gate Verification</h3>
-        <p>Scan QR and confirm ENTRY/EXIT from the console.</p>
-      </a>
-      <a href="/admin/slots" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 5</span>
-        <h3>Assign & Monitor Slots</h3>
-        <p>Track occupancy and open per-slot history quickly.</p>
-      </a>
-      <a href="/admin/updates" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 6</span>
-        <h3>Watch Live Updates</h3>
-        <p>See overstay alerts and recent gate activity in real time.</p>
-      </a>
-      <a href="/admin/records" class="quick-link-card workflow-card">
-        <span class="workflow-step">Step 7</span>
-        <h3>Review Records</h3>
-        <p>Search logs for reporting, audits, and incident checks.</p>
-      </a>
-    </div>
+    <ol class="quick-links-grid workflow-grid" aria-label="Daily parking operations workflow">
+      <li>
+        <a href="/students" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">1</span>
+            <span class="workflow-stage">Set up access</span>
+          </span>
+          <h3>Register a student and vehicle</h3>
+          <p>Add or update the student profile and vehicle details.</p>
+          <span class="workflow-action">Manage students <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="/stickers" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">2</span>
+            <span class="workflow-stage">Set up access</span>
+          </span>
+          <h3>Issue a QR sticker</h3>
+          <p>Link an active sticker to the registered vehicle.</p>
+          <span class="workflow-action">Manage stickers <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="/visitor-passes" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">3</span>
+            <span class="workflow-stage">Set up access</span>
+          </span>
+          <h3>Prepare visitor passes</h3>
+          <p>Approve temporary parking access and track each visit.</p>
+          <span class="workflow-action">Manage visitors <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/slots" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">4</span>
+            <span class="workflow-stage">Monitor parking</span>
+          </span>
+          <h3>Assign and monitor slots</h3>
+          <p>Check occupancy, available spaces, and slot history.</p>
+          <span class="workflow-action">View parking slots <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/updates" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">5</span>
+            <span class="workflow-stage">Monitor parking</span>
+          </span>
+          <h3>Check live gate updates</h3>
+          <p>Respond to overstay alerts and recent gate activity.</p>
+          <span class="workflow-action">Open live updates <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/records" class="quick-link-card workflow-card">
+          <span class="workflow-card-top">
+            <span class="workflow-step">6</span>
+            <span class="workflow-stage">Close and review</span>
+          </span>
+          <h3>Review gate records</h3>
+          <p>Search activity logs for reports, audits, or incidents.</p>
+          <span class="workflow-action">Review records <span aria-hidden="true">→</span></span>
+        </a>
+      </li>
+    </ol>
   </section>
 
   <section class="panel alert-summary-panel">
@@ -289,9 +323,9 @@
     const lastUpdatedEl = document.getElementById("insideLastUpdated");
     const refreshBtn = document.getElementById("refreshInsideBtn");
     const seenOverstayIds = new Set(
-      <%- JSON.stringify(safeOverstayAlerts.map((item) => String(item.sticker_id || "")).filter(Boolean)) %>
+      <%- serializeForScript(safeOverstayAlerts.map((item) => String(item.sticker_id || "")).filter(Boolean)) %>
     );
-    const overstayLimitHours = Number(<%- JSON.stringify(safeOverstayLimitHours) %>) || 4;
+    const overstayLimitHours = Number(<%- serializeForScript(safeOverstayLimitHours) %>) || 4;
     const overstayLimitLabel = Number.isInteger(overstayLimitHours)
       ? String(overstayLimitHours)
       : overstayLimitHours.toFixed(1).replace(/\.0$/, "");
@@ -498,9 +532,10 @@
       }
     }
 
-    refreshOverview();
     if (refreshBtn) refreshBtn.addEventListener("click", refreshOverview);
-    setInterval(refreshOverview, 20000);
+    setInterval(() => {
+      if (!document.hidden) refreshOverview();
+    }, 20000);
   })();
 </script>
 

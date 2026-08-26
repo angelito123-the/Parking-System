@@ -29,11 +29,11 @@
       <h3>Today Exits</h3>
       <p id="updatesMetricExits"><%= todayExits %></p>
     </div>
-    <div class="hero-card" style="background: rgba(59, 130, 246, 0.22); border-color: rgba(147, 197, 253, 0.45);">
+    <div class="hero-card hero-card--primary">
       <h3>Currently Inside</h3>
       <p id="updatesMetricInside"><%= safeInsideVehicles.length %></p>
     </div>
-    <div class="hero-card" style="background: rgba(190, 18, 60, 0.22); border-color: rgba(251, 113, 133, 0.45);">
+    <div class="hero-card hero-card--danger">
       <h3>Overstay Alerts</h3>
       <p id="updatesMetricOverstay"><%= safeOverstayAlerts.length %></p>
     </div>
@@ -207,7 +207,6 @@
       }
     }
 
-    refreshUpdates();
     if (refreshBtn) refreshBtn.addEventListener("click", refreshUpdates);
     setInterval(refreshUpdates, 20000);
   })();

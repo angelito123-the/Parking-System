@@ -49,6 +49,19 @@
     <div id="cameraWrapper" class="gate-camera-wrapper">
       <div id="qr-reader"></div>
       <p id="cameraStatus" class="gate-camera-status">Camera ready</p>
+      <div class="scanner-assist">
+        <p id="scannerGuidance" class="scanner-guidance" role="status" aria-live="polite">
+          <span class="scanner-guidance-dot" aria-hidden="true"></span>
+          <span class="scanner-guidance-text">Start the camera to scan a QR code.</span>
+        </p>
+        <button id="scannerTorchBtn" class="scanner-torch-btn" type="button" aria-pressed="false" aria-label="Turn flashlight on" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 2h6l1 4-2 3v11a2 2 0 0 1-4 0V9L8 6l1-4Z"></path>
+            <path d="M10 6h4"></path>
+          </svg>
+          <span class="scanner-torch-label">Flashlight</span>
+        </button>
+      </div>
     </div>
 
     <div class="gate-search-grid">
@@ -184,6 +197,10 @@
   </div>
   <% } %>
 
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
+<script src="/js/ml-qr-detector.js?v=20260826-guide1"></script>
+<script src="/js/scanner-guidance.js?v=20260826-guide1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -204,6 +221,11 @@
     const toggleCameraBtn = document.getElementById("toggleCameraBtn");
     const cameraWrapper = document.getElementById("cameraWrapper");
     const cameraStatus = document.getElementById("cameraStatus");
+    const scannerGuidance = new window.ScannerGuidance({
+      cameraContainer: "qr-reader",
+      guidanceElement: "scannerGuidance",
+      torchButton: "scannerTorchBtn"
+    });
 
     const remoteQueueStatus = document.getElementById("remoteQueueStatus");
     const remoteQueueList = document.getElementById("remoteQueueList");
@@ -578,7 +600,11 @@
       if (!slotMap) return;
       const slots = Array.isArray(overview?.slots) ? overview.slots : [];
       if (!Array.isArray(slots) || slots.length === 0) {
-        slotMap.innerHTML = `<div class="empty-state" style="padding:1rem;"><p>No parking slots configured right now.</p></div>`;
+        slotMap.innerHTML = window.NaapUiState.render("empty", {
+          title: "No parking slots",
+          message: "No parking slots are configured right now.",
+          compact: true
+        });
         return;
       }
 
@@ -639,7 +665,11 @@
       } catch (error) {
         parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
         slotPickerStatus.textContent = "Unable to load parking map";
-        slotMap.innerHTML = `<div class="flash flash-error" style="margin:0;">${error.message || "Unable to load parking overview."}</div>`;
+        slotMap.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
+          title: navigator.onLine ? "Parking map unavailable" : "You are offline",
+          message: error.message || "Unable to load parking overview.",
+          compact: true
+        });
       }
     }
 
@@ -660,30 +690,59 @@
         cameraWrapper.style.display = "block";
         setCameraButton(true);
         if (cameraStatus) cameraStatus.textContent = "Scanner active";
-        if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
-        html5QrCode.start({ facingMode: "environment" }, { fps: 30, qrbox: { width: 250, height: 250 } }, onScanSuccess)
+        if (!html5QrCode) {
+          const enhancedScannerAvailable = typeof window.MLQrCodeScanner === "function" && typeof window.jsQR === "function";
+          html5QrCode = enhancedScannerAvailable
+            ? new window.MLQrCodeScanner("qr-reader", {
+                targetFps: 24,
+                confidenceThreshold: 0.35,
+                maxProcessWidth: 720,
+                perspectiveSize: 320,
+                lowConfidenceDecodeRatio: 0.58,
+                duplicateSuppressMs: 220,
+                onMlMetrics: (metrics) => scannerGuidance.update(metrics)
+              })
+            : new Html5Qrcode("qr-reader");
+        }
+        html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 24, aspectRatio: 1.333333, disableFlip: false },
+          onScanSuccess,
+          () => scannerGuidance.unreadableFrame()
+        )
+          .then(() => scannerGuidance.start())
           .catch(e => {
             if (cameraStatus) cameraStatus.textContent = "Camera error: " + e;
+            scannerGuidance.stop();
           });
       } else {
         cameraWrapper.style.display = "none";
         setCameraButton(false);
         if (cameraStatus) cameraStatus.textContent = "Camera ready";
-        if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear());
+        scannerGuidance.stop();
+        if (html5QrCode) {
+          const scannerToClose = html5QrCode;
+          html5QrCode = null;
+          scannerToClose.stop()
+            .catch(() => null)
+            .then(() => scannerToClose.clear())
+            .catch(() => null);
+        }
       }
     });
-    async function onScanSuccess(decodedText) {
+    async function onScanSuccess(decodedText, decodeMeta = null) {
+      scannerGuidance.detected();
       if (html5QrCode && html5QrCode.getState() === 2) {
         html5QrCode.pause(); // Pause scanning
       }
 
-      let token = decodedText;
-      try {
-        const url = new URL(decodedText);
-        const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length >= 3 && parts[0] === "verify" && parts[1] === "visitor") token = parts[2];
-        else if (parts.length >= 2 && parts[0] === "verify") token = parts[1];
-      } catch(e){}
+      if (cameraStatus && decodeMeta && Number.isFinite(Number(decodeMeta.ml_confidence))) {
+        cameraStatus.textContent = `QR detected (${Math.round(Number(decodeMeta.ml_confidence) * 100)}% confidence)`;
+      }
+
+      const token = window.QRTokenParser && typeof window.QRTokenParser.extract === "function"
+        ? window.QRTokenParser.extract(decodedText, window.location.href)
+        : String(decodedText || "").trim();
 
       statusEl.textContent = "Processing scan...";
       resultsEl.innerHTML = "";
@@ -1059,6 +1118,3 @@
 </div> <!-- end overlap-wrapper -->
 
 <%- include("partials/footer") %>
-
-
-
