@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS students (
   program VARCHAR(120),
   year_level VARCHAR(20),
   email VARCHAR(120),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_students_name (full_name),
+  INDEX idx_students_program_year (program, year_level)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -17,8 +19,13 @@ CREATE TABLE IF NOT EXISTS users (
   password VARCHAR(255) NOT NULL,
   role ENUM('admin', 'guard') NOT NULL,
   student_id INT NULL,
+  totp_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  totp_secret_encrypted TEXT NULL,
+  password_changed_at TIMESTAMP NULL DEFAULT NULL,
+  last_login_at TIMESTAMP NULL DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_users_role_updated (role, updated_at),
   CONSTRAINT fk_users_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL
 );
 
@@ -40,6 +47,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   model VARCHAR(120),
   color VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_vehicles_student (student_id),
   CONSTRAINT fk_vehicle_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
 );
 
@@ -52,6 +60,8 @@ CREATE TABLE IF NOT EXISTS stickers (
   issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   expires_at DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_stickers_status_expiry (status, expires_at),
+  INDEX idx_stickers_vehicle_status (vehicle_id, status),
   CONSTRAINT fk_sticker_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
 );
 
@@ -62,6 +72,8 @@ CREATE TABLE IF NOT EXISTS parking_slots (
   status ENUM('available', 'disabled') NOT NULL DEFAULT 'available',
   current_sticker_id INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_slots_status_zone (status, zone),
+  INDEX idx_slots_current_sticker (current_sticker_id),
   CONSTRAINT fk_parking_slot_sticker FOREIGN KEY (current_sticker_id) REFERENCES stickers(id) ON DELETE SET NULL
 );
 
@@ -108,6 +120,10 @@ CREATE TABLE IF NOT EXISTS scan_logs (
   INDEX idx_scan_result_time_action (result, scanned_at, action),
   INDEX idx_scan_sticker_movement (sticker_id, result, action, scanned_at),
   INDEX idx_scan_time_id (scanned_at, id),
+  INDEX idx_scan_gate_time (gate_id, scanned_at),
+  INDEX idx_scan_vehicle_time (vehicle_id, scanned_at),
+  INDEX idx_scan_student_time (student_id, scanned_at),
+  INDEX idx_scan_source_time (scan_source, scanned_at),
   CONSTRAINT fk_scan_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
   CONSTRAINT fk_scan_slot FOREIGN KEY (slot_id) REFERENCES parking_slots(id) ON DELETE SET NULL,
   CONSTRAINT fk_scan_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
@@ -134,6 +150,7 @@ CREATE TABLE IF NOT EXISTS auto_scan_queue (
   confirmed_at TIMESTAMP NULL DEFAULT NULL,
   INDEX idx_auto_queue_status_created (status, created_at),
   INDEX idx_auto_queue_sticker_status (sticker_id, status),
+  INDEX idx_auto_queue_gate_status (gate_id, status, created_at),
   CONSTRAINT fk_auto_queue_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
   CONSTRAINT fk_auto_queue_student FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL,
   CONSTRAINT fk_auto_queue_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE SET NULL,
@@ -150,7 +167,8 @@ CREATE TABLE IF NOT EXISTS auto_scan_heartbeats (
   last_seen_user VARCHAR(120) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at)
+  INDEX idx_auto_scan_heartbeat_last (last_heartbeat_at),
+  INDEX idx_auto_heartbeat_gate_last (gate_id, last_heartbeat_at)
 );
 
 CREATE TABLE IF NOT EXISTS scan_snapshots (
@@ -161,4 +179,66 @@ CREATE TABLE IF NOT EXISTS scan_snapshots (
   byte_size INT UNSIGNED NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_scan_snapshots_created (created_at)
+);
+
+CREATE TABLE IF NOT EXISTS scanner_metrics (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  event_id VARCHAR(80) NOT NULL UNIQUE,
+  device_id VARCHAR(120) NULL,
+  gate_id VARCHAR(80) NULL,
+  outcome VARCHAR(32) NOT NULL,
+  movement_action VARCHAR(20) NULL,
+  detection_model VARCHAR(80) NULL,
+  detection_confidence DECIMAL(6,5) NULL,
+  readiness_score DECIMAL(6,5) NULL,
+  process_ms INT UNSIGNED NULL,
+  time_to_read_ms INT UNSIGNED NULL,
+  unreadable_frames INT UNSIGNED NOT NULL DEFAULT 0,
+  guidance_key VARCHAR(40) NULL,
+  failure_reason VARCHAR(120) NULL,
+  network_mode VARCHAR(20) NOT NULL DEFAULT 'online',
+  device_class VARCHAR(30) NULL,
+  browser_family VARCHAR(40) NULL,
+  learning_samples INT UNSIGNED NOT NULL DEFAULT 0,
+  user_id INT NULL,
+  occurred_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_scanner_metrics_created_outcome (created_at, outcome),
+  INDEX idx_scanner_metrics_gate_created (gate_id, created_at),
+  INDEX idx_scanner_metrics_device_created (device_id, created_at),
+  CONSTRAINT fk_scanner_metrics_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS offline_sync_receipts (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  event_id VARCHAR(80) NOT NULL UNIQUE,
+  sticker_id INT NULL,
+  action VARCHAR(20) NULL,
+  scan_log_id INT NULL,
+  synced_by_user_id INT NULL,
+  occurred_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_offline_receipts_created (created_at),
+  CONSTRAINT fk_offline_receipt_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_offline_receipt_scan_log FOREIGN KEY (scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL,
+  CONSTRAINT fk_offline_receipt_user FOREIGN KEY (synced_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS security_audit_logs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  event_type VARCHAR(80) NOT NULL,
+  actor_user_id INT NULL,
+  actor_username VARCHAR(120) NULL,
+  actor_role VARCHAR(30) NULL,
+  target_type VARCHAR(80) NULL,
+  target_id VARCHAR(120) NULL,
+  outcome VARCHAR(30) NOT NULL DEFAULT 'success',
+  ip_hash VARCHAR(32) NULL,
+  user_agent VARCHAR(255) NULL,
+  metadata_json JSON NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_security_audit_created (created_at),
+  INDEX idx_security_audit_actor_created (actor_user_id, created_at),
+  INDEX idx_security_audit_event_created (event_type, created_at),
+  CONSTRAINT fk_security_audit_user FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
 );

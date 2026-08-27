@@ -68,3 +68,4 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.
 - For a no-cost online deployment, follow [DEPLOY_FREE.md](./DEPLOY_FREE.md).
+- Before using a phone or tablet at a gate, follow the [scanner device test checklist](./docs/SCANNER_DEVICE_TESTING.md).

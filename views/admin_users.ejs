@@ -51,7 +51,8 @@
         </div>
         <div>
           <label for="new_password">Password <span class="req">*</span></label>
-          <input id="new_password" name="password" type="password" required />
+          <input id="new_password" name="password" type="password" minlength="10" autocomplete="new-password" required />
+          <small class="helper-text">At least 10 characters with uppercase, lowercase, and a number.</small>
         </div>
         <div>
           <label for="new_role">Role <span class="req">*</span></label>
@@ -123,7 +124,7 @@
                     </div>
                     <div>
                       <label>New Password (Optional)</label>
-                      <input type="password" name="password" placeholder="Leave blank to keep current" />
+                      <input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="Leave blank to keep current" />
                     </div>
                   </div>
                   <div class="edit-form-actions">

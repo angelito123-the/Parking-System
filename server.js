@@ -4,12 +4,23 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
+const QRCode = require("qrcode");
 const compression = require("compression");
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
 const { serializeForScript } = require("./lib/serialize-for-script");
+const { parseCsv, stringifyCsv } = require("./lib/csv");
+const {
+  SlidingWindowRateLimiter,
+  decryptSecret,
+  encryptSecret,
+  generateTotpSecret,
+  hashIdentifier,
+  validatePassword,
+  verifyTotpToken
+} = require("./lib/security");
 const {
   ACADEMIC_PROGRAM_GROUPS,
   YEAR_LEVELS,
@@ -62,6 +73,9 @@ if (IS_PRODUCTION && configuredSessionSecret.length < 32) {
   throw new Error("SESSION_SECRET must contain at least 32 characters in production.");
 }
 const SESSION_SECRET = configuredSessionSecret || "naap-parking-local-development-secret";
+const loginRateLimiter = new SlidingWindowRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
+const twoFactorRateLimiter = new SlidingWindowRateLimiter({ limit: 6, windowMs: 10 * 60 * 1000 });
+const accountSecurityRateLimiter = new SlidingWindowRateLimiter({ limit: 8, windowMs: 15 * 60 * 1000 });
 const SNAPSHOT_DIR = path.join(__dirname, "storage", "snapshots");
 const LEGACY_PUBLIC_SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
@@ -153,6 +167,17 @@ app.set("views", path.join(__dirname, "views"));
 app.set("trust proxy", true);
 app.set("view cache", IS_PRODUCTION);
 app.disable("x-powered-by");
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=(), usb=()");
+  if (IS_PRODUCTION) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 app.use(compression({
   filter(req, res) {
     if (req.path === "/api/notifications/events" || req.path === "/api/auto-scan/events") {
@@ -234,6 +259,24 @@ app.use(express.static(path.join(__dirname, "public"), {
 app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(sessionMiddleware);
+app.use((req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  const source = String(req.get("origin") || req.get("referer") || "").trim();
+  if (!source) return next();
+  try {
+    const sourceUrl = new URL(source);
+    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+    if (sourceUrl.origin !== expectedOrigin) {
+      if (req.path.startsWith("/api/")) {
+        return res.status(403).json({ ok: false, message: "Cross-site request rejected." });
+      }
+      return res.status(403).send("Cross-site request rejected.");
+    }
+  } catch (_error) {
+    return res.status(403).send("Invalid request origin.");
+  }
+  return next();
+});
 app.get("/healthz", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
@@ -271,6 +314,108 @@ function getAuthActorName(req) {
   return username || "system";
 }
 
+function getBrowserFamily(userAgentValue) {
+  const userAgent = String(userAgentValue || "");
+  if (/Edg\//i.test(userAgent)) return "Edge";
+  if (/OPR\//i.test(userAgent)) return "Opera";
+  if (/Firefox\//i.test(userAgent)) return "Firefox";
+  if (/CriOS|Chrome\//i.test(userAgent)) return "Chrome";
+  if (/Safari\//i.test(userAgent)) return "Safari";
+  return "Other";
+}
+
+function getRateLimitKey(req, suffix = "") {
+  const forwarded = String(req.ip || req.socket?.remoteAddress || "unknown");
+  return `${hashIdentifier(forwarded, SESSION_SECRET)}:${String(suffix || "").toLowerCase()}`;
+}
+
+async function recordSecurityAudit(req, eventType, options = {}) {
+  try {
+    const actor = options.actor || req.authUser || getSessionUser(req) || null;
+    const metadata = options.metadata && typeof options.metadata === "object"
+      ? JSON.stringify(options.metadata)
+      : null;
+    await pool.query(
+      `INSERT INTO security_audit_logs (
+         event_type, actor_user_id, actor_username, actor_role,
+         target_type, target_id, outcome, ip_hash, user_agent, metadata_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        String(eventType || "ACTIVITY").slice(0, 80),
+        Number(actor?.id) || null,
+        String(actor?.username || options.actorUsername || "").slice(0, 120) || null,
+        String(actor?.role || "").slice(0, 30) || null,
+        String(options.targetType || "").slice(0, 80) || null,
+        String(options.targetId || "").slice(0, 120) || null,
+        String(options.outcome || "success").slice(0, 30),
+        hashIdentifier(req.ip || req.socket?.remoteAddress || "unknown", SESSION_SECRET),
+        String(req.get("user-agent") || "").slice(0, 255) || null,
+        metadata
+      ]
+    );
+  } catch (error) {
+    console.warn("Security audit warning (non-fatal):", error.message);
+  }
+}
+
+function sessionFingerprint(sessionId) {
+  return hashIdentifier(sessionId, SESSION_SECRET).slice(0, 12);
+}
+
+async function listUserSessions(userId, currentSessionId) {
+  const [rows] = await pool.query("SELECT session_id, expires, data FROM sessions ORDER BY expires DESC LIMIT 500");
+  const sessions = [];
+  for (const row of rows) {
+    try {
+      const data = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+      if (Number(data?.user?.id) !== Number(userId)) continue;
+      sessions.push({
+        fingerprint: sessionFingerprint(row.session_id),
+        current: row.session_id === currentSessionId,
+        expires_at: Number(row.expires) > 1e12 ? new Date(Number(row.expires)) : new Date(Number(row.expires) * 1000)
+      });
+    } catch (_error) {
+      // Ignore malformed or unrelated session records.
+    }
+  }
+  return sessions;
+}
+
+async function revokeUserSessions(userId, options = {}) {
+  const keepSessionId = options.keepSessionId || null;
+  const targetFingerprint = options.fingerprint || null;
+  const [rows] = await pool.query("SELECT session_id, data FROM sessions LIMIT 500");
+  const sessionIds = [];
+  for (const row of rows) {
+    try {
+      const data = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+      if (Number(data?.user?.id) !== Number(userId)) continue;
+      if (keepSessionId && row.session_id === keepSessionId) continue;
+      if (targetFingerprint && sessionFingerprint(row.session_id) !== targetFingerprint) continue;
+      sessionIds.push(row.session_id);
+    } catch (_error) {
+      // Ignore malformed session records.
+    }
+  }
+  if (!sessionIds.length) return 0;
+  await pool.query("DELETE FROM sessions WHERE session_id IN (?)", [sessionIds]);
+  return sessionIds.length;
+}
+
+function regenerateAuthenticatedSession(req, user) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((error) => {
+      if (error) return reject(error);
+      req.session.user = {
+        id: Number(user.id) || null,
+        username: String(user.username || "").trim(),
+        role: normalizeRole(user.role)
+      };
+      req.session.save((saveError) => saveError ? reject(saveError) : resolve());
+    });
+  });
+}
+
 function isApiRequest(req) {
   return req.path.startsWith("/api/");
 }
@@ -292,6 +437,29 @@ app.use((req, res, next) => {
   res.locals.currentRole = user?.role || null;
   res.locals.serializeForScript = serializeForScript;
   next();
+});
+app.use((req, res, next) => {
+  const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
+  const excluded = [
+    "/login",
+    "/login/2fa",
+    "/api/auto-scan/heartbeat",
+    "/api/scanner-metrics",
+    "/api/scanner-metrics/batch",
+    "/api/notifications/read-all"
+  ];
+  if (!isMutation || excluded.includes(req.path) || req.path.startsWith("/account/")) return next();
+  res.once("finish", () => {
+    const actor = getSessionUser(req);
+    if (!actor) return;
+    const eventType = `MUTATION_${req.path.replace(/\d+/g, ":id").replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "").toUpperCase()}`.slice(0, 80);
+    recordSecurityAudit(req, eventType, {
+      actor,
+      outcome: res.statusCode < 400 ? "success" : "failed",
+      metadata: { method: req.method, status: res.statusCode }
+    });
+  });
+  return next();
 });
 app.use("/verify", (_req, res, next) => {
   res.setHeader("Cache-Control", "private, no-store");
@@ -342,20 +510,33 @@ app.get("/login", (req, res) => {
   if (user) {
     return res.redirect(getRoleHomePath(user.role));
   }
+  if (req.session?.pending2fa) return res.redirect("/login/2fa");
   res.render("login", { error: null, usernameVal: "" });
 });
 
 app.post("/login", async (req, res) => {
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "");
+  const rateKey = getRateLimitKey(req, username || "blank");
+  const rateState = loginRateLimiter.check(rateKey);
+
+  if (!rateState.allowed) {
+    res.setHeader("Retry-After", String(rateState.retryAfterSeconds));
+    await recordSecurityAudit(req, "LOGIN_RATE_LIMITED", { actorUsername: username, outcome: "blocked" });
+    return res.status(429).render("login", {
+      error: `Too many sign-in attempts. Try again in ${Math.ceil(rateState.retryAfterSeconds / 60)} minute(s).`,
+      usernameVal: username
+    });
+  }
 
   if (!username || !password) {
+    loginRateLimiter.recordFailure(rateKey);
     return res.render("login", { error: "Please enter your username and password.", usernameVal: username });
   }
 
   try {
     const [rows] = await pool.query(
-      `SELECT id, username, password, role
+      `SELECT id, username, password, role, totp_enabled, totp_secret_encrypted
        FROM users
        WHERE username = ?
        LIMIT 1`,
@@ -363,6 +544,8 @@ app.post("/login", async (req, res) => {
     );
 
     if (!rows.length) {
+      loginRateLimiter.recordFailure(rateKey);
+      await recordSecurityAudit(req, "LOGIN_FAILED", { actorUsername: username, outcome: "failed" });
       return res.render("login", { error: "Invalid username or password.", usernameVal: username });
     }
 
@@ -381,14 +564,34 @@ app.post("/login", async (req, res) => {
       : password === passwordHash;
 
     if (!passwordMatched) {
+      loginRateLimiter.recordFailure(rateKey);
+      await recordSecurityAudit(req, "LOGIN_FAILED", {
+        actor: { id: user.id, username: user.username, role },
+        outcome: "failed"
+      });
       return res.render("login", { error: "Invalid username or password.", usernameVal: username });
     }
 
-    req.session.user = {
-      id: Number(user.id) || null,
-      username: String(user.username || "").trim(),
-      role
-    };
+    loginRateLimiter.reset(rateKey);
+    if (user.totp_enabled && user.totp_secret_encrypted) {
+      await new Promise((resolve, reject) => {
+        req.session.regenerate((error) => {
+          if (error) return reject(error);
+          req.session.pending2fa = {
+            id: Number(user.id),
+            username: String(user.username || "").trim(),
+            role,
+            createdAt: Date.now()
+          };
+          req.session.save((saveError) => saveError ? reject(saveError) : resolve());
+        });
+      });
+      return res.redirect("/login/2fa");
+    }
+
+    await regenerateAuthenticatedSession(req, user);
+    await pool.query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+    await recordSecurityAudit(req, "LOGIN_SUCCEEDED", { actor: user });
     return res.redirect(getRoleHomePath(role));
   } catch (error) {
     console.error("Login error:", error);
@@ -396,7 +599,57 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.get("/logout", (req, res) => {
+app.get("/login/2fa", (req, res) => {
+  const pending = req.session?.pending2fa;
+  if (!pending || Date.now() - Number(pending.createdAt || 0) > 5 * 60 * 1000) {
+    if (req.session) delete req.session.pending2fa;
+    return res.redirect("/login");
+  }
+  return res.render("login_2fa", { error: null, username: pending.username });
+});
+
+app.post("/login/2fa", async (req, res) => {
+  const pending = req.session?.pending2fa;
+  if (!pending || Date.now() - Number(pending.createdAt || 0) > 5 * 60 * 1000) {
+    if (req.session) delete req.session.pending2fa;
+    return res.redirect("/login");
+  }
+  const rateKey = getRateLimitKey(req, `2fa:${pending.id}`);
+  const rateState = twoFactorRateLimiter.check(rateKey);
+  if (!rateState.allowed) {
+    res.setHeader("Retry-After", String(rateState.retryAfterSeconds));
+    return res.status(429).render("login_2fa", {
+      error: `Too many verification attempts. Try again in ${Math.ceil(rateState.retryAfterSeconds / 60)} minute(s).`,
+      username: pending.username
+    });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, username, role, totp_enabled, totp_secret_encrypted FROM users WHERE id = ? LIMIT 1",
+      [pending.id]
+    );
+    const user = rows[0];
+    if (!user || !user.totp_enabled || !user.totp_secret_encrypted) throw new Error("Two-factor setup is unavailable.");
+    const secret = decryptSecret(user.totp_secret_encrypted, SESSION_SECRET);
+    if (!verifyTotpToken(secret, req.body.code)) {
+      twoFactorRateLimiter.recordFailure(rateKey);
+      await recordSecurityAudit(req, "TWO_FACTOR_FAILED", { actor: user, outcome: "failed" });
+      return res.render("login_2fa", { error: "The verification code is invalid or expired.", username: pending.username });
+    }
+    twoFactorRateLimiter.reset(rateKey);
+    await regenerateAuthenticatedSession(req, user);
+    await pool.query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+    await recordSecurityAudit(req, "LOGIN_SUCCEEDED_2FA", { actor: user });
+    return res.redirect(getRoleHomePath(user.role));
+  } catch (error) {
+    console.error("Two-factor login error:", error);
+    return res.render("login_2fa", { error: "Unable to verify the code right now.", username: pending.username });
+  }
+});
+
+app.get("/logout", async (req, res) => {
+  await recordSecurityAudit(req, "LOGOUT");
   req.session.destroy(() => {
     res.redirect("/login");
   });
@@ -3973,12 +4226,472 @@ async function resolveScan(token, gate = "Main Gate") {
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
+const SCANNER_METRIC_OUTCOMES = new Set([
+  "SUCCESS", "INVALID", "DUPLICATE", "ERROR", "CAMERA_ERROR", "OFFLINE_QUEUED", "CANCELLED"
+]);
+
+function clampMetricNumber(value, min, max, integer = false) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  const clamped = Math.max(min, Math.min(max, number));
+  return integer ? Math.round(clamped) : Math.round(clamped * 100000) / 100000;
+}
+
+function normalizeClientEventId(value, prefix) {
+  const eventId = String(value || "")
+    .replace(/[^a-z0-9._:-]/gi, "")
+    .slice(0, 80);
+  return eventId || `${String(prefix || "event")}-${crypto.randomUUID()}`;
+}
+
+function normalizeScannerMetricPayload(payload, req) {
+  const data = payload && typeof payload === "object" ? payload : {};
+  const rawOutcome = String(data.outcome || "ERROR").trim().toUpperCase();
+  const rawOccurredAt = new Date(data.occurred_at || Date.now());
+  const action = String(data.movement_action || "").trim().toUpperCase();
+  return {
+    eventId: normalizeClientEventId(data.event_id, "metric"),
+    deviceId: String(data.device_id || "").slice(0, 120) || null,
+    gateId: normalizeGateId(data.gate_id || data.gate || "Main Gate"),
+    outcome: SCANNER_METRIC_OUTCOMES.has(rawOutcome) ? rawOutcome : "ERROR",
+    movementAction: ["ENTRY", "EXIT", "VERIFY"].includes(action) ? action : null,
+    detectionModel: String(data.detection_model || data.model || "").slice(0, 80) || null,
+    detectionConfidence: clampMetricNumber(data.detection_confidence ?? data.confidence, 0, 1),
+    readinessScore: clampMetricNumber(data.readiness_score ?? data.readiness, 0, 1),
+    processMs: clampMetricNumber(data.process_ms, 0, 120000, true),
+    timeToReadMs: clampMetricNumber(data.time_to_read_ms, 0, 10 * 60 * 1000, true),
+    unreadableFrames: clampMetricNumber(data.unreadable_frames, 0, 100000, true) || 0,
+    guidanceKey: String(data.guidance_key || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40) || null,
+    failureReason: String(data.failure_reason || "").replace(/[\r\n\t]+/g, " ").slice(0, 120) || null,
+    networkMode: String(data.network_mode || "online").toLowerCase() === "offline" ? "offline" : "online",
+    deviceClass: String(data.device_class || "unknown").replace(/[^a-z0-9_-]/gi, "").slice(0, 30),
+    browserFamily: getBrowserFamily(req.get("user-agent")),
+    learningSamples: clampMetricNumber(data.learning_samples, 0, 1000000, true) || 0,
+    userId: Number(req.authUser?.id) || null,
+    occurredAt: Number.isNaN(rawOccurredAt.getTime()) ? new Date() : rawOccurredAt
+  };
+}
+
+async function insertScannerMetric(metric, db = pool) {
+  const [result] = await db.query(
+    `INSERT IGNORE INTO scanner_metrics (
+       event_id, device_id, gate_id, outcome, movement_action, detection_model,
+       detection_confidence, readiness_score, process_ms, time_to_read_ms,
+       unreadable_frames, guidance_key, failure_reason, network_mode,
+       device_class, browser_family, learning_samples, user_id, occurred_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      metric.eventId, metric.deviceId, metric.gateId, metric.outcome, metric.movementAction,
+      metric.detectionModel, metric.detectionConfidence, metric.readinessScore,
+      metric.processMs, metric.timeToReadMs, metric.unreadableFrames, metric.guidanceKey,
+      metric.failureReason, metric.networkMode, metric.deviceClass, metric.browserFamily,
+      metric.learningSamples, metric.userId, metric.occurredAt
+    ]
+  );
+  return Number(result.affectedRows) > 0;
+}
+
+async function getScannerAnalytics(days = 30, gate = "") {
+  const safeDays = [7, 30, 90].includes(Number(days)) ? Number(days) : 30;
+  const safeGate = String(gate || "").trim().slice(0, 80);
+  const conditions = ["created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)"];
+  const params = [safeDays];
+  if (safeGate) {
+    conditions.push("gate_id = ?");
+    params.push(safeGate);
+  }
+  const whereSql = conditions.join(" AND ");
+  const [summaryRows, outcomeRows, failureRows, gateRows, dailyRows, deviceRows, recentRows, gateOptionRows] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*) AS total, SUM(outcome = 'SUCCESS') AS successful,
+              AVG(time_to_read_ms) AS avg_time_to_read_ms,
+              AVG(detection_confidence) AS avg_confidence,
+              AVG(readiness_score) AS avg_readiness,
+              SUM(network_mode = 'offline') AS offline_count
+       FROM scanner_metrics WHERE ${whereSql}`,
+      params
+    ),
+    pool.query(`SELECT outcome, COUNT(*) AS total FROM scanner_metrics WHERE ${whereSql} GROUP BY outcome ORDER BY total DESC`, params),
+    pool.query(
+      `SELECT COALESCE(failure_reason, guidance_key, 'Unspecified') AS reason, COUNT(*) AS total
+       FROM scanner_metrics WHERE ${whereSql} AND outcome <> 'SUCCESS'
+       GROUP BY reason ORDER BY total DESC LIMIT 8`,
+      params
+    ),
+    pool.query(`SELECT gate_id, COUNT(*) AS total, SUM(outcome = 'SUCCESS') AS successful FROM scanner_metrics WHERE ${whereSql} GROUP BY gate_id ORDER BY total DESC`, params),
+    pool.query(
+      `SELECT DATE(created_at) AS day, COUNT(*) AS total, SUM(outcome = 'SUCCESS') AS successful,
+              AVG(time_to_read_ms) AS avg_time_to_read_ms
+       FROM scanner_metrics WHERE ${whereSql} GROUP BY DATE(created_at) ORDER BY day ASC`,
+      params
+    ),
+    pool.query(
+      `SELECT device_class, browser_family, COUNT(*) AS total, SUM(outcome = 'SUCCESS') AS successful
+       FROM scanner_metrics WHERE ${whereSql}
+       GROUP BY device_class, browser_family ORDER BY total DESC LIMIT 12`,
+      params
+    ),
+    pool.query(
+      `SELECT outcome, movement_action, gate_id, detection_confidence, readiness_score,
+              time_to_read_ms, failure_reason, device_class, browser_family, network_mode, created_at
+       FROM scanner_metrics WHERE ${whereSql} ORDER BY created_at DESC, id DESC LIMIT 40`,
+      params
+    ),
+    pool.query("SELECT DISTINCT gate_id FROM scanner_metrics WHERE gate_id IS NOT NULL ORDER BY gate_id")
+  ]);
+  const summary = summaryRows[0][0] || {};
+  const total = Number(summary.total) || 0;
+  const successful = Number(summary.successful) || 0;
+  return {
+    filters: { days: safeDays, gate: safeGate },
+    summary: {
+      total,
+      successful,
+      success_rate: total ? Math.round((successful / total) * 1000) / 10 : 0,
+      avg_time_to_read_ms: Math.round(Number(summary.avg_time_to_read_ms) || 0),
+      avg_confidence: Number(summary.avg_confidence) || 0,
+      avg_readiness: Number(summary.avg_readiness) || 0,
+      offline_count: Number(summary.offline_count) || 0
+    },
+    outcomes: outcomeRows[0], failures: failureRows[0], gates: gateRows[0], daily: dailyRows[0],
+    devices: deviceRows[0], recent: recentRows[0],
+    gateOptions: gateOptionRows[0].map((row) => row.gate_id)
+  };
+}
+
+const DATASET_DEFINITIONS = Object.freeze({
+  students: {
+    label: "Students",
+    importable: true,
+    columns: ["student_number", "full_name", "program", "year_level", "email"]
+  },
+  vehicles: {
+    label: "Vehicles",
+    importable: true,
+    columns: ["plate_number", "student_number", "model", "color"]
+  },
+  parking_slots: {
+    label: "Parking Slots",
+    importable: true,
+    columns: ["slot_code", "zone", "status"]
+  },
+  visitor_passes: {
+    label: "Visitor Passes",
+    importable: true,
+    columns: ["pass_code", "qr_token", "visitor_type", "visitor_name", "organization", "contact_number", "plate_number", "vehicle_type", "purpose", "approval_status", "pass_state", "valid_from", "valid_until", "assigned_zone"]
+  },
+  scan_logs: { label: "Student Gate Records", importable: false },
+  visitor_scan_logs: { label: "Visitor Gate Records", importable: false },
+  scanner_metrics: { label: "Scanner Performance", importable: false },
+  security_audit: { label: "Security Audit", importable: false }
+});
+
+async function getDatasetExport(dataset) {
+  switch (dataset) {
+    case "students": {
+      const [rows] = await pool.query("SELECT student_number, full_name, program, year_level, email FROM students ORDER BY student_number");
+      return { columns: DATASET_DEFINITIONS.students.columns, rows };
+    }
+    case "vehicles": {
+      const [rows] = await pool.query(
+        `SELECT v.plate_number, s.student_number, v.model, v.color
+         FROM vehicles v JOIN students s ON s.id = v.student_id ORDER BY v.plate_number`
+      );
+      return { columns: DATASET_DEFINITIONS.vehicles.columns, rows };
+    }
+    case "parking_slots": {
+      const [rows] = await pool.query("SELECT slot_code, zone, status FROM parking_slots ORDER BY zone, slot_code");
+      return { columns: DATASET_DEFINITIONS.parking_slots.columns, rows };
+    }
+    case "visitor_passes": {
+      const [rows] = await pool.query(
+        `SELECT pass_code, qr_token, visitor_type, visitor_name, organization, contact_number,
+                plate_number, vehicle_type, purpose, approval_status, pass_state,
+                valid_from, valid_until, assigned_zone
+         FROM visitor_passes ORDER BY created_at DESC`
+      );
+      return { columns: DATASET_DEFINITIONS.visitor_passes.columns, rows };
+    }
+    case "scan_logs": {
+      const columns = ["scanned_at", "result", "action", "gate_id", "student_number", "plate_number", "slot_code", "scan_source", "status", "notes"];
+      const [rows] = await pool.query(
+        `SELECT sl.scanned_at, sl.result, sl.action, sl.gate_id, st.student_number,
+                v.plate_number, ps.slot_code, sl.scan_source, sl.status, sl.notes
+         FROM scan_logs sl
+         LEFT JOIN students st ON st.id = sl.student_id
+         LEFT JOIN vehicles v ON v.id = sl.vehicle_id
+         LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
+         ORDER BY sl.scanned_at DESC, sl.id DESC`
+      );
+      return { columns, rows };
+    }
+    case "visitor_scan_logs": {
+      const columns = ["scanned_at", "pass_code", "visitor_name", "plate_number", "result", "action", "gate_id", "slot_code", "scan_source", "status", "reason"];
+      const [rows] = await pool.query(
+        `SELECT vsl.scanned_at, vp.pass_code, vp.visitor_name, vp.plate_number,
+                vsl.result, vsl.action, vsl.gate_id, ps.slot_code, vsl.scan_source, vsl.status, vsl.reason
+         FROM visitor_scan_logs vsl
+         JOIN visitor_passes vp ON vp.id = vsl.visitor_pass_id
+         LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
+         ORDER BY vsl.scanned_at DESC, vsl.id DESC`
+      );
+      return { columns, rows };
+    }
+    case "scanner_metrics": {
+      const columns = ["created_at", "gate_id", "outcome", "movement_action", "detection_model", "detection_confidence", "readiness_score", "process_ms", "time_to_read_ms", "unreadable_frames", "guidance_key", "failure_reason", "network_mode", "device_class", "browser_family"];
+      const [rows] = await pool.query(`SELECT ${columns.join(", ")} FROM scanner_metrics ORDER BY created_at DESC, id DESC`);
+      return { columns, rows };
+    }
+    case "security_audit": {
+      const columns = ["created_at", "event_type", "actor_username", "actor_role", "target_type", "target_id", "outcome", "ip_hash"];
+      const [rows] = await pool.query(`SELECT ${columns.join(", ")} FROM security_audit_logs ORDER BY created_at DESC, id DESC`);
+      return { columns, rows };
+    }
+    default:
+      throw new Error("Unknown backup dataset.");
+  }
+}
+
+async function importDataset(dataset, records, db) {
+  let imported = 0;
+  const errors = [];
+  const addError = (row, message) => errors.push(`Row ${row.__rowNumber || "?"}: ${message}`);
+
+  for (const row of records) {
+    try {
+      if (dataset === "students") {
+        if (!row.student_number || !row.full_name) throw new Error("student_number and full_name are required");
+        if (row.program && !isValidAcademicProgram(row.program)) throw new Error("program is not in the official course list");
+        if (row.year_level && !isValidYearLevel(row.year_level)) throw new Error("year_level is invalid");
+        await db.query(
+          `INSERT INTO students (student_number, full_name, program, year_level, email)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), program = VALUES(program), year_level = VALUES(year_level), email = VALUES(email)`,
+          [row.student_number.slice(0, 50), row.full_name.slice(0, 150), row.program?.slice(0, 120) || null, row.year_level?.slice(0, 20) || null, row.email?.slice(0, 120) || null]
+        );
+      } else if (dataset === "vehicles") {
+        if (!row.plate_number || !row.student_number) throw new Error("plate_number and student_number are required");
+        const [students] = await db.query("SELECT id FROM students WHERE student_number = ? LIMIT 1", [row.student_number]);
+        if (!students.length) throw new Error(`student ${row.student_number} does not exist`);
+        await db.query(
+          `INSERT INTO vehicles (student_id, plate_number, model, color) VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE student_id = VALUES(student_id), model = VALUES(model), color = VALUES(color)`,
+          [students[0].id, row.plate_number.slice(0, 30).toUpperCase(), row.model?.slice(0, 120) || null, row.color?.slice(0, 50) || null]
+        );
+      } else if (dataset === "parking_slots") {
+        if (!row.slot_code) throw new Error("slot_code is required");
+        const status = row.status === "disabled" ? "disabled" : "available";
+        await db.query(
+          `INSERT INTO parking_slots (slot_code, zone, status) VALUES (?, ?, ?)
+           ON DUPLICATE KEY UPDATE zone = VALUES(zone), status = VALUES(status)`,
+          [row.slot_code.slice(0, 30).toUpperCase(), row.zone?.slice(0, 50) || "General", status]
+        );
+      } else if (dataset === "visitor_passes") {
+        if (!row.visitor_name || !row.valid_from || !row.valid_until) throw new Error("visitor_name, valid_from, and valid_until are required");
+        const validFrom = parseDateTimeInput(row.valid_from);
+        const validUntil = parseDateTimeInput(row.valid_until);
+        if (!validFrom || !validUntil || validUntil <= validFrom) throw new Error("validity dates are invalid");
+        const passCode = (row.pass_code || createVisitorPassCode()).slice(0, 40);
+        const qrToken = (row.qr_token || createQrToken()).slice(0, 120);
+        const visitorType = normalizeVisitorType(row.visitor_type);
+        const approval = Object.values(VISITOR_APPROVAL_STATUS).includes(String(row.approval_status).toUpperCase()) ? String(row.approval_status).toUpperCase() : "PENDING";
+        const state = Object.values(VISITOR_PASS_STATE).includes(String(row.pass_state).toUpperCase()) ? String(row.pass_state).toUpperCase() : "PENDING";
+        await db.query(
+          `INSERT INTO visitor_passes (
+             pass_code, qr_token, visitor_type, visitor_name, organization, contact_number,
+             plate_number, vehicle_type, purpose, approval_status, pass_state,
+             valid_from, valid_until, assigned_zone, requested_by
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'csv-import')
+           ON DUPLICATE KEY UPDATE visitor_type = VALUES(visitor_type), visitor_name = VALUES(visitor_name),
+             organization = VALUES(organization), contact_number = VALUES(contact_number), plate_number = VALUES(plate_number),
+             vehicle_type = VALUES(vehicle_type), purpose = VALUES(purpose), valid_from = VALUES(valid_from),
+             valid_until = VALUES(valid_until), assigned_zone = VALUES(assigned_zone)`,
+          [passCode, qrToken, visitorType, row.visitor_name.slice(0, 150), row.organization?.slice(0, 150) || null,
+            row.contact_number?.slice(0, 60) || null, row.plate_number?.slice(0, 30) || null, row.vehicle_type?.slice(0, 80) || null,
+            row.purpose?.slice(0, 255) || null, approval, state, validFrom, validUntil, row.assigned_zone?.slice(0, 80) || null]
+        );
+      } else {
+        throw new Error("This dataset is export-only");
+      }
+      imported += 1;
+    } catch (error) {
+      addError(row, error.message || "invalid data");
+      if (errors.length >= 20) break;
+    }
+  }
+  return { imported, errors };
+}
+
 app.get("/", requireAuth, (req, res) => {
   res.redirect(getRoleHomePath(req.authUser?.role));
 });
 
 app.get("/forbidden", requireAuth, (req, res) => {
   return renderForbiddenPage(req, res);
+});
+
+app.get("/account/security", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, username, role, totp_enabled, password_changed_at, last_login_at, created_at
+       FROM users WHERE id = ? LIMIT 1`,
+      [req.authUser.id]
+    );
+    if (!rows.length) return res.redirect("/logout");
+    const [sessions, auditResult] = await Promise.all([
+      listUserSessions(req.authUser.id, req.sessionID),
+      pool.query(
+        `SELECT event_type, outcome, created_at
+         FROM security_audit_logs
+         WHERE actor_user_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 12`,
+        [req.authUser.id]
+      )
+    ]);
+    const flash = req.query.saved
+      ? { type: "success", message: "Security settings updated successfully." }
+      : req.query.revoked
+        ? { type: "success", message: "Session access was revoked." }
+        : req.query.error
+          ? { type: "error", message: String(req.query.error).slice(0, 180) }
+          : null;
+    return res.render("account_security", {
+      account: rows[0],
+      sessions,
+      auditRows: auditResult[0],
+      setupSecret: String(req.session.pendingTotpSecret || ""),
+      flash
+    });
+  } catch (error) {
+    console.error("Account security page error:", error);
+    return res.status(500).send("Unable to load account security settings.");
+  }
+});
+
+app.post("/account/password", requireAuth, async (req, res) => {
+  const rateKey = getRateLimitKey(req, `account:${req.authUser.id}`);
+  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
+    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.");
+  }
+  const currentPassword = String(req.body.current_password || "");
+  const newPassword = String(req.body.new_password || "");
+  const confirmation = String(req.body.confirm_password || "");
+  const policy = validatePassword(newPassword);
+  if (newPassword !== confirmation || !policy.valid) {
+    accountSecurityRateLimiter.recordFailure(rateKey);
+    const message = newPassword !== confirmation ? "New passwords do not match." : policy.issues[0];
+    return res.redirect(`/account/security?error=${encodeURIComponent(message)}`);
+  }
+  try {
+    const [rows] = await pool.query("SELECT password FROM users WHERE id = ? LIMIT 1", [req.authUser.id]);
+    if (!rows.length || !(await bcrypt.compare(currentPassword, String(rows[0].password || "")))) {
+      accountSecurityRateLimiter.recordFailure(rateKey);
+      await recordSecurityAudit(req, "PASSWORD_CHANGE_FAILED", { outcome: "failed" });
+      return res.redirect("/account/security?error=Current+password+is+incorrect.");
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await pool.query("UPDATE users SET password = ?, password_changed_at = NOW() WHERE id = ?", [passwordHash, req.authUser.id]);
+    await revokeUserSessions(req.authUser.id, { keepSessionId: req.sessionID });
+    accountSecurityRateLimiter.reset(rateKey);
+    await recordSecurityAudit(req, "PASSWORD_CHANGED");
+    return res.redirect("/account/security?saved=1");
+  } catch (error) {
+    console.error("Password change error:", error);
+    return res.redirect("/account/security?error=Unable+to+change+password.");
+  }
+});
+
+app.post("/account/2fa/setup", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query("SELECT password, totp_enabled FROM users WHERE id = ? LIMIT 1", [req.authUser.id]);
+    if (!rows.length || rows[0].totp_enabled) return res.redirect("/account/security");
+    if (!(await bcrypt.compare(String(req.body.current_password || ""), String(rows[0].password || "")))) {
+      await recordSecurityAudit(req, "TWO_FACTOR_SETUP_FAILED", { outcome: "failed" });
+      return res.redirect("/account/security?error=Current+password+is+incorrect.");
+    }
+    req.session.pendingTotpSecret = generateTotpSecret();
+    await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
+    await recordSecurityAudit(req, "TWO_FACTOR_SETUP_STARTED");
+    return res.redirect("/account/security#two-factor");
+  } catch (error) {
+    console.error("2FA setup error:", error);
+    return res.redirect("/account/security?error=Unable+to+start+two-factor+setup.");
+  }
+});
+
+app.get("/account/2fa/setup-qr", requireAuth, async (req, res) => {
+  const secret = String(req.session.pendingTotpSecret || "");
+  if (!secret) return res.status(404).send("No two-factor setup is active.");
+  const label = encodeURIComponent(`NAAP Parking:${req.authUser.username}`);
+  const issuer = encodeURIComponent("NAAP Parking");
+  const uri = `otpauth://totp/${label}?secret=${encodeURIComponent(secret)}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+  try {
+    const png = await QRCode.toBuffer(uri, { type: "png", width: 280, margin: 2, errorCorrectionLevel: "M" });
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.type("png").send(png);
+  } catch (_error) {
+    return res.status(500).send("Unable to generate setup QR.");
+  }
+});
+
+app.post("/account/2fa/enable", requireAuth, async (req, res) => {
+  const secret = String(req.session.pendingTotpSecret || "");
+  if (!secret || !verifyTotpToken(secret, req.body.code)) {
+    await recordSecurityAudit(req, "TWO_FACTOR_ENABLE_FAILED", { outcome: "failed" });
+    return res.redirect("/account/security?error=The+verification+code+is+invalid+or+expired.#two-factor");
+  }
+  try {
+    await pool.query(
+      "UPDATE users SET totp_enabled = 1, totp_secret_encrypted = ? WHERE id = ?",
+      [encryptSecret(secret, SESSION_SECRET), req.authUser.id]
+    );
+    delete req.session.pendingTotpSecret;
+    await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
+    await recordSecurityAudit(req, "TWO_FACTOR_ENABLED");
+    return res.redirect("/account/security?saved=1#two-factor");
+  } catch (error) {
+    console.error("Enable 2FA error:", error);
+    return res.redirect("/account/security?error=Unable+to+enable+two-factor+authentication.");
+  }
+});
+
+app.post("/account/2fa/disable", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT password, totp_enabled, totp_secret_encrypted FROM users WHERE id = ? LIMIT 1",
+      [req.authUser.id]
+    );
+    const user = rows[0];
+    const passwordMatches = user && await bcrypt.compare(String(req.body.current_password || ""), String(user.password || ""));
+    const tokenMatches = user?.totp_enabled && user.totp_secret_encrypted
+      ? verifyTotpToken(decryptSecret(user.totp_secret_encrypted, SESSION_SECRET), req.body.code)
+      : false;
+    if (!passwordMatches || !tokenMatches) {
+      await recordSecurityAudit(req, "TWO_FACTOR_DISABLE_FAILED", { outcome: "failed" });
+      return res.redirect("/account/security?error=Password+or+verification+code+is+incorrect.#two-factor");
+    }
+    await pool.query("UPDATE users SET totp_enabled = 0, totp_secret_encrypted = NULL WHERE id = ?", [req.authUser.id]);
+    await recordSecurityAudit(req, "TWO_FACTOR_DISABLED");
+    return res.redirect("/account/security?saved=1#two-factor");
+  } catch (error) {
+    console.error("Disable 2FA error:", error);
+    return res.redirect("/account/security?error=Unable+to+disable+two-factor+authentication.");
+  }
+});
+
+app.post("/account/sessions/:fingerprint/revoke", requireAuth, async (req, res) => {
+  const fingerprint = String(req.params.fingerprint || "");
+  if (!/^[a-f0-9]{12}$/.test(fingerprint)) return res.redirect("/account/security?error=Invalid+session.");
+  const revoked = await revokeUserSessions(req.authUser.id, { fingerprint, keepSessionId: req.sessionID });
+  await recordSecurityAudit(req, "SESSION_REVOKED", { targetType: "session", targetId: fingerprint, metadata: { revoked } });
+  return res.redirect("/account/security?revoked=1#sessions");
+});
+
+app.post("/account/sessions/revoke-others", requireAuth, async (req, res) => {
+  const revoked = await revokeUserSessions(req.authUser.id, { keepSessionId: req.sessionID });
+  await recordSecurityAudit(req, "OTHER_SESSIONS_REVOKED", { metadata: { revoked } });
+  return res.redirect("/account/security?revoked=1#sessions");
 });
 
 app.get("/admin", requireRole(USER_ROLES.ADMIN), async (req, res) => {
@@ -4037,6 +4750,83 @@ app.get("/admin/records", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   } catch (error) {
     console.error("Admin records page error:", error);
     res.status(500).send("An error occurred loading gate records.");
+  }
+});
+
+app.get("/admin/scanner-analytics", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const data = await getScannerAnalytics(req.query.days, req.query.gate);
+    return res.render("scanner_analytics", data);
+  } catch (error) {
+    console.error("Scanner analytics page error:", error);
+    return res.status(500).send("An error occurred loading scanner analytics.");
+  }
+});
+
+app.get("/admin/data", requireRole(USER_ROLES.ADMIN), (req, res) => {
+  const flash = req.query.imported
+    ? { type: "success", message: `${Number(req.query.imported) || 0} row(s) imported successfully.` }
+    : req.query.error
+      ? { type: "error", message: String(req.query.error).slice(0, 220) }
+      : null;
+  return res.render("admin_data", {
+    datasets: Object.entries(DATASET_DEFINITIONS).map(([key, value]) => ({ key, ...value })),
+    flash
+  });
+});
+
+app.get("/admin/data/export/:dataset", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const dataset = String(req.params.dataset || "");
+  if (!DATASET_DEFINITIONS[dataset]) return res.status(404).send("Unknown backup dataset.");
+  try {
+    const exported = await getDatasetExport(dataset);
+    const columns = exported.columns.map((key) => ({ key, label: key }));
+    const csv = stringifyCsv(columns, exported.rows);
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="naap-${dataset}-${date}.csv"`);
+    await recordSecurityAudit(req, "DATA_EXPORTED", { targetType: "dataset", targetId: dataset, metadata: { rows: exported.rows.length } });
+    return res.send(csv);
+  } catch (error) {
+    console.error("Data export error:", error);
+    return res.status(500).send("Unable to export this dataset.");
+  }
+});
+
+app.post("/admin/data/import", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const dataset = String(req.body.dataset || "");
+  const definition = DATASET_DEFINITIONS[dataset];
+  if (!definition?.importable) return res.redirect("/admin/data?error=This+dataset+cannot+be+imported.");
+  let records;
+  try {
+    records = parseCsv(req.body.csv_data, { maxRows: 2000 });
+    if (!records.length) throw new Error("The CSV does not contain any data rows.");
+  } catch (error) {
+    return res.redirect(`/admin/data?error=${encodeURIComponent(error.message || "Invalid CSV file.")}`);
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await importDataset(dataset, records, connection);
+    await connection.commit();
+    await recordSecurityAudit(req, "DATA_IMPORTED", {
+      targetType: "dataset",
+      targetId: dataset,
+      outcome: result.errors.length ? "partial" : "success",
+      metadata: { imported: result.imported, errors: result.errors.slice(0, 10) }
+    });
+    if (result.errors.length) {
+      const message = `${result.imported} imported. ${result.errors[0]}`;
+      return res.redirect(`/admin/data?error=${encodeURIComponent(message)}`);
+    }
+    return res.redirect(`/admin/data?imported=${result.imported}`);
+  } catch (error) {
+    await connection.rollback();
+    console.error("Data import error:", error);
+    return res.redirect("/admin/data?error=Unable+to+import+this+CSV.");
+  } finally {
+    connection.release();
   }
 });
 
@@ -4116,12 +4906,12 @@ app.post("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const password = String(req.body.password || "");
   const role = normalizeRole(req.body.role);
 
-  if (!username || !password || !role) {
+  if (!username || !password || !role || !validatePassword(password).valid) {
     return res.redirect("/admin/users?error=invalid");
   }
 
   try {
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
     await pool.query(
       "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
       [username, passwordHash, role]
@@ -4145,6 +4935,9 @@ app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res
   if (!Number.isInteger(userId) || userId <= 0 || !username || !role) {
     return res.redirect("/admin/users?error=invalid");
   }
+  if (password && !validatePassword(password).valid) {
+    return res.redirect("/admin/users?error=invalid");
+  }
 
   try {
     const [existingRows] = await pool.query(
@@ -4164,13 +4957,16 @@ app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res
     }
 
     if (password) {
-      const passwordHash = await bcrypt.hash(password, 10);
+      const passwordHash = await bcrypt.hash(password, 12);
       await pool.query(
         `UPDATE users
          SET username = ?, role = ?, password = ?
          WHERE id = ?`,
         [username, role, passwordHash, userId]
       );
+      await revokeUserSessions(userId, {
+        keepSessionId: Number(req.authUser?.id) === userId ? req.sessionID : null
+      });
     } else {
       await pool.query(
         `UPDATE users
@@ -6899,6 +7695,40 @@ app.post("/api/scan", requireRole(USER_ROLES.GUARD), async (req, res) => {
   }
 });
 
+app.post("/api/scanner-metrics", requireRole(USER_ROLES.GUARD), async (req, res) => {
+  try {
+    const metric = normalizeScannerMetricPayload(req.body, req);
+    const inserted = await insertScannerMetric(metric);
+    return res.json({ ok: true, inserted, event_id: metric.eventId });
+  } catch (error) {
+    console.error("Scanner metric error:", error);
+    return res.status(400).json({ ok: false, message: "Unable to save scanner performance metric." });
+  }
+});
+
+app.post("/api/scanner-metrics/batch", requireRole(USER_ROLES.GUARD), async (req, res) => {
+  const items = Array.isArray(req.body.metrics) ? req.body.metrics.slice(0, 100) : [];
+  if (!items.length) return res.json({ ok: true, accepted_event_ids: [] });
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const acceptedEventIds = [];
+    for (const item of items) {
+      const metric = normalizeScannerMetricPayload({ ...item, network_mode: item.network_mode || "offline" }, req);
+      await insertScannerMetric(metric, connection);
+      acceptedEventIds.push(metric.eventId);
+    }
+    await connection.commit();
+    return res.json({ ok: true, accepted_event_ids: acceptedEventIds });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Scanner metric batch error:", error);
+    return res.status(400).json({ ok: false, message: "Unable to synchronize scanner metrics." });
+  } finally {
+    connection.release();
+  }
+});
+
 // PWA Offline Sync: Download active roster to local DB
 app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
   try {
@@ -6911,7 +7741,16 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
         v.model,
         v.color,
         st.full_name,
-        st.student_number
+        st.student_number,
+        (
+          SELECT sl.action FROM scan_logs sl
+          WHERE sl.sticker_id = s.id AND sl.result = 'VALID' AND sl.action IN ('ENTRY', 'EXIT')
+          ORDER BY sl.scanned_at DESC, sl.id DESC LIMIT 1
+        ) AS last_action,
+        (
+          SELECT ps.slot_code FROM parking_slots ps
+          WHERE ps.current_sticker_id = s.id LIMIT 1
+        ) AS current_slot
       FROM stickers s
       JOIN vehicles v ON v.id = s.vehicle_id
       JOIN students st ON st.id = v.student_id
@@ -6927,50 +7766,124 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
 
 // PWA Offline Sync: Upload pending outbox to main DB
 app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
-  const { movements } = req.body;
-  if (!Array.isArray(movements) || movements.length === 0) {
-    return res.json({ ok: true });
-  }
+  const movements = Array.isArray(req.body.movements) ? req.body.movements.slice(0, 100) : [];
+  if (!movements.length) return res.json({ ok: true, accepted_event_ids: [], results: [] });
+  movements.sort((a, b) => Number(a.offline_timestamp || 0) - Number(b.offline_timestamp || 0));
 
+  const connection = await pool.getConnection();
   try {
-    const connection = await pool.getConnection();
     await connection.beginTransaction();
+    const acceptedEventIds = [];
+    const results = [];
+    for (const movement of movements) {
+      const legacyEventId = `legacy-${crypto.createHash("sha256").update(JSON.stringify(movement)).digest("hex").slice(0, 48)}`;
+      const eventId = normalizeClientEventId(movement.event_id || legacyEventId, "offline");
+      const [receiptRows] = await connection.query("SELECT id FROM offline_sync_receipts WHERE event_id = ? LIMIT 1", [eventId]);
+      if (receiptRows.length) {
+        acceptedEventIds.push(eventId);
+        results.push({ event_id: eventId, status: "duplicate" });
+        continue;
+      }
 
-    try {
-      for (const m of movements) {
-        // Find the sticker
-        const [stickerRows] = await connection.query(
-          "SELECT id FROM stickers WHERE qr_token = ? LIMIT 1",
-          [m.token]
+      const token = normalizeQrTokenInput(movement.token);
+      const [stickerRows] = token ? await connection.query(
+        `SELECT s.id, s.status, s.expires_at, v.id AS vehicle_id, st.id AS student_id
+         FROM stickers s JOIN vehicles v ON v.id = s.vehicle_id JOIN students st ON st.id = v.student_id
+         WHERE s.qr_token = ? LIMIT 1 FOR UPDATE`,
+        [token]
+      ) : [[]];
+      const sticker = stickerRows[0];
+      if (!sticker || sticker.status !== "active" || (sticker.expires_at && new Date(sticker.expires_at) < new Date())) {
+        await connection.query(
+          "INSERT INTO offline_sync_receipts (event_id, action, synced_by_user_id, occurred_at) VALUES (?, 'REJECTED', ?, NOW())",
+          [eventId, req.authUser.id]
         );
-        if (stickerRows.length > 0) {
-          const stickerId = stickerRows[0].id;
-          // Format the offline timestamp so MySQL accepts it
-          let scannedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-          if (m.offline_timestamp) {
-            const dt = new Date(m.offline_timestamp);
-            if (!Number.isNaN(dt.getTime())) {
-              scannedAt = dt.toISOString().slice(0, 19).replace('T', ' ');
-            }
-          }
+        acceptedEventIds.push(eventId);
+        results.push({ event_id: eventId, status: "rejected", reason: "Sticker is no longer valid." });
+        continue;
+      }
 
-          await connection.query(
-            "INSERT INTO scan_logs (sticker_id, result, action, gate, notes, scanned_at) VALUES (?, ?, ?, ?, ?, ?)",
-            [stickerId, "VALID", m.action, m.gate || "Offline Scan", "Synced from Offline Device", scannedAt]
-          );
+      const lastMovement = await getLastValidMovement(sticker.id, connection);
+      const expectedAction = lastMovement?.action === "ENTRY" ? "EXIT" : "ENTRY";
+      const requestedAction = String(movement.action || "").trim().toUpperCase();
+      const action = ["ENTRY", "EXIT"].includes(requestedAction) && requestedAction === expectedAction
+        ? requestedAction
+        : expectedAction;
+      const gate = normalizeGateId(movement.gate || "Offline Scan");
+      let scannedAt = new Date();
+      const offlineDate = new Date(Number(movement.offline_timestamp));
+      if (!Number.isNaN(offlineDate.getTime()) && Math.abs(Date.now() - offlineDate.getTime()) <= 30 * 24 * 60 * 60 * 1000) {
+        scannedAt = offlineDate;
+      }
+      let currentSlot = action === "EXIT" ? await getCurrentParkingSlotBySticker(sticker.id, connection) : null;
+      if (action === "ENTRY") {
+        const [availableSlots] = await connection.query(
+          `SELECT id
+           FROM parking_slots
+           WHERE status = 'available'
+             AND current_sticker_id IS NULL
+             AND current_visitor_pass_id IS NULL
+           ORDER BY zone ASC, slot_code ASC
+           LIMIT 1
+           FOR UPDATE`
+        );
+        if (availableSlots.length) {
+          currentSlot = await assignParkingSlot(connection, sticker.id, availableSlots[0].id);
         }
       }
-      await connection.commit();
-      res.json({ ok: true, synced_count: movements.length });
-    } catch (err) {
-      await connection.rollback();
-      throw err;
-    } finally {
-      connection.release();
+      const scanLog = await insertScanLogWithDb(
+        connection,
+        sticker.id,
+        "VALID",
+        action,
+        gate,
+        requestedAction !== action
+          ? `Offline action corrected from ${requestedAction || "unknown"} to ${action}`
+          : action === "ENTRY" && !currentSlot
+            ? "Synced from offline device; no parking slot was available"
+            : "Synced from offline device",
+        {
+          gateId: gate,
+          slotId: currentSlot?.id || null,
+          qrValue: token,
+          studentId: sticker.student_id,
+          vehicleId: sticker.vehicle_id,
+          assignedArea: currentSlot?.zone || null,
+          assignedByGuard: getAuthActorName(req),
+          scanSource: "offline_sync",
+          status: "AUTHORIZED"
+        }
+      );
+      await connection.query("UPDATE scan_logs SET scanned_at = ? WHERE id = ?", [scannedAt, scanLog.id]);
+      if (action === "EXIT") await releaseParkingSlot(connection, sticker.id);
+      await connection.query(
+        `INSERT INTO offline_sync_receipts (event_id, sticker_id, action, scan_log_id, synced_by_user_id, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [eventId, sticker.id, action, scanLog.id, req.authUser.id, scannedAt]
+      );
+      acceptedEventIds.push(eventId);
+      results.push({
+        event_id: eventId,
+        status: action === "ENTRY" && !currentSlot ? "synced_no_slot" : "synced",
+        action,
+        parking_slot: currentSlot?.slot_code || null
+      });
     }
+    await connection.commit();
+    await evaluateZoneCapacityAlerts(pool, getAuthActorName(req) || "offline-sync");
+    broadcastNotificationsUpdated("offline-queue-synced", {
+      synced_count: acceptedEventIds.length
+    });
+    await recordSecurityAudit(req, "OFFLINE_QUEUE_SYNCED", {
+      metadata: { received: movements.length, accepted: acceptedEventIds.length }
+    });
+    return res.json({ ok: true, synced_count: acceptedEventIds.length, accepted_event_ids: acceptedEventIds, results });
   } catch (error) {
+    await connection.rollback();
     console.error("Sync queue error:", error);
-    res.status(500).json({ ok: false, message: "Failed to sync offline queue." });
+    return res.status(500).json({ ok: false, message: "Failed to sync offline queue." });
+  } finally {
+    connection.release();
   }
 });
 

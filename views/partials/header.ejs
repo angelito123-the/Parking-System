@@ -19,13 +19,13 @@
   <link rel="preload" as="style" href="<%= fontStylesheetUrl %>" />
   <link rel="stylesheet" href="<%= fontStylesheetUrl %>" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
-  <link rel="stylesheet" href="/styles.css?v=20260827-ml1" />
+  <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <script src="/js/ui-states.js?v=20260826-ui1"></script>
   <% if (needsOfflineScanner) { %>
-  <script src="/offline-sync.js?v=20260826-debug1" defer></script>
+  <script src="/offline-sync.js?v=20260828-ops1" defer></script>
   <% } %>
   <script>
     if ('serviceWorker' in navigator) {
@@ -95,8 +95,11 @@
     "/admin/updates": "Latest Updates",
     "/admin/alerts": "Notifications & Alerts",
     "/admin/records": "Gate Records",
+    "/admin/scanner-analytics": "Scanner Performance",
+    "/admin/data": "Data Backup & Import",
     "/guard": "Guard Dashboard",
     "/admin/users": "User Management",
+    "/account/security": "Account Security",
     "/visitor-passes": "Visitor Passes",
     "/students": "Students & Vehicles",
     "/stickers": "Stickers",
@@ -116,6 +119,8 @@
       { section: "Daily operations", href: "/admin/alerts", label: "Alerts", active: ["/admin/alerts"] },
       { section: "Daily operations", href: "/admin/records", label: "Gate Records", active: ["/admin/records"] },
       { section: "Administration", href: "/reports", label: "Reports", active: ["/reports"] },
+      { section: "Administration", href: "/admin/scanner-analytics", label: "Scanner Performance", active: ["/admin/scanner-analytics"] },
+      { section: "Administration", href: "/admin/data", label: "Data Backup", active: ["/admin/data"] },
       { section: "Administration", href: "/admin/users", label: "User Accounts", active: ["/admin/users"] }
     ],
     guard: [
@@ -144,6 +149,9 @@
     "/admin/alerts": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path><path d="M10 18a2 2 0 0 0 4 0"></path></svg>',
     "/admin/records": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>',
     "/admin/users": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"></path><circle cx="9.5" cy="7" r="3"></circle><path d="M17 11a3 3 0 1 0 0-6"></path><path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path></svg>',
+    "/admin/scanner-analytics": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3"></path><path d="M16 4h3a1 1 0 0 1 1 1v3"></path><path d="M20 16v3a1 1 0 0 1-1 1h-3"></path><path d="M8 20H5a1 1 0 0 1-1-1v-3"></path><path d="M7 12h10"></path></svg>',
+    "/admin/data": '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"></ellipse><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"></path><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"></path></svg>',
+    "/account/security": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.2 8.5-7 10-3.8-1.5-7-5-7-10V6l7-3Z"></path><path d="M9 12l2 2 4-4"></path></svg>',
     "/visitor-passes": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"></rect><path d="M9 10h6"></path><path d="M9 14h3"></path><circle cx="17.5" cy="12" r="1.5"></circle></svg>',
     "/students": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z"></path><path d="M9 7V5a3 3 0 0 1 6 0v2"></path><circle cx="12" cy="12" r="1.5"></circle></svg>',
     "/stickers": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a2 2 0 0 1 2 2v5h-2a2 2 0 0 0 0 4h2v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3h2a2 2 0 0 0 0-4H4V6a2 2 0 0 1 2-2Z"></path><path d="M9 9h6"></path><path d="M9 15h6"></path></svg>',

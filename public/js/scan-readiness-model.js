@@ -203,6 +203,23 @@
         accuracy: this.samples ? this.correct / this.samples : null
       };
     }
+
+    reset() {
+      this.weights = { ...DEFAULT_WEIGHTS };
+      this.samples = 0;
+      this.successes = 0;
+      this.failures = 0;
+      this.correct = 0;
+      this.lastSavedSample = 0;
+      if (this.storage && typeof this.storage.removeItem === "function") {
+        try {
+          this.storage.removeItem(this.storageKey);
+        } catch (_error) {
+          // Scanner remains usable when browser storage is restricted.
+        }
+      }
+      return this.getStatus();
+    }
   }
 
   return {

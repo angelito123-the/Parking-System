@@ -394,6 +394,34 @@
       return this.state;
     }
 
+    getReadinessStatus() {
+      return this.readinessModel?.getStatus?.() || null;
+    }
+
+    resetReadinessModel() {
+      this.lastDetectedRegion = null;
+      this.lastMlMetrics = null;
+      return this.readinessModel?.reset?.() || null;
+    }
+
+    async recalibrate() {
+      this.lastDetectedRegion = null;
+      const track = this.stream?.getVideoTracks?.()[0] || null;
+      if (!track || typeof track.applyConstraints !== "function") return false;
+      try {
+        const capabilities = track.getCapabilities?.() || {};
+        const advanced = {};
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) advanced.focusMode = "continuous";
+        if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes("continuous")) advanced.exposureMode = "continuous";
+        if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes("continuous")) advanced.whiteBalanceMode = "continuous";
+        if (!Object.keys(advanced).length) return false;
+        await track.applyConstraints({ advanced: [advanced] });
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
     async start(cameraConfig, _scanConfig, onSuccess, onFailure) {
       this.onSuccess = typeof onSuccess === "function" ? onSuccess : null;
       this.onFailure = typeof onFailure === "function" ? onFailure : null;

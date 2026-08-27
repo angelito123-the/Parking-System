@@ -53,6 +53,10 @@ async function ensureDatabaseSchema() {
   await ensureAlertMigrations();
   await ensureUserMigrations();
   await ensureAnnouncementMigrations();
+  await ensureScannerMetricMigrations();
+  await ensureOfflineSyncMigrations();
+  await ensureSecurityMigrations();
+  await ensurePerformanceIndexes();
 }
 
 async function ensureSnapshotStorageMigrations() {
@@ -249,7 +253,7 @@ async function ensureUserMigrations() {
     );
 
     if (!existingRows.length) {
-      const hashedPassword = await bcrypt.hash(seededUser.password, 10);
+      const hashedPassword = await bcrypt.hash(seededUser.password, 12);
       await pool.query(
         "INSERT INTO users (username, password, role, student_id) VALUES (?, ?, ?, ?)",
         [seededUser.username, hashedPassword, seededUser.role, seededUser.studentId]
@@ -260,9 +264,115 @@ async function ensureUserMigrations() {
     const existingUser = existingRows[0];
     const rawPassword = String(existingUser.password || "");
     if (rawPassword && !rawPassword.startsWith("$2")) {
-      const migratedHash = await bcrypt.hash(rawPassword, 10);
+      const migratedHash = await bcrypt.hash(rawPassword, 12);
       await pool.query("UPDATE users SET password = ? WHERE id = ?", [migratedHash, existingUser.id]);
     }
+  }
+}
+
+async function ensureScannerMetricMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scanner_metrics (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      event_id VARCHAR(80) NOT NULL UNIQUE,
+      device_id VARCHAR(120) NULL,
+      gate_id VARCHAR(80) NULL,
+      outcome VARCHAR(32) NOT NULL,
+      movement_action VARCHAR(20) NULL,
+      detection_model VARCHAR(80) NULL,
+      detection_confidence DECIMAL(6,5) NULL,
+      readiness_score DECIMAL(6,5) NULL,
+      process_ms INT UNSIGNED NULL,
+      time_to_read_ms INT UNSIGNED NULL,
+      unreadable_frames INT UNSIGNED NOT NULL DEFAULT 0,
+      guidance_key VARCHAR(40) NULL,
+      failure_reason VARCHAR(120) NULL,
+      network_mode VARCHAR(20) NOT NULL DEFAULT 'online',
+      device_class VARCHAR(30) NULL,
+      browser_family VARCHAR(40) NULL,
+      learning_samples INT UNSIGNED NOT NULL DEFAULT 0,
+      user_id INT NULL,
+      occurred_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_scanner_metrics_created_outcome (created_at, outcome),
+      INDEX idx_scanner_metrics_gate_created (gate_id, created_at),
+      INDEX idx_scanner_metrics_device_created (device_id, created_at),
+      CONSTRAINT fk_scanner_metrics_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+}
+
+async function ensureOfflineSyncMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS offline_sync_receipts (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      event_id VARCHAR(80) NOT NULL UNIQUE,
+      sticker_id INT NULL,
+      action VARCHAR(20) NULL,
+      scan_log_id INT NULL,
+      synced_by_user_id INT NULL,
+      occurred_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_offline_receipts_created (created_at),
+      CONSTRAINT fk_offline_receipt_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE SET NULL,
+      CONSTRAINT fk_offline_receipt_scan_log FOREIGN KEY (scan_log_id) REFERENCES scan_logs(id) ON DELETE SET NULL,
+      CONSTRAINT fk_offline_receipt_user FOREIGN KEY (synced_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+}
+
+async function ensureSecurityMigrations() {
+  async function addUserColumnIfMissing(columnName, definition) {
+    if (await columnExists("users", columnName)) return;
+    await pool.query(`ALTER TABLE users ADD COLUMN ${columnName} ${definition}`);
+  }
+
+  await addUserColumnIfMissing("totp_enabled", "TINYINT(1) NOT NULL DEFAULT 0 AFTER student_id");
+  await addUserColumnIfMissing("totp_secret_encrypted", "TEXT NULL AFTER totp_enabled");
+  await addUserColumnIfMissing("password_changed_at", "TIMESTAMP NULL DEFAULT NULL AFTER totp_secret_encrypted");
+  await addUserColumnIfMissing("last_login_at", "TIMESTAMP NULL DEFAULT NULL AFTER password_changed_at");
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS security_audit_logs (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      event_type VARCHAR(80) NOT NULL,
+      actor_user_id INT NULL,
+      actor_username VARCHAR(120) NULL,
+      actor_role VARCHAR(30) NULL,
+      target_type VARCHAR(80) NULL,
+      target_id VARCHAR(120) NULL,
+      outcome VARCHAR(30) NOT NULL DEFAULT 'success',
+      ip_hash VARCHAR(32) NULL,
+      user_agent VARCHAR(255) NULL,
+      metadata_json JSON NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_security_audit_created (created_at),
+      INDEX idx_security_audit_actor_created (actor_user_id, created_at),
+      INDEX idx_security_audit_event_created (event_type, created_at),
+      CONSTRAINT fk_security_audit_user FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+}
+
+async function ensurePerformanceIndexes() {
+  const indexes = [
+    ["students", "idx_students_name", "full_name"],
+    ["students", "idx_students_program_year", "program, year_level"],
+    ["vehicles", "idx_vehicles_student", "student_id"],
+    ["stickers", "idx_stickers_status_expiry", "status, expires_at"],
+    ["stickers", "idx_stickers_vehicle_status", "vehicle_id, status"],
+    ["parking_slots", "idx_slots_status_zone", "status, zone"],
+    ["parking_slots", "idx_slots_current_sticker", "current_sticker_id"],
+    ["scan_logs", "idx_scan_gate_time", "gate_id, scanned_at"],
+    ["scan_logs", "idx_scan_vehicle_time", "vehicle_id, scanned_at"],
+    ["scan_logs", "idx_scan_student_time", "student_id, scanned_at"],
+    ["scan_logs", "idx_scan_source_time", "scan_source, scanned_at"],
+    ["auto_scan_queue", "idx_auto_queue_gate_status", "gate_id, status, created_at"],
+    ["auto_scan_heartbeats", "idx_auto_heartbeat_gate_last", "gate_id, last_heartbeat_at"],
+    ["users", "idx_users_role_updated", "role, updated_at"]
+  ];
+  for (const [tableName, indexName, columns] of indexes) {
+    await addIndexIfMissing(tableName, indexName, columns);
   }
 }
 

@@ -1,22 +1,23 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v22`;
+const CACHE_NAME = `${CACHE_PREFIX}v23`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
-  '/styles.css?v=20260827-ml1',
+  '/styles.css?v=20260828-ops1',
   '/manifest.json',
   '/icons/favicon-32.png',
   '/icons/apple-touch-icon.png',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-  '/offline-sync.js?v=20260826-debug1',
+  '/offline-sync.js?v=20260828-ops1',
   '/js/qr-behavior-classifier.js',
   '/js/ui-states.js?v=20260826-ui1',
   '/js/qr-token-parser.js?v=20260826-accuracy1',
-  '/js/scan-readiness-model.js?v=20260827-ml1',
-  '/js/ml-qr-detector.js?v=20260827-ml1',
-  '/js/scanner-guidance.js?v=20260827-ml1'
+  '/js/scan-readiness-model.js?v=20260828-ops1',
+  '/js/ml-qr-detector.js?v=20260828-ops1',
+  '/js/scanner-guidance.js?v=20260827-ml1',
+  '/js/scanner-device-check.js?v=20260828-ops1'
 ];
 const OPTIONAL_ASSETS_TO_CACHE = [
   'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',

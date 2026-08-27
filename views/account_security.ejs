@@ -1,0 +1,101 @@
+<%- include("partials/header") %>
+<%
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
+  const safeAuditRows = Array.isArray(auditRows) ? auditRows : [];
+  const dateLabel = (value) => value ? new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Not recorded";
+%>
+
+<section class="dashboard-hero security-hero">
+  <div class="hero-greeting">
+    <h2>Account</h2>
+    <h1>Security &amp; Sessions</h1>
+    <p>Manage your password, optional two-factor authentication, and signed-in devices.</p>
+  </div>
+  <div class="hero-cards">
+    <div class="hero-card"><h3>Role</h3><p class="security-text-value"><%= account.role %></p></div>
+    <div class="hero-card"><h3>Two-factor</h3><p class="security-text-value"><%= account.totp_enabled ? "Enabled" : "Optional" %></p></div>
+    <div class="hero-card"><h3>Active Sessions</h3><p><%= safeSessions.length %></p></div>
+    <div class="hero-card"><h3>Last Login</h3><p class="security-date-value"><%= dateLabel(account.last_login_at) %></p></div>
+  </div>
+  <% if (flash) { %><div class="flash flash-<%= flash.type === 'success' ? 'success' : 'error' %>"><%= flash.message %></div><% } %>
+</section>
+
+<div class="overlap-wrapper security-settings-grid">
+  <section class="panel" id="password">
+    <div class="section-head">
+      <h2>Change Password</h2>
+      <p>Use at least 10 characters with uppercase, lowercase, and a number.</p>
+    </div>
+    <form method="post" action="/account/password" class="form-grid security-form">
+      <div><label for="current_password">Current password</label><input id="current_password" name="current_password" type="password" autocomplete="current-password" required /></div>
+      <div><label for="new_password">New password</label><input id="new_password" name="new_password" type="password" minlength="10" autocomplete="new-password" required /></div>
+      <div><label for="confirm_password">Confirm new password</label><input id="confirm_password" name="confirm_password" type="password" minlength="10" autocomplete="new-password" required /></div>
+      <div class="form-actions"><button type="submit">Update Password</button></div>
+    </form>
+  </section>
+
+  <section class="panel" id="two-factor">
+    <div class="section-head">
+      <h2>Two-factor Authentication</h2>
+      <p>Add a rotating code from an authenticator app after your password.</p>
+    </div>
+    <% if (account.totp_enabled) { %>
+      <div class="security-status is-enabled"><strong>Two-factor authentication is enabled.</strong><span>Your account requires a six-digit code at sign-in.</span></div>
+      <form method="post" action="/account/2fa/disable" class="form-grid security-form security-form-compact">
+        <div><label for="disable_password">Current password</label><input id="disable_password" name="current_password" type="password" autocomplete="current-password" required /></div>
+        <div><label for="disable_code">Current authenticator code</label><input id="disable_code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></div>
+        <div class="form-actions"><button class="danger" type="submit">Disable Two-factor</button></div>
+      </form>
+    <% } else if (setupSecret) { %>
+      <div class="two-factor-setup">
+        <img src="/account/2fa/setup-qr" alt="Authenticator setup QR code" width="220" height="220" />
+        <div>
+          <h3>1. Scan this QR</h3>
+          <p>Use Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app.</p>
+          <details><summary>Cannot scan?</summary><code class="security-secret"><%= setupSecret %></code></details>
+          <form method="post" action="/account/2fa/enable" class="form-grid security-form-compact">
+            <div><label for="enable_code">2. Enter the generated code</label><input id="enable_code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></div>
+            <div class="form-actions"><button type="submit">Verify and Enable</button></div>
+          </form>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="security-status"><strong>Two-factor authentication is not enabled.</strong><span>It is optional but recommended for administrators.</span></div>
+      <form method="post" action="/account/2fa/setup" class="form-grid security-form-compact">
+        <div><label for="setup_password">Confirm current password</label><input id="setup_password" name="current_password" type="password" autocomplete="current-password" required /></div>
+        <div class="form-actions"><button type="submit">Start Two-factor Setup</button></div>
+      </form>
+    <% } %>
+  </section>
+
+  <section class="panel" id="sessions">
+    <div class="section-head">
+      <h2>Active Sessions</h2>
+      <p>Revoke access from devices you no longer use.</p>
+    </div>
+    <div class="security-session-list">
+      <% safeSessions.forEach((sessionItem) => { %>
+        <article class="security-session-item">
+          <div><strong><%= sessionItem.current ? "This device" : `Session ${sessionItem.fingerprint}` %></strong><span>Expires <%= dateLabel(sessionItem.expires_at) %></span></div>
+          <% if (sessionItem.current) { %><span class="badge">Current</span><% } else { %>
+            <form method="post" action="/account/sessions/<%= sessionItem.fingerprint %>/revoke"><button type="submit" class="btn-delete-sm">Revoke</button></form>
+          <% } %>
+        </article>
+      <% }) %>
+      <% if (!safeSessions.length) { %><p class="helper-text">No active session records were found.</p><% } %>
+    </div>
+    <% if (safeSessions.some((item) => !item.current)) { %>
+      <form method="post" action="/account/sessions/revoke-others" class="security-revoke-all"><button type="submit" class="btn-delete-sm">Revoke All Other Sessions</button></form>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><h2>Recent Account Activity</h2><p>Security-related events for your account.</p></div>
+    <div class="security-audit-list">
+      <% safeAuditRows.forEach((row) => { %><div><strong><%= String(row.event_type || '').replace(/_/g, ' ') %></strong><span><%= row.outcome %> · <%= dateLabel(row.created_at) %></span></div><% }) %>
+      <% if (!safeAuditRows.length) { %><p class="helper-text">No account activity has been recorded yet.</p><% } %>
+    </div>
+  </section>
+</div>
+
+<%- include("partials/footer") %>

@@ -50,6 +50,7 @@
       <span id="chipAutoState" class="auto-chip state-live">Scanner Active</span>
       <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
       <span id="chipCooldownState" class="auto-chip state-idle">Ready for QR</span>
+      <span id="chipOfflineQueueState" class="auto-chip state-idle">Offline Queue: 0</span>
     </div>
 
     <div id="autoCameraWrapper" class="auto-camera-wrapper">
@@ -97,6 +98,12 @@
         <span id="chipStabilityState" class="auto-chip state-idle">Read: 0/2</span>
       </div>
       <p id="smartAssistSummary" class="scanner-learning-note">Learns successful scan conditions on this device. Camera frames stay private.</p>
+      <div class="scanner-diagnostic-actions">
+        <button type="button" id="recalibrateScannerBtn" class="link-btn">Recalibrate Camera</button>
+        <button type="button" id="resetSmartAssistBtn" class="link-btn">Reset Learning</button>
+        <button type="button" id="runDeviceCheckBtn" class="link-btn">Run Device Check</button>
+      </div>
+      <div id="scannerDeviceCheckResults" class="scanner-device-check-results" hidden aria-live="polite"></div>
     </details>
 
     <p class="scanner-flow-note">
@@ -180,9 +187,10 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
 <script src="/js/qr-behavior-classifier.js"></script>
-<script src="/js/scan-readiness-model.js?v=20260827-ml1"></script>
-<script src="/js/ml-qr-detector.js?v=20260827-ml1"></script>
+<script src="/js/scan-readiness-model.js?v=20260828-ops1"></script>
+<script src="/js/ml-qr-detector.js?v=20260828-ops1"></script>
 <script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
+<script src="/js/scanner-device-check.js?v=20260828-ops1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -217,6 +225,11 @@
     const chipRiskState = document.getElementById("chipRiskState");
     const chipStabilityState = document.getElementById("chipStabilityState");
     const chipCooldownState = document.getElementById("chipCooldownState");
+    const chipOfflineQueueState = document.getElementById("chipOfflineQueueState");
+    const recalibrateScannerBtn = document.getElementById("recalibrateScannerBtn");
+    const resetSmartAssistBtn = document.getElementById("resetSmartAssistBtn");
+    const runDeviceCheckBtn = document.getElementById("runDeviceCheckBtn");
+    const scannerDeviceCheckResults = document.getElementById("scannerDeviceCheckResults");
 
     const resultCard = document.getElementById("autoResultCard");
     const resultTitle = document.getElementById("autoResultTitle");
@@ -280,6 +293,9 @@
 
     let lastRiskAssessment = null;
     let latestMlMeta = null;
+    let scanCycleStartedAt = Date.now();
+    let unreadableFrameCount = 0;
+    let lastGuidanceKey = "center";
 
     let stableCandidateToken = "";
     let stableCandidateHits = 0;
@@ -366,7 +382,7 @@
       const leadReason = reasons[0] || "No anomaly reason available.";
       return `
         <p><strong>Risk:</strong> ${(risk.riskLevel || "low").toUpperCase()} (${Math.round((Number(risk.riskScore) || 0) * 100)}%)</p>
-        <p><strong>Signal:</strong> ${leadReason}</p>
+        <p><strong>Signal:</strong> ${escapeHtml(leadReason)}</p>
       `;
     }
 
@@ -505,6 +521,9 @@
       resultTitle.textContent = title;
       resultMessage.textContent = message;
       resultMeta.innerHTML = detailsHtml || "";
+      if (["success", "invalid", "error", "warning"].includes(state)) {
+        requestAnimationFrame(() => resultCard.classList.add("is-feedback-pop"));
+      }
     }
 
     function escapeHtml(value) {
@@ -525,6 +544,12 @@
           <strong>${escapeHtml(cleanValue)}</strong>
         </div>
       `;
+    }
+
+    function resultMetaRow(label, value) {
+      const cleanValue = String(value == null ? "" : value).trim();
+      if (!cleanValue) return "";
+      return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(cleanValue)}</p>`;
     }
 
     function closeScanInfoPopup() {
@@ -601,11 +626,11 @@
         return `
           <article class="session-event ${statusClass}">
             <div class="session-event-main">
-              <h4>${event.title}</h4>
-              <p>${event.detail || ""}</p>
+              <h4>${escapeHtml(event.title)}</h4>
+              <p>${escapeHtml(event.detail || "")}</p>
             </div>
             <div class="session-event-meta">
-              <span class="tag">${event.kind}</span>
+              <span class="tag">${escapeHtml(event.kind)}</span>
               <time>${formatTime(event.at)}</time>
             </div>
           </article>
@@ -614,6 +639,9 @@
     }
 
     function playTone(type = "ok") {
+      if (navigator.vibrate) {
+        navigator.vibrate(type === "ok" ? [60, 35, 80] : [180, 60, 80]);
+      }
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
@@ -642,6 +670,59 @@
       } catch (_error) {
         // Silent fallback
       }
+    }
+
+    function resetScanCycle() {
+      scanCycleStartedAt = Date.now();
+      unreadableFrameCount = 0;
+      lastGuidanceKey = "center";
+    }
+
+    function getDeviceClass() {
+      if (window.ScannerDeviceCheck?.classifyDevice) {
+        return window.ScannerDeviceCheck.classifyDevice(window.innerWidth, navigator.userAgent);
+      }
+      return window.innerWidth < 700 ? "mobile" : window.innerWidth < 1100 ? "tablet" : "desktop";
+    }
+
+    async function reportScannerMetric(outcome, options = {}) {
+      const metric = {
+        outcome,
+        device_id: scannerDeviceId,
+        gate_id: gateSelect?.value || "Main Gate",
+        movement_action: options.action || null,
+        detection_model: latestMlMeta?.model || (enhancedScannerAvailable ? "MLQrCodeScanner" : "html5-qrcode"),
+        detection_confidence: Number(latestMlMeta?.confidence ?? latestMlMeta?.ml_confidence ?? 0),
+        readiness_score: Number(latestMlMeta?.readinessScore ?? latestMlMeta?.readiness_score ?? 0),
+        process_ms: Number(latestMlMeta?.processMs ?? latestMlMeta?.process_ms ?? 0),
+        time_to_read_ms: Math.max(0, Date.now() - scanCycleStartedAt),
+        unreadable_frames: unreadableFrameCount,
+        guidance_key: lastGuidanceKey,
+        failure_reason: options.reason || null,
+        learning_samples: Number(latestMlMeta?.learningSamples ?? latestMlMeta?.learning_samples ?? 0),
+        device_class: getDeviceClass(),
+        occurred_at: new Date().toISOString()
+      };
+      try {
+        if (window.OfflineManager?.queueScanMetric) {
+          await window.OfflineManager.queueScanMetric(metric);
+        } else {
+          await fetch("/api/scanner-metrics", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(metric)
+          });
+        }
+      } catch (_error) {
+        // Telemetry must never interrupt gate scanning.
+      }
+    }
+
+    function updateOfflineQueueChip(status) {
+      const total = Number(status?.total) || 0;
+      const state = status?.syncing ? "warning" : total > 0 ? "warning" : "idle";
+      setChip(chipOfflineQueueState, status?.syncing ? `Syncing ${total}` : `Offline Queue: ${total}`, state);
     }
 
     function extractToken(decodedText) {
@@ -741,23 +822,23 @@
         </div>
         ${Object.keys(grouped).map((zone) => `
           <div class="auto-zone-block">
-            <p class="auto-zone-title">${zone}</p>
+            <p class="auto-zone-title">${escapeHtml(zone)}</p>
             <div class="auto-zone-grid">
               ${grouped[zone].map((slot) => {
                 const selected = String(selectedSlotId || "") === String(slot.id);
                 const occupancy = slot.occupancy || "available";
                 const selectable = occupancy === "available";
                 const occupant = slot.occupied_by_name
-                  ? `<small>${slot.occupied_by_name}</small>`
+                  ? `<small>${escapeHtml(slot.occupied_by_name)}</small>`
                   : "<small></small>";
                 return `
                   <button
                     type="button"
                     class="auto-slot-btn ${occupancy} ${selected ? "selected" : ""}"
-                    data-slot-id="${slot.id}"
-                    data-slot-code="${slot.slot_code}"
+                    data-slot-id="${escapeHtml(slot.id)}"
+                    data-slot-code="${escapeHtml(slot.slot_code)}"
                     ${selectable ? "" : "disabled"}>
-                    <span>${slot.slot_code}</span>
+                    <span>${escapeHtml(slot.slot_code)}</span>
                     ${occupant}
                   </button>
                 `;
@@ -782,10 +863,10 @@
       const safe = sticker || {};
       entryStickerDetails.innerHTML = `
         <div><span>Authorized</span><strong>Yes</strong></div>
-        <div><span>Student</span><strong>${safe.full_name || "-"}</strong></div>
-        <div><span>Student ID</span><strong>${safe.student_number || "-"}</strong></div>
-        <div><span>Plate Number</span><strong>${safe.plate_number || "-"}</strong></div>
-        <div><span>Vehicle Type</span><strong>${safe.vehicle_type || safe.vehicle_model || "-"}</strong></div>
+        <div><span>Student</span><strong>${escapeHtml(safe.full_name || "-")}</strong></div>
+        <div><span>Student ID</span><strong>${escapeHtml(safe.student_number || "-")}</strong></div>
+        <div><span>Plate Number</span><strong>${escapeHtml(safe.plate_number || "-")}</strong></div>
+        <div><span>Vehicle Type</span><strong>${escapeHtml(safe.vehicle_type || safe.vehicle_model || "-")}</strong></div>
       `;
     }
 
@@ -887,6 +968,7 @@
           setChip(chipAutoState, "Ready to Scan", "live");
           setChip(chipCameraState, "Camera Ready", "live");
           resetStability();
+          resetScanCycle();
           return;
         }
 
@@ -896,6 +978,7 @@
           setChip(chipAutoState, "Ready to Scan", "live");
           setChip(chipCameraState, "Camera Ready", "live");
           resetStability();
+          resetScanCycle();
           return;
         }
 
@@ -972,6 +1055,13 @@
         const data = await postJson("/api/auto-scan/detect", payload);
         lastRiskAssessment = normalizeRiskAssessment(data.behavior_risk, lastRiskAssessment);
         setRiskChip(lastRiskAssessment);
+        await reportScannerMetric(
+          data.duplicate_scan ? "DUPLICATE" : data.ok ? "SUCCESS" : "INVALID",
+          {
+            action: data.action || "VERIFY",
+            reason: data.duplicate_scan ? "Duplicate cooldown" : data.ok ? null : (data.message || data.result || "Invalid QR")
+          }
+        );
 
         if (data.duplicate_scan) {
           hideEntryPanel();
@@ -1010,7 +1100,7 @@
             "invalid",
             `Unauthorized (${statusLabel})`,
             data.message || "QR sticker is not valid.",
-            `${data.sticker ? `<p><strong>Student:</strong> ${data.sticker.full_name || "-"}</p>` : ""}${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
+            `${data.sticker ? resultMetaRow("Student", data.sticker.full_name || "-") : ""}${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`
           );
           pushSessionEvent("VERIFY", "error", `Scan rejected (${statusLabel})`, data.message || "Unauthorized sticker");
           showScanInfoPopup({
@@ -1038,9 +1128,9 @@
             "EXIT recorded",
             data.message || "Vehicle exit logged successfully.",
             `
-              <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
-              <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
-              <p><strong>Released Slot:</strong> ${data.released_slot || "N/A"}</p>
+              ${resultMetaRow("Student", data.sticker?.full_name || "-")}
+              ${resultMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${resultMetaRow("Released Slot", data.released_slot || "N/A")}
               ${renderMlMeta(decodeMeta)}
               ${renderRiskMeta(lastRiskAssessment)}
             `
@@ -1071,10 +1161,10 @@
             "ENTRY sent to laptop monitor",
             data.message || "Waiting for guard slot assignment on monitor console.",
             `
-              <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
-              <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
-              <p><strong>Gate:</strong> ${gateSelect.value}</p>
-              <p><strong>Queue ID:</strong> ${data.pending_entry_id || "-"}</p>
+              ${resultMetaRow("Student", data.sticker?.full_name || "-")}
+              ${resultMetaRow("Plate", data.sticker?.plate_number || "-")}
+              ${resultMetaRow("Gate", gateSelect.value)}
+              ${resultMetaRow("Queue ID", data.pending_entry_id || "-")}
               ${renderMlMeta(decodeMeta)}
               ${renderRiskMeta(lastRiskAssessment)}
             `
@@ -1119,9 +1209,9 @@
             "ENTRY detected - guard confirmation required",
             data.message || "Select a parking slot and confirm to save ENTRY.",
             `
-              <p><strong>Student:</strong> ${pendingSticker?.full_name || "-"}</p>
-              <p><strong>Plate:</strong> ${pendingSticker?.plate_number || "-"}</p>
-              <p><strong>Vehicle Type:</strong> ${pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-"}</p>
+              ${resultMetaRow("Student", pendingSticker?.full_name || "-")}
+              ${resultMetaRow("Plate", pendingSticker?.plate_number || "-")}
+              ${resultMetaRow("Vehicle Type", pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-")}
               ${renderMlMeta(decodeMeta)}
               ${renderRiskMeta(lastRiskAssessment)}
             `
@@ -1149,6 +1239,34 @@
         });
         await resumeScanner(900);
       } catch (error) {
+        if (!navigator.onLine && window.OfflineManager) {
+          try {
+            const offlineVerification = await window.OfflineManager.verifyOfflineToken(token);
+            if (offlineVerification?.ok) {
+              const offlineAction = offlineVerification.sticker?.last_action === "ENTRY" ? "EXIT" : "ENTRY";
+              await window.OfflineManager.queueMovement(token, offlineAction, gateSelect.value, Date.now());
+              hideEntryPanel();
+              setResultState("warning", `${offlineAction} queued offline`, "The record will synchronize automatically when internet access returns.");
+              setChip(chipAutoState, "Saved Offline", "warning");
+              pushSessionEvent(offlineAction, "warning", `${offlineAction} queued offline`, offlineVerification.sticker?.plate_number || gateSelect.value);
+              showScanInfoPopup({
+                tone: "warning",
+                kicker: "Saved offline",
+                title: `${offlineAction} queued`,
+                message: "Safe to continue scanning. This record will sync automatically.",
+                metaHtml: `${popupMetaRow("Plate", offlineVerification.sticker?.plate_number || "-")}${popupMetaRow("Gate", gateSelect.value)}`,
+                autoHideMs: 4200
+              });
+              playTone("ok");
+              await reportScannerMetric("OFFLINE_QUEUED", { action: offlineAction, reason: "Network unavailable" });
+              resetScanCycle();
+              await resumeScanner(900);
+              return;
+            }
+          } catch (_offlineError) {
+            // Fall through to the normal error state.
+          }
+        }
         hideEntryPanel();
         setResultState("error", "Scan failed", error.message || "Unable to process this scan right now.", `${renderMlMeta(decodeMeta)}${renderRiskMeta(lastRiskAssessment)}`);
         setCameraStatus(error.message || "Scan failed", "error");
@@ -1162,6 +1280,7 @@
           autoHideMs: 4200
         });
         playTone("warn");
+        await reportScannerMetric("ERROR", { reason: error.message || "Scan processing failed" });
         await resumeScanner(1200);
       } finally {
         processingScan = false;
@@ -1231,6 +1350,7 @@
             duplicateSuppressMs: 220,
             onMlMetrics: (metrics) => {
               scannerGuidance.update(metrics);
+              lastGuidanceKey = String(metrics?.readinessGuidance || lastGuidanceKey || "center");
               updateMlChip({
                 ...metrics,
                 model: metrics?.usedDetector ? "BarcodeDetector+jsQR" : "jsQR-fallback"
@@ -1251,6 +1371,7 @@
       };
 
       const onFailure = () => {
+        unreadableFrameCount += 1;
         scannerGuidance.unreadableFrame();
       };
 
@@ -1265,6 +1386,7 @@
           onFailure
         );
         cameraStarted = true;
+        resetScanCycle();
         scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Rear camera active", "ok");
@@ -1293,6 +1415,7 @@
         const rear = devices.find((d) => /back|rear|environment/i.test(d.label)) || devices[0];
         await html5QrCode.start(rear.id, config, handleDecodedText, onFailure);
         cameraStarted = true;
+        resetScanCycle();
         scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Camera active", "ok");
@@ -1316,6 +1439,7 @@
         setChip(chipMlState, "Smart Assist: Offline", "error");
         setResultState("error", "Camera unavailable", prettyMessage);
         pushSessionEvent("ERROR", "error", "Camera unavailable", prettyMessage);
+        await reportScannerMetric("CAMERA_ERROR", { reason: prettyMessage });
       }
     }
 
@@ -1374,7 +1498,51 @@
       setResultState("idle", "Entry confirmation cancelled", "Waiting for the next QR scan.");
       setChip(chipAutoState, "Ready to Scan", "live");
       pushSessionEvent("ENTRY", "warning", "Entry cancelled", `${plate} was not recorded`);
+      await reportScannerMetric("CANCELLED", { action: "ENTRY", reason: "Guard cancelled slot assignment" });
       await resumeScanner(500);
+    });
+
+    recalibrateScannerBtn?.addEventListener("click", async () => {
+      recalibrateScannerBtn.disabled = true;
+      setCameraStatus("Recalibrating focus and exposure...", "ok");
+      const recalibrated = typeof html5QrCode?.recalibrate === "function"
+        ? await html5QrCode.recalibrate()
+        : false;
+      setCameraStatus(
+        recalibrated ? "Camera recalibrated. Hold a QR steady." : "Automatic calibration is not supported by this camera.",
+        recalibrated ? "ok" : "neutral"
+      );
+      scannerGuidance.start();
+      resetStability();
+      resetScanCycle();
+      recalibrateScannerBtn.disabled = false;
+    });
+
+    resetSmartAssistBtn?.addEventListener("click", () => {
+      if (!confirm("Reset the locally learned scanner conditions on this device?")) return;
+      const status = typeof html5QrCode?.resetReadinessModel === "function"
+        ? html5QrCode.resetReadinessModel()
+        : null;
+      updateMlChip({
+        confidence: 0,
+        readinessScore: 0,
+        learningSamples: Number(status?.samples || 0),
+        model: enhancedScannerAvailable ? "MLQrCodeScanner" : "html5-qrcode"
+      });
+      setCameraStatus("Smart Assist reset. Scan normally to teach this device again.", "ok");
+      pushSessionEvent("SYSTEM", "ok", "Smart Assist reset", "Local learning restarted at 0/12 samples");
+    });
+
+    runDeviceCheckBtn?.addEventListener("click", () => {
+      if (!window.ScannerDeviceCheck?.inspect || !scannerDeviceCheckResults) return;
+      const result = window.ScannerDeviceCheck.inspect("autoQrReader");
+      scannerDeviceCheckResults.hidden = false;
+      scannerDeviceCheckResults.className = `scanner-device-check-results grade-${result.grade}`;
+      scannerDeviceCheckResults.innerHTML = `
+        <strong>${result.ready ? "Device is ready for scanning" : "Device needs attention"}</strong>
+        <span>${result.deviceClass} · ${result.grade.replace("-", " ")}</span>
+        <ul>${result.checks.map((check) => `<li class="${check.passed ? "passed" : "failed"}">${check.passed ? "✓" : "!"} ${check.label}${!check.passed && !check.required ? " (optional)" : ""}</li>`).join("")}</ul>
+      `;
     });
 
     scanInfoPopupClose?.addEventListener("click", closeScanInfoPopup);
@@ -1433,10 +1601,10 @@
           "ENTRY recorded",
           data.message || "Entry logged successfully.",
           `
-            <p><strong>Student:</strong> ${data.sticker?.full_name || "-"}</p>
-            <p><strong>Plate:</strong> ${data.sticker?.plate_number || "-"}</p>
-            <p><strong>Assigned Slot:</strong> ${data.parking_slot || "-"}</p>
-            <p><strong>Assigned Area:</strong> ${data.assigned_area || "-"}</p>
+            ${resultMetaRow("Student", data.sticker?.full_name || "-")}
+            ${resultMetaRow("Plate", data.sticker?.plate_number || "-")}
+            ${resultMetaRow("Assigned Slot", data.parking_slot || "-")}
+            ${resultMetaRow("Assigned Area", data.assigned_area || "-")}
             ${renderRiskMeta(lastRiskAssessment)}
           `
         );
@@ -1491,6 +1659,12 @@
     updateCooldownChip();
     setRiskChip(null);
     updateMlChip(null);
+    window.addEventListener("naap-offline-queue-status", (event) => updateOfflineQueueChip(event.detail));
+    if (window.OfflineManager?.getQueueStatus) {
+      window.OfflineManager.getQueueStatus().then(updateOfflineQueueChip);
+    } else {
+      updateOfflineQueueChip({ total: 0 });
+    }
     startHeartbeatLoop();
     gateSelect?.addEventListener("change", () => {
       try {

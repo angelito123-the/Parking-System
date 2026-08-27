@@ -1,0 +1,76 @@
+<%- include("partials/header") %>
+<%
+  const safeSummary = summary || {};
+  const safeOutcomes = Array.isArray(outcomes) ? outcomes : [];
+  const safeFailures = Array.isArray(failures) ? failures : [];
+  const safeGates = Array.isArray(gates) ? gates : [];
+  const safeDaily = Array.isArray(daily) ? daily : [];
+  const safeDevices = Array.isArray(devices) ? devices : [];
+  const safeRecent = Array.isArray(recent) ? recent : [];
+  const maxDaily = Math.max(1, ...safeDaily.map((row) => Number(row.total) || 0));
+  const percent = (value) => `${Math.round((Number(value) || 0) * 100)}%`;
+  const successRate = (row) => Number(row.total) ? Math.round((Number(row.successful) / Number(row.total)) * 1000) / 10 : 0;
+%>
+
+<section class="dashboard-hero scanner-analytics-hero">
+  <div class="hero-greeting"><h2>Scanner Operations</h2><h1>Performance Dashboard</h1><p>Anonymous scan-quality measurements only. QR contents and camera frames are never collected here.</p></div>
+  <div class="hero-cards">
+    <div class="hero-card"><h3>Scan Attempts</h3><p><%= safeSummary.total || 0 %></p></div>
+    <div class="hero-card hero-card--primary"><h3>Success Rate</h3><p><%= safeSummary.success_rate || 0 %>%</p></div>
+    <div class="hero-card"><h3>Average Read Time</h3><p class="security-text-value"><%= safeSummary.avg_time_to_read_ms ? `${(safeSummary.avg_time_to_read_ms / 1000).toFixed(1)}s` : "—" %></p></div>
+    <div class="hero-card"><h3>Offline Queued</h3><p><%= safeSummary.offline_count || 0 %></p></div>
+  </div>
+</section>
+
+<div class="overlap-wrapper analytics-ops-grid">
+  <section class="panel analytics-filter-panel">
+    <form method="get" action="/admin/scanner-analytics" class="scanner-analytics-filters">
+      <div><label for="analyticsDays">Period</label><select id="analyticsDays" name="days"><% [7,30,90].forEach((days) => { %><option value="<%= days %>" <%= Number(filters.days) === days ? 'selected' : '' %>>Last <%= days %> days</option><% }) %></select></div>
+      <div><label for="analyticsGate">Gate</label><select id="analyticsGate" name="gate"><option value="">All gates</option><% gateOptions.forEach((gate) => { %><option value="<%= gate %>" <%= filters.gate === gate ? 'selected' : '' %>><%= gate %></option><% }) %></select></div>
+      <div class="form-actions"><button type="submit">Apply</button></div>
+    </form>
+  </section>
+
+  <section class="scanner-quality-grid">
+    <article class="panel compact-stat-panel"><span>Average confidence</span><strong><%= percent(safeSummary.avg_confidence) %></strong><small>QR detection confidence</small></article>
+    <article class="panel compact-stat-panel"><span>Average readiness</span><strong><%= percent(safeSummary.avg_readiness) %></strong><small>Smart Assist prediction</small></article>
+    <article class="panel compact-stat-panel"><span>Successful reads</span><strong><%= safeSummary.successful || 0 %></strong><small>Completed scan processing</small></article>
+  </section>
+
+  <section class="analytics-two-column">
+    <article class="panel">
+      <div class="section-head"><h2>Daily Scan Reliability</h2><p>Volume and successful reads by day.</p></div>
+      <div class="scanner-daily-chart">
+        <% safeDaily.forEach((row) => { const rate = successRate(row); %>
+          <div class="scanner-daily-row"><span><%= new Date(row.day).toLocaleDateString('en-PH', { month:'short', day:'numeric' }) %></span><div><i style="width:<%= Math.max(3, (Number(row.total) / maxDaily) * 100) %>%"></i></div><strong><%= rate %>%</strong></div>
+        <% }) %>
+        <% if (!safeDaily.length) { %><div class="empty-state"><p>No scanner measurements for this period.</p></div><% } %>
+      </div>
+    </article>
+    <article class="panel">
+      <div class="section-head"><h2>Problems to Address</h2><p>Most common unsuccessful conditions.</p></div>
+      <div class="analytics-ranked-list">
+        <% safeFailures.forEach((row, index) => { %><div><span><b><%= index + 1 %></b><%= row.reason %></span><strong><%= row.total %></strong></div><% }) %>
+        <% if (!safeFailures.length) { %><div class="empty-state"><p>No failed scan reasons recorded.</p></div><% } %>
+      </div>
+    </article>
+  </section>
+
+  <section class="analytics-two-column">
+    <article class="panel">
+      <div class="section-head"><h2>Gate Performance</h2><p>Compare scan volume and success rate.</p></div>
+      <div class="table-wrap"><table><thead><tr><th>Gate</th><th>Attempts</th><th>Success</th></tr></thead><tbody><% safeGates.forEach((row) => { %><tr><td><strong><%= row.gate_id || 'Unspecified' %></strong></td><td><%= row.total %></td><td><%= successRate(row) %>%</td></tr><% }) %><% if (!safeGates.length) { %><tr><td colspan="3">No gate data available.</td></tr><% } %></tbody></table></div>
+    </article>
+    <article class="panel">
+      <div class="section-head"><h2>Device Compatibility</h2><p>Results grouped without storing personal device identifiers.</p></div>
+      <div class="table-wrap"><table><thead><tr><th>Device</th><th>Browser</th><th>Attempts</th><th>Success</th></tr></thead><tbody><% safeDevices.forEach((row) => { %><tr><td><%= row.device_class || 'unknown' %></td><td><%= row.browser_family || 'Other' %></td><td><%= row.total %></td><td><%= successRate(row) %>%</td></tr><% }) %><% if (!safeDevices.length) { %><tr><td colspan="4">No device data available.</td></tr><% } %></tbody></table></div>
+    </article>
+  </section>
+
+  <section class="panel analytics-recent-panel">
+    <div class="section-head"><h2>Recent Scanner Measurements</h2><p>Use failures to plan camera, lighting, or QR sticker improvements.</p></div>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Outcome</th><th>Gate</th><th>Action</th><th>Read Time</th><th>Readiness</th><th>Issue</th></tr></thead><tbody><% safeRecent.forEach((row) => { %><tr><td><%= new Date(row.created_at).toLocaleString('en-PH', { timeZone:'Asia/Manila' }) %></td><td><span class="badge"><%= row.outcome %></span></td><td><%= row.gate_id || '—' %></td><td><%= row.movement_action || '—' %></td><td><%= row.time_to_read_ms ? `${(Number(row.time_to_read_ms)/1000).toFixed(1)}s` : '—' %></td><td><%= row.readiness_score == null ? '—' : percent(row.readiness_score) %></td><td><%= row.failure_reason || '—' %></td></tr><% }) %><% if (!safeRecent.length) { %><tr><td colspan="7">No scanner measurements recorded yet.</td></tr><% } %></tbody></table></div>
+  </section>
+</div>
+
+<%- include("partials/footer") %>
