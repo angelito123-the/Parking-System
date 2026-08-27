@@ -1,21 +1,36 @@
 ﻿<%- include("partials/header") %>
 
+<% const isRemoteScannerMode = Boolean(deferEntryConfirmation); %>
+
 <section class="dashboard-hero">
   <div class="hero-greeting">
-    <h2>Access Control</h2>
-    <h1>Phone Camera Scanner</h1>
+    <h2>Gate Operations</h2>
+    <h1><%= isRemoteScannerMode ? 'Remote Camera' : 'Scan & Process' %></h1>
   </div>
   <p style="color: rgba(255,255,255,0.82); margin-top: 0.5rem;">
-    Scan using phone camera, then forward ENTRY requests to the laptop monitor for slot assignment.
+    <%= isRemoteScannerMode
+      ? 'Use this device as a camera and send entry requests to the guard console.'
+      : 'Scan a QR, assign an entry slot, and continue to the next vehicle from one screen.' %>
   </p>
 </section>
 
-<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>">
+<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>" data-scanner-mode="<%= isRemoteScannerMode ? 'remote' : 'local' %>">
+  <section class="panel scan-mode-bar" aria-label="Scanner mode">
+    <div class="scan-mode-copy">
+      <strong><%= isRemoteScannerMode ? 'Remote phone mode' : 'Standard gate mode' %></strong>
+      <span><%= isRemoteScannerMode ? 'Entries wait for approval on another device.' : 'Recommended: scan and approve entries on this device.' %></span>
+    </div>
+    <div class="scan-mode-switch" role="navigation" aria-label="Choose scanner workflow">
+      <a href="/scanner/auto" class="<%= isRemoteScannerMode ? '' : 'is-active' %>" <%- isRemoteScannerMode ? '' : 'aria-current="page"' %>>This device</a>
+      <a href="/scanner/auto?mode=remote" class="<%= isRemoteScannerMode ? 'is-active' : '' %>" <%- isRemoteScannerMode ? 'aria-current="page"' : '' %>>Remote phone</a>
+    </div>
+  </section>
+
   <section class="panel auto-gate-camera-panel">
     <div class="auto-gate-toolbar">
       <div>
-        <h3>Live Camera Feed</h3>
-        <p>Place the phone at the gate and keep the QR sticker within the frame.</p>
+        <h3>Scan Vehicle QR</h3>
+        <p>The rear camera starts automatically. Hold the QR inside the guide.</p>
       </div>
       <div class="auto-gate-controls">
         <div>
@@ -32,12 +47,9 @@
     </div>
 
     <div class="auto-indicator-row">
-      <span id="chipAutoState" class="auto-chip state-live">Auto-Scan Active</span>
+      <span id="chipAutoState" class="auto-chip state-live">Scanner Active</span>
       <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
-      <span id="chipMlState" class="auto-chip state-idle">ML Detect: Warmup</span>
-      <span id="chipRiskState" class="auto-chip state-idle">Risk: Unchecked</span>
-      <span id="chipStabilityState" class="auto-chip state-idle">Stable Read: 0/2</span>
-      <span id="chipCooldownState" class="auto-chip state-idle">Cooldown: Ready</span>
+      <span id="chipCooldownState" class="auto-chip state-idle">Ready for QR</span>
     </div>
 
     <div id="autoCameraWrapper" class="auto-camera-wrapper">
@@ -77,15 +89,28 @@
       </div>
     </div>
 
-    <p class="helper-text" style="margin-top:0.55rem;">
-      ENTRY scans are queued for laptop guard confirmation. EXIT scans are saved automatically.
+    <details class="scanner-diagnostics">
+      <summary>Scanner details</summary>
+      <div class="scanner-diagnostics-chips">
+        <span id="chipMlState" class="auto-chip state-idle">Smart Assist: Starting</span>
+        <span id="chipRiskState" class="auto-chip state-idle">QR Safety: Waiting</span>
+        <span id="chipStabilityState" class="auto-chip state-idle">Read: 0/2</span>
+      </div>
+      <p id="smartAssistSummary" class="scanner-learning-note">Learns successful scan conditions on this device. Camera frames stay private.</p>
+    </details>
+
+    <p class="scanner-flow-note">
+      <strong><%= isRemoteScannerMode ? 'Remote workflow:' : 'Simple workflow:' %></strong>
+      <%= isRemoteScannerMode
+        ? 'Entry scans are sent to the other guard device. Exits are recorded automatically.'
+        : 'For entry, choose an available slot below. Exits are recorded automatically.' %>
     </p>
   </section>
 
   <section class="panel auto-gate-result-panel">
     <div class="section-head">
-      <h2>Detection Result</h2>
-      <p>Review scan status. ENTRY is sent to laptop monitor for slot assignment.</p>
+      <h2>Current Scan</h2>
+      <p><%= isRemoteScannerMode ? 'Entry approvals will appear on the guard console.' : 'Follow the prompt shown here after the QR is detected.' %></p>
     </div>
 
     <div id="autoResultCard" class="auto-result-card state-idle">
@@ -96,8 +121,8 @@
 
     <div id="entryConfirmPanel" class="entry-confirm-panel" style="display:none;">
       <div class="entry-confirm-head">
-        <h3>Confirm Entry Assignment</h3>
-        <p>Guard confirmation is required before saving ENTRY.</p>
+        <h3>Choose a Slot</h3>
+        <p>Select one available parking slot, then confirm the vehicle entry.</p>
       </div>
 
       <div id="entryStickerDetails" class="entry-sticker-grid"></div>
@@ -110,22 +135,27 @@
       <p id="entryConfirmHint" class="helper-text"></p>
 
       <div class="entry-confirm-actions">
-        <button type="button" id="confirmEntryBtn" class="entry-confirm-btn" disabled>Confirm ENTRY</button>
+        <button type="button" id="confirmEntryBtn" class="entry-confirm-btn" disabled>Confirm Entry</button>
         <button type="button" id="cancelEntryBtn" class="entry-cancel-btn">Cancel</button>
       </div>
     </div>
 
-    <div class="auto-session-panel">
-      <div class="auto-session-head">
-        <h3>Session Events</h3>
-        <p>Latest activity in this browser session.</p>
+    <details class="auto-session-panel">
+      <summary class="auto-session-head">
+        <span>
+          <strong>Recent Scans</strong>
+          <small>Activity from this session</small>
+        </span>
+        <span aria-hidden="true">View</span>
+      </summary>
+      <div class="auto-session-content">
+        <div id="sessionEventEmpty" class="auto-session-empty">No scans yet.</div>
+        <div id="sessionEventList" class="auto-session-list"></div>
       </div>
-      <div id="sessionEventEmpty" class="auto-session-empty">No events yet.</div>
-      <div id="sessionEventList" class="auto-session-list"></div>
-    </div>
+    </details>
 
     <div class="auto-fallback-actions">
-      <a href="/scanner" class="link-btn">Open Laptop Guard Monitor</a>
+      <a href="/scanner" class="link-btn"><%= isRemoteScannerMode ? 'Open guard console' : 'QR not scanning? Use manual lookup' %></a>
       <button type="button" id="resumeScannerBtn" class="auto-resume-btn">Resume Scanner</button>
     </div>
   </section>
@@ -150,16 +180,18 @@
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
 <script src="/js/qr-behavior-classifier.js"></script>
-<script src="/js/ml-qr-detector.js?v=20260826-guide1"></script>
-<script src="/js/scanner-guidance.js?v=20260826-guide1"></script>
+<script src="/js/scan-readiness-model.js?v=20260827-ml1"></script>
+<script src="/js/ml-qr-detector.js?v=20260827-ml1"></script>
+<script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
     const shell = document.querySelector(".auto-gate-shell");
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
-    const deferEntryConfirmation = true;
+    const deferEntryConfirmation = <%- isRemoteScannerMode ? "true" : "false" %>;
     const HEARTBEAT_INTERVAL_MS = 6000;
     const HEARTBEAT_STORAGE_KEY = "naap_auto_scanner_device_id";
+    const GATE_STORAGE_KEY = "naap_scanner_gate";
     const enhancedScannerAvailable = typeof window.MLQrCodeScanner === "function" && typeof window.jsQR === "function";
 
     const STABLE_READ_MIN_HITS = 2;
@@ -167,6 +199,7 @@
     const LOCAL_DEDUP_FLOOR_MS = 2500;
 
     const gateSelect = document.getElementById("autoGateSelect");
+    const cameraWrapper = document.getElementById("autoCameraWrapper");
     const toggleCameraBtn = document.getElementById("toggleAutoCameraBtn");
     const resumeScannerBtn = document.getElementById("resumeScannerBtn");
     const cameraStatus = document.getElementById("autoCameraStatus");
@@ -180,6 +213,7 @@
     const chipAutoState = document.getElementById("chipAutoState");
     const chipCameraState = document.getElementById("chipCameraState");
     const chipMlState = document.getElementById("chipMlState");
+    const smartAssistSummary = document.getElementById("smartAssistSummary");
     const chipRiskState = document.getElementById("chipRiskState");
     const chipStabilityState = document.getElementById("chipStabilityState");
     const chipCooldownState = document.getElementById("chipCooldownState");
@@ -206,6 +240,15 @@
     const scanInfoPopupTitle = document.getElementById("scanInfoPopupTitle");
     const scanInfoPopupMessage = document.getElementById("scanInfoPopupMessage");
     const scanInfoPopupMeta = document.getElementById("scanInfoPopupMeta");
+
+    try {
+      const savedGate = localStorage.getItem(GATE_STORAGE_KEY);
+      if (savedGate && Array.from(gateSelect?.options || []).some((option) => option.value === savedGate)) {
+        gateSelect.value = savedGate;
+      }
+    } catch (_storageError) {
+      // Continue with Main Gate when browser storage is unavailable.
+    }
 
     if (deferEntryConfirmation && entryConfirmPanel) {
       entryConfirmPanel.style.display = "none";
@@ -257,19 +300,19 @@
 
     function setRiskChip(risk) {
       if (!risk || !chipRiskState) {
-        setChip(chipRiskState, "Risk: Unchecked", "idle");
+        setChip(chipRiskState, "QR Safety: Waiting", "idle");
         return;
       }
       const scorePercent = Math.round((Number(risk.riskScore) || 0) * 100);
       if (risk.riskLevel === "high") {
-        setChip(chipRiskState, `Risk: High (${scorePercent}%)`, "error");
+        setChip(chipRiskState, `QR Safety: High risk (${scorePercent}%)`, "error");
         return;
       }
       if (risk.riskLevel === "medium") {
-        setChip(chipRiskState, `Risk: Medium (${scorePercent}%)`, "warning");
+        setChip(chipRiskState, `QR Safety: Review (${scorePercent}%)`, "warning");
         return;
       }
-      setChip(chipRiskState, `Risk: Low (${scorePercent}%)`, "live");
+      setChip(chipRiskState, `QR Safety: Clear (${scorePercent}%)`, "live");
     }
 
     function normalizeRiskAssessment(riskPayload, fallbackRisk = null) {
@@ -331,8 +374,11 @@
       if (!meta) return "";
       const confidence = Number(meta.ml_confidence ?? meta.confidence ?? 0);
       const processMs = Number(meta.process_ms ?? meta.processMs ?? 0);
+      const readinessValue = meta.readiness_score ?? meta.readinessScore;
+      const readiness = readinessValue === null || readinessValue === undefined ? null : Number(readinessValue);
       return `
         <p><strong>Detection Confidence:</strong> ${Math.round(confidence * 100)}%</p>
+        ${Number.isFinite(readiness) ? `<p><strong>Scan Readiness:</strong> ${Math.round(readiness * 100)}%</p>` : ""}
         <p><strong>Frame Process:</strong> ${processMs > 0 ? `${Math.round(processMs)}ms` : "N/A"}</p>
       `;
     }
@@ -340,24 +386,34 @@
     function updateMlChip(meta) {
       latestMlMeta = meta || null;
       if (!meta) {
-        setChip(chipMlState, "ML Detect: Idle", "idle");
+        setChip(chipMlState, "Smart Assist: Waiting", "idle");
+        if (smartAssistSummary) smartAssistSummary.textContent = "Learns successful scan conditions on this device. Camera frames stay private.";
         return;
       }
 
       const confidence = Number(meta.confidence || meta.ml_confidence || 0);
-      const confidencePercent = Math.round(confidence * 100);
-      if (confidence >= 0.45) {
-        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "live");
-      } else if (confidence >= 0.28) {
-        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "warning");
+      const readinessValue = meta.readinessScore ?? meta.readiness_score;
+      const readiness = readinessValue === null || readinessValue === undefined ? null : Number(readinessValue);
+      const samples = Math.max(0, Number(meta.learningSamples ?? meta.learning_samples ?? 0));
+      if (Number.isFinite(readiness)) {
+        const readinessPercent = Math.round(readiness * 100);
+        const tone = readiness >= 0.68 ? "live" : readiness >= 0.42 ? "warning" : "idle";
+        setChip(chipMlState, `Smart Assist: ${readinessPercent}% ready`, tone);
+        if (smartAssistSummary) {
+          smartAssistSummary.textContent = samples >= 12
+            ? `Adapted from ${Math.round(samples)} local scan samples. No camera frames are stored.`
+            : `Learning locally (${Math.round(samples)}/12 samples). No camera frames are stored.`;
+        }
+      } else if (confidence >= 0.45) {
+        setChip(chipMlState, "Smart Assist: Active", "live");
       } else {
-        setChip(chipMlState, `ML Detect: ${confidencePercent}%`, "idle");
+        setChip(chipMlState, "Smart Assist: Learning", "warning");
       }
     }
 
     function updateStabilityChip() {
       const hits = Math.max(0, Math.min(STABLE_READ_MIN_HITS, stableCandidateHits));
-      setChip(chipStabilityState, `Stable Read: ${hits}/${STABLE_READ_MIN_HITS}`, hits >= STABLE_READ_MIN_HITS ? "live" : "idle");
+      setChip(chipStabilityState, `QR Read: ${hits}/${STABLE_READ_MIN_HITS}`, hits >= STABLE_READ_MIN_HITS ? "live" : "idle");
     }
 
     function updateCooldownChip() {
@@ -373,12 +429,12 @@
       }
 
       if (!nearestRemainingMs) {
-        setChip(chipCooldownState, "Cooldown: Ready", "idle");
+        setChip(chipCooldownState, "Ready for QR", "idle");
         return;
       }
 
       const seconds = Math.max(1, Math.ceil(nearestRemainingMs / 1000));
-      setChip(chipCooldownState, `Cooldown: ${seconds}s`, "warning");
+      setChip(chipCooldownState, `Next scan in ${seconds}s`, "warning");
     }
 
     setInterval(updateCooldownChip, 350);
@@ -716,7 +772,8 @@
           selectedSlotId = button.dataset.slotId;
           renderSlotMap();
           confirmEntryBtn.disabled = false;
-          entryConfirmHint.textContent = `Selected slot: ${button.dataset.slotCode}`;
+          confirmEntryBtn.textContent = `Confirm Entry · ${button.dataset.slotCode}`;
+          entryConfirmHint.textContent = `${button.dataset.slotCode} selected. Confirm to admit the vehicle.`;
         });
       });
     }
@@ -738,6 +795,7 @@
       pendingSlotOverview = null;
       selectedSlotId = null;
       confirmEntryBtn.disabled = true;
+      confirmEntryBtn.textContent = "Confirm Entry";
       cancelEntryBtn.disabled = false;
       entryConfirmHint.textContent = "";
       entryStickerDetails.innerHTML = "";
@@ -805,7 +863,7 @@
       setCameraStatus("Reinitializing camera...", "ok");
       setChip(chipCameraState, "Reinitializing", "warning");
       setChip(chipAutoState, "Recovering Scanner", "warning");
-      setChip(chipMlState, "ML Detect: Reinit", "warning");
+      setChip(chipMlState, "Smart Assist: Restarting", "warning");
 
       await startCamera();
     }
@@ -826,7 +884,7 @@
       try {
         if (state === QR_STATE.SCANNING) {
           setCameraStatus("Scanner active", "ok");
-          setChip(chipAutoState, "Auto-Scan Active", "live");
+          setChip(chipAutoState, "Ready to Scan", "live");
           setChip(chipCameraState, "Camera Ready", "live");
           resetStability();
           return;
@@ -835,7 +893,7 @@
         if (state === QR_STATE.PAUSED) {
           await html5QrCode.resume();
           setCameraStatus("Scanner active", "ok");
-          setChip(chipAutoState, "Auto-Scan Active", "live");
+          setChip(chipAutoState, "Ready to Scan", "live");
           setChip(chipCameraState, "Camera Ready", "live");
           resetStability();
           return;
@@ -886,7 +944,11 @@
         updateMlChip({
           confidence: decodeMeta.ml_confidence ?? decodeMeta.confidence,
           processMs: decodeMeta.process_ms,
-          model: decodeMeta.model || null
+          model: decodeMeta.model || null,
+          readinessScore: decodeMeta.readiness_score,
+          readinessGuidance: decodeMeta.readiness_guidance,
+          learningSamples: decodeMeta.learning_samples,
+          learningTrained: decodeMeta.learning_trained
         });
       }
       setResultState("processing", "Processing QR scan", "Verifying sticker and determining movement...");
@@ -1066,18 +1128,10 @@
           );
           setChip(chipAutoState, "Awaiting Guard", "warning");
           pushSessionEvent("ENTRY", "warning", "Entry pending confirmation", `${pendingSticker?.plate_number || "Unknown plate"} waiting for slot assignment`);
-          showScanInfoPopup({
-            tone: "warning",
-            kicker: "Guard action needed",
-            title: "Confirm parking assignment",
-            message: data.message || "Select a parking slot before saving ENTRY.",
-            metaHtml: `
-              ${popupMetaRow("Student", pendingSticker?.full_name || "-")}
-              ${popupMetaRow("Plate", pendingSticker?.plate_number || "-")}
-              ${popupMetaRow("Vehicle", pendingSticker?.vehicle_type || pendingSticker?.vehicle_model || "-")}
-            `,
-            persist: true
-          });
+          closeScanInfoPopup();
+          window.setTimeout(() => {
+            entryConfirmPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 120);
           playTone("ok");
           return;
         }
@@ -1125,7 +1179,11 @@
         updateMlChip({
           confidence: decodeMeta.ml_confidence ?? decodeMeta.confidence,
           processMs: decodeMeta.process_ms,
-          model: decodeMeta.model || null
+          model: decodeMeta.model || null,
+          readinessScore: decodeMeta.readiness_score,
+          readinessGuidance: decodeMeta.readiness_guidance,
+          learningSamples: decodeMeta.learning_samples,
+          learningTrained: decodeMeta.learning_trained
         });
       }
 
@@ -1135,7 +1193,7 @@
       const remainingCooldown = getLocalCooldownRemainingMs(token);
       if (remainingCooldown > 0) {
         const seconds = Math.max(1, Math.ceil(remainingCooldown / 1000));
-        setChip(chipCooldownState, `Cooldown: ${seconds}s`, "warning");
+        setChip(chipCooldownState, `Next scan in ${seconds}s`, "warning");
         return;
       }
 
@@ -1174,16 +1232,15 @@
             onMlMetrics: (metrics) => {
               scannerGuidance.update(metrics);
               updateMlChip({
-                confidence: metrics?.confidence,
-                processMs: metrics?.processMs,
+                ...metrics,
                 model: metrics?.usedDetector ? "BarcodeDetector+jsQR" : "jsQR-fallback"
               });
             }
           });
-          setChip(chipMlState, "ML Detect: Enabled", "live");
+          setChip(chipMlState, "Smart Assist: Active", "live");
         } else {
           html5QrCode = new Html5Qrcode("autoQrReader");
-          setChip(chipMlState, "ML Detect: Fallback", "warning");
+          setChip(chipMlState, "Smart Assist: Unavailable", "warning");
         }
       }
 
@@ -1211,10 +1268,10 @@
         scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Rear camera active", "ok");
-        setChip(chipAutoState, "Auto-Scan Active", "live");
+        setChip(chipAutoState, "Ready to Scan", "live");
         setChip(chipCameraState, "Camera Ready", "live");
         if (!enhancedScannerAvailable) {
-          setChip(chipMlState, "ML Detect: Fallback", "warning");
+          setChip(chipMlState, "Smart Assist: Unavailable", "warning");
         }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
         return;
@@ -1239,10 +1296,10 @@
         scannerGuidance.start();
         toggleCameraBtn.textContent = "Stop Camera";
         setCameraStatus("Camera active", "ok");
-        setChip(chipAutoState, "Auto-Scan Active", "live");
+        setChip(chipAutoState, "Ready to Scan", "live");
         setChip(chipCameraState, "Camera Ready", "live");
         if (!enhancedScannerAvailable) {
-          setChip(chipMlState, "ML Detect: Fallback", "warning");
+          setChip(chipMlState, "Smart Assist: Unavailable", "warning");
         }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
       } catch (error) {
@@ -1256,7 +1313,7 @@
         setCameraStatus(prettyMessage, "error");
         setChip(chipCameraState, "Camera Error", "error");
         setChip(chipAutoState, "Scanner Stopped", "idle");
-        setChip(chipMlState, "ML Detect: Offline", "error");
+        setChip(chipMlState, "Smart Assist: Offline", "error");
         setResultState("error", "Camera unavailable", prettyMessage);
         pushSessionEvent("ERROR", "error", "Camera unavailable", prettyMessage);
       }
@@ -1286,8 +1343,8 @@
       setCameraStatus("Camera stopped");
       setChip(chipCameraState, "Camera Stopped", "idle");
       setChip(chipAutoState, "Scanner Stopped", "idle");
-      setChip(chipMlState, "ML Detect: Idle", "idle");
-      setChip(chipRiskState, "Risk: Unchecked", "idle");
+      setChip(chipMlState, "Smart Assist: Waiting", "idle");
+      setChip(chipRiskState, "QR Safety: Waiting", "idle");
       resetStability();
       setProcessingOverlay(false);
     }
@@ -1315,7 +1372,7 @@
       const plate = pendingSticker?.plate_number || "Unknown plate";
       hideEntryPanel();
       setResultState("idle", "Entry confirmation cancelled", "Waiting for the next QR scan.");
-      setChip(chipAutoState, "Auto-Scan Active", "live");
+      setChip(chipAutoState, "Ready to Scan", "live");
       pushSessionEvent("ENTRY", "warning", "Entry cancelled", `${plate} was not recorded`);
       await resumeScanner(500);
     });
@@ -1396,10 +1453,13 @@
           `
         });
 
-        setChip(chipAutoState, "Auto-Scan Active", "live");
+        setChip(chipAutoState, "Ready to Scan", "live");
         pushSessionEvent("ENTRY", "ok", "Entry saved", `${data.sticker?.plate_number || "Unknown plate"} assigned to ${data.parking_slot || "N/A"}`);
         playTone("ok");
         await resumeScanner(1100);
+        if (window.matchMedia("(max-width: 900px)").matches) {
+          cameraWrapper?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       } catch (error) {
         entryConfirmHint.textContent = error.message || "Failed to save entry.";
         confirmEntryBtn.disabled = false;
@@ -1432,7 +1492,14 @@
     setRiskChip(null);
     updateMlChip(null);
     startHeartbeatLoop();
-    gateSelect?.addEventListener("change", () => sendHeartbeat());
+    gateSelect?.addEventListener("change", () => {
+      try {
+        localStorage.setItem(GATE_STORAGE_KEY, gateSelect.value);
+      } catch (_storageError) {
+        // Gate selection still works for this session.
+      }
+      sendHeartbeat();
+    });
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) sendHeartbeat();
     });

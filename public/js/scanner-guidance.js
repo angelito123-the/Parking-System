@@ -30,9 +30,19 @@
     const confidence = finiteNumber(data.confidence);
     const threshold = finiteNumber(data.threshold) ?? 0.35;
     const detectedRegion = data.detectedRegion === true;
+    const readinessScore = finiteNumber(data.readinessScore);
+    const learnedGuidance = String(data.readinessGuidance || "").trim();
 
     if (brightness !== null && brightness < 62) return MESSAGES.lighting;
     if (detectedRegion && areaRatio !== null && areaRatio < 0.07) return MESSAGES.closer;
+    if (
+      detectedRegion
+      && readinessScore !== null
+      && readinessScore < 0.58
+      && Object.prototype.hasOwnProperty.call(MESSAGES, learnedGuidance)
+    ) {
+      return MESSAGES[learnedGuidance];
+    }
     if (detectedRegion && confidence !== null && confidence < threshold) return MESSAGES.steady;
     if (detectedRegion) return MESSAGES.reading;
     return MESSAGES.center;

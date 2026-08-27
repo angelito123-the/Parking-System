@@ -365,7 +365,14 @@
       this.onFailure = null;
       this.detector = null;
       this.lastProcessDurationMs = 0;
+      this.lastMlMetrics = null;
       this.frameCounter = 0;
+      this.lastDetectedRegion = null;
+      this.readinessModel = typeof ScanReadinessModel === "function"
+        ? new ScanReadinessModel({
+            storageKey: String(options.readinessStorageKey || "naap-scan-readiness-v1")
+          })
+        : null;
 
       if (typeof BarcodeDetector !== "undefined") {
         this.detector = new BarcodeDetector({ formats: ["qr_code"] });
@@ -451,6 +458,7 @@
       this.lastDecodedAt = 0;
       this.lastDecodedText = "";
       this.frameCounter = 0;
+      this.lastDetectedRegion = null;
       this.startLoop();
       return null;
     }
@@ -488,19 +496,72 @@
       this.rafId = requestAnimationFrame(tick);
     }
 
+    measureRegion(detection, width, height) {
+      if (!detection?.detection || !detection.rect) {
+        this.lastDetectedRegion = null;
+        return { areaRatio: null, detectedRegion: false, stabilityScore: 0.18 };
+      }
+
+      const rect = normalizeRect(detection.rect, width, height);
+      const areaRatio = clamp((rect.width * rect.height) / (width * height), 0, 1);
+      const current = {
+        x: (rect.x + (rect.width / 2)) / width,
+        y: (rect.y + (rect.height / 2)) / height,
+        area: areaRatio
+      };
+      let stabilityScore = 0.58;
+
+      if (this.lastDetectedRegion) {
+        const positionDelta = Math.hypot(
+          current.x - this.lastDetectedRegion.x,
+          current.y - this.lastDetectedRegion.y
+        );
+        const areaDelta = Math.abs(current.area - this.lastDetectedRegion.area)
+          / Math.max(0.02, current.area, this.lastDetectedRegion.area);
+        stabilityScore = clamp(1 - ((positionDelta * 4.2) + (areaDelta * 0.75)), 0, 1);
+      }
+
+      this.lastDetectedRegion = current;
+      return { areaRatio, detectedRegion: true, stabilityScore };
+    }
+
     recordMetrics(confidence, started, details = {}) {
       this.lastProcessDurationMs = performance.now() - started;
       this.frameCounter += 1;
-      if (this.options.onMlMetrics) {
-        this.options.onMlMetrics({
-          confidence,
-          threshold: this.options.confidenceThreshold,
-          processMs: Math.round(this.lastProcessDurationMs),
-          fps: this.lastProcessDurationMs > 0 ? Math.round(1000 / this.lastProcessDurationMs) : 0,
-          usedDetector: !!this.detector,
-          ...details
-        });
+      const metrics = {
+        confidence,
+        threshold: this.options.confidenceThreshold,
+        processMs: Math.round(this.lastProcessDurationMs),
+        fps: this.lastProcessDurationMs > 0 ? Math.round(1000 / this.lastProcessDurationMs) : 0,
+        usedDetector: !!this.detector,
+        ...details
+      };
+
+      if (this.readinessModel) {
+        let assessment = this.readinessModel.assess(metrics);
+        const succeeded = details.scanSucceeded === true;
+        const candidatePresent = details.detectedRegion === true
+          || confidence >= (this.options.confidenceThreshold * 0.78);
+        if (succeeded) {
+          assessment = this.readinessModel.observe(metrics, true, 1);
+        } else if (candidatePresent && this.frameCounter % 6 === 0) {
+          // Failed frames are sampled lightly so an empty camera view cannot
+          // overwhelm the much more valuable successful-read examples.
+          assessment = this.readinessModel.observe(metrics, false, details.detectedRegion ? 0.35 : 0.12);
+        }
+        metrics.readinessScore = assessment.score;
+        metrics.readinessGuidance = assessment.guidance;
+        metrics.learningSamples = assessment.samples;
+        metrics.learningTrained = assessment.trained;
+        metrics.learningAccuracy = assessment.accuracy;
       }
+
+      delete metrics.scanSucceeded;
+      this.lastMlMetrics = metrics;
+      if (this.options.onMlMetrics) {
+        this.options.onMlMetrics(metrics);
+      }
+      return metrics;
     }
 
     emitDecoded(decodedText, now, confidence, model, preprocess) {
@@ -518,7 +579,11 @@
           ml_confidence: Math.round(confidence * 1000) / 1000,
           preprocess,
           model,
-          process_ms: Math.round(this.lastProcessDurationMs)
+          process_ms: Math.round(this.lastProcessDurationMs),
+          readiness_score: this.lastMlMetrics?.readinessScore ?? null,
+          readiness_guidance: this.lastMlMetrics?.readinessGuidance ?? null,
+          learning_samples: this.lastMlMetrics?.learningSamples ?? 0,
+          learning_trained: this.lastMlMetrics?.learningTrained === true
         });
       }
       return true;
@@ -554,10 +619,12 @@
         }
       }
 
+      const regionQuality = this.measureRegion(bestDetection, width, height);
+
       const nativeDecodedText = String(bestDetection?.detection?.rawValue || bestDetection?.detection?.raw_value || "").trim();
       if (nativeDecodedText) {
         const confidence = 0.98;
-        this.recordMetrics(confidence, started);
+        this.recordMetrics(confidence, started, { ...regionQuality, scanSucceeded: true });
         this.emitDecoded(nativeDecodedText, now, confidence, "BarcodeDetector-native", {
           contrast_normalization: false,
           adaptive_thresholding: false,
@@ -580,7 +647,7 @@
       }
       if (fastDecodeResult?.data) {
         const confidence = 0.9;
-        this.recordMetrics(confidence, started);
+        this.recordMetrics(confidence, started, { ...regionQuality, scanSucceeded: true });
         this.emitDecoded(fastDecodeResult.data, now, confidence, "jsQR-fast", {
           contrast_normalization: false,
           adaptive_thresholding: false,
@@ -628,15 +695,31 @@
         0,
         1
       );
-      this.recordMetrics(confidence, started, {
+      const qualityDetails = {
         brightness,
         areaRatio: bestDetection.detection ? areaRatio : null,
-        detectedRegion: !!bestDetection.detection
-      });
+        detectedRegion: !!bestDetection.detection,
+        stabilityScore: regionQuality.stabilityScore,
+        contrastScore,
+        edgeScore,
+        shapeScore
+      };
 
-      const lowConfidenceThreshold = this.options.confidenceThreshold * this.options.lowConfidenceDecodeRatio;
-      const allowLowConfidenceAttempt = (this.frameCounter % 10 === 0) && confidence >= lowConfidenceThreshold;
-      if (confidence < this.options.confidenceThreshold && !allowLowConfidenceAttempt) return;
+      const learnedReadiness = this.readinessModel
+        ? this.readinessModel.assess({ confidence, ...qualityDetails }).score
+        : null;
+      const adaptiveThreshold = learnedReadiness !== null && learnedReadiness >= 0.68
+        ? this.options.confidenceThreshold * 0.84
+        : this.options.confidenceThreshold;
+
+      const lowConfidenceThreshold = adaptiveThreshold * this.options.lowConfidenceDecodeRatio;
+      const retryInterval = learnedReadiness !== null && learnedReadiness >= 0.6 ? 5 : 10;
+      const allowLowConfidenceAttempt = ((this.frameCounter + 1) % retryInterval === 0)
+        && confidence >= lowConfidenceThreshold;
+      if (confidence < adaptiveThreshold && !allowLowConfidenceAttempt) {
+        this.recordMetrics(confidence, started, { ...qualityDetails, scanSucceeded: false });
+        return;
+      }
 
       let decodeResult = null;
 
@@ -664,7 +747,12 @@
         decodeResult = decodeQrFromGray(normalized, width, height);
       }
 
-      if (!decodeResult || !decodeResult.data) return;
+      if (!decodeResult || !decodeResult.data) {
+        this.recordMetrics(confidence, started, { ...qualityDetails, scanSucceeded: false });
+        return;
+      }
+
+      this.recordMetrics(confidence, started, { ...qualityDetails, scanSucceeded: true });
 
       this.emitDecoded(
         decodeResult.data,

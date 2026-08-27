@@ -1,9 +1,9 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v20`;
+const CACHE_NAME = `${CACHE_PREFIX}v22`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
-  '/styles.css?v=20260827-polish1',
+  '/styles.css?v=20260827-ml1',
   '/manifest.json',
   '/icons/favicon-32.png',
   '/icons/apple-touch-icon.png',
@@ -14,8 +14,9 @@ const ASSETS_TO_CACHE = [
   '/js/qr-behavior-classifier.js',
   '/js/ui-states.js?v=20260826-ui1',
   '/js/qr-token-parser.js?v=20260826-accuracy1',
-  '/js/ml-qr-detector.js?v=20260826-guide1',
-  '/js/scanner-guidance.js?v=20260826-guide1'
+  '/js/scan-readiness-model.js?v=20260827-ml1',
+  '/js/ml-qr-detector.js?v=20260827-ml1',
+  '/js/scanner-guidance.js?v=20260827-ml1'
 ];
 const OPTIONAL_ASSETS_TO_CACHE = [
   'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',

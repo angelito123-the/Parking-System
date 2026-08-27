@@ -5271,8 +5271,10 @@ app.get("/scanner", requireRole(USER_ROLES.GUARD), (req, res) => {
 });
 
 app.get("/scanner/auto", requireRole(USER_ROLES.GUARD), (req, res) => {
+  const deferEntryConfirmation = String(req.query.mode || "").trim().toLowerCase() === "remote";
   res.render("scanner_auto", {
-    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS
+    scanCooldownSeconds: SCAN_COOLDOWN_SECONDS,
+    deferEntryConfirmation
   });
 });
 

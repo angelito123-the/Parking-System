@@ -44,3 +44,16 @@ test("scanner guidance reports an active read for a strong QR region", () => {
   });
   assert.equal(result.key, "reading");
 });
+
+test("scanner guidance uses a low learned-readiness recommendation", () => {
+  const result = ScannerGuidance.chooseGuidance({
+    brightness: 140,
+    detectedRegion: true,
+    areaRatio: 0.2,
+    confidence: 0.72,
+    threshold: 0.35,
+    readinessScore: 0.34,
+    readinessGuidance: "steady"
+  });
+  assert.equal(result.key, "steady");
+});

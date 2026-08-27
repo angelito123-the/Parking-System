@@ -8687,9 +8687,9 @@ body.page-visitor-passes .visitor-stat-card p {
   }
 }
 
-/* Guard workflow uses four operational steps. */
+/* Guard workflow keeps the three most common actions visible. */
 .guard-workflow-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .guard-workflow-grid .workflow-card {
@@ -9061,4 +9061,203 @@ body.page-visitor-passes .visitor-stat-card p {
 
 .top-nav-actions > .signout-btn {
   margin-left: 0;
+}
+
+/* Simplified guard scanning workflow. */
+.scan-mode-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.78rem 0.9rem;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.scan-mode-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+}
+
+.scan-mode-copy strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.scan-mode-copy span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.scan-mode-switch {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.scan-mode-switch a {
+  padding: 0.42rem 0.66rem;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.scan-mode-switch a:hover {
+  color: var(--blue-mid);
+  text-decoration: none;
+}
+
+.scan-mode-switch a.is-active {
+  background: var(--surface);
+  color: var(--blue-mid);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1);
+}
+
+.scanner-diagnostics {
+  margin-top: 0.55rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.55rem;
+}
+
+.scanner-diagnostics summary {
+  width: fit-content;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.scanner-diagnostics-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-top: 0.5rem;
+}
+
+.scanner-flow-note {
+  margin: 0.62rem 0 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.77rem;
+  line-height: 1.4;
+}
+
+.scanner-flow-note strong {
+  color: var(--text-secondary);
+}
+
+details.auto-session-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+details.auto-session-panel > summary {
+  margin: 0;
+  padding: 0.72rem 0.78rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+details.auto-session-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.auto-session-head > span:first-child {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.auto-session-head strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.auto-session-head small,
+.auto-session-head > span:last-child {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+details.auto-session-panel[open] .auto-session-head > span:last-child {
+  visibility: hidden;
+}
+
+.auto-session-content {
+  padding: 0 0.78rem 0.78rem;
+}
+
+.manual-tools-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.manual-tools-intro h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.manual-tools-intro p {
+  margin: 0.24rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.manual-tools-intro .btn-sm {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 1080px) {
+  .auto-gate-shell {
+    grid-template-columns: minmax(0, 1.15fr) minmax(350px, 0.85fr);
+    align-items: start;
+  }
+
+  .auto-gate-result-panel {
+    position: sticky;
+    top: 5.5rem;
+  }
+}
+
+@media (max-width: 700px) {
+  .scan-mode-bar,
+  .manual-tools-intro {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scan-mode-switch {
+    width: 100%;
+  }
+
+  .scan-mode-switch a {
+    flex: 1;
+    text-align: center;
+  }
+
+  .manual-tools-intro .btn-sm {
+    width: 100%;
+    text-align: center;
+  }
+}
+.scanner-learning-note {
+  margin: 10px 0 0;
+  color: var(--text-muted, #6f7f99);
+  font-size: 0.82rem;
+  line-height: 1.45;
 }

@@ -19,7 +19,7 @@
   <link rel="preload" as="style" href="<%= fontStylesheetUrl %>" />
   <link rel="stylesheet" href="<%= fontStylesheetUrl %>" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
-  <link rel="stylesheet" href="/styles.css?v=20260827-polish1" />
+  <link rel="stylesheet" href="/styles.css?v=20260827-ml1" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -101,8 +101,8 @@
     "/students": "Students & Vehicles",
     "/stickers": "Stickers",
     "/reports": "Analytics Dashboard",
-    "/scanner": "Gate Console",
-    "/scanner/auto": "Automatic Gate Camera"
+    "/scanner": "Manual Gate Tools",
+    "/scanner/auto": "Scan & Process"
   };
   const pageTitle = pageTitleMap[pathNow] || "NAAP Parking";
   const navLinksByRole = {
@@ -120,8 +120,7 @@
     ],
     guard: [
       { section: "Overview", href: "/guard", label: "Dashboard", active: ["/guard"] },
-      { section: "Gate operations", href: "/scanner", label: "Gate Console", active: ["/scanner"] },
-      { section: "Gate operations", href: "/scanner/auto", label: "Phone Camera", active: ["/scanner/auto"] },
+      { section: "Gate operations", href: "/scanner/auto", label: "Scan & Process", active: ["/scanner", "/scanner/auto"] },
       { section: "Gate operations", href: "/visitor-passes", label: "Visitor Passes", active: ["/visitor-passes"] }
     ]
   };

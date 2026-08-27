@@ -3,46 +3,30 @@
 
 <section class="dashboard-hero">
   <div class="hero-greeting">
-    <h2>Access Control</h2>
-    <h1>Gate Console HUD</h1>
+    <h2>Gate Operations</h2>
+    <h1>Manual Gate Tools</h1>
   </div>
-  <p style="color: rgba(255,255,255,0.8); margin-top: 0.5rem;">Stationary operator dashboard. Search for students manually or launch the camera reader.</p>
+  <p style="color: rgba(255,255,255,0.8); margin-top: 0.5rem;">Use manual lookup or review scans sent from a remote phone.</p>
 </section>
 
 <div class="overlap-wrapper" style="display: grid; gap: 2rem;">
-  <section class="panel gate-stage-panel">
-    <div class="section-head" style="margin-bottom:0.8rem;">
-      <h2>Gate Processing Flow</h2>
-      <p>Use this sequence to process scans faster with fewer mistakes.</p>
+  <section class="panel manual-tools-intro">
+    <div>
+      <h2>Need the regular scanner?</h2>
+      <p>The standard scanner now handles scanning, slot selection, and confirmation on one screen.</p>
     </div>
-    <div class="gate-stage-track" role="group" aria-label="Gate process stages">
-      <button type="button" class="gate-stage-chip is-active" data-gate-stage="scan" data-scroll-target="gateControlsSection">
-        <span class="gate-stage-chip-index">1</span>
-        <span>Detect QR / Search</span>
-      </button>
-      <button type="button" class="gate-stage-chip" data-gate-stage="select" data-scroll-target="<%= isGuardQueueMode ? "remoteQueueSection" : "gateResultsSection" %>">
-        <span class="gate-stage-chip-index">2</span>
-        <span><%= isGuardQueueMode ? "Review Pending Request" : "Select Vehicle" %></span>
-      </button>
-      <button type="button" class="gate-stage-chip" data-gate-stage="record" data-scroll-target="gateLogPanel">
-        <span class="gate-stage-chip-index">3</span>
-        <span>Confirm Movement</span>
-      </button>
-    </div>
+    <a href="/scanner/auto" class="btn-sm">Open Scan &amp; Process</a>
   </section>
 
   <section class="panel gate-console-panel" id="gateControlsSection">
     <div class="gate-console-top">
       <div class="gate-console-headline">
-        <h3>Operator Controls</h3>
-        <p>Open camera scanning or manually search by student, plate, or sticker details.</p>
-        <p style="margin-top:0.4rem;">
-          <a href="/scanner/auto" class="link-btn">Open Phone Camera Mode</a>
-        </p>
+        <h3>Manual Search</h3>
+        <p>Find a record by student name, ID, plate number, or sticker when the QR cannot be scanned.</p>
       </div>
       <button id="toggleCameraBtn" type="button" class="gate-camera-btn">
-        <span class="gate-camera-btn-title">Launch Camera Scanner</span>
-        <span class="gate-camera-btn-sub">Realtime QR verification</span>
+        <span class="gate-camera-btn-title">Use Camera Here</span>
+        <span class="gate-camera-btn-sub">Secondary scanner</span>
       </button>
     </div>
 
@@ -199,8 +183,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
-<script src="/js/ml-qr-detector.js?v=20260826-guide1"></script>
-<script src="/js/scanner-guidance.js?v=20260826-guide1"></script>
+<script src="/js/scan-readiness-model.js?v=20260827-ml1"></script>
+<script src="/js/ml-qr-detector.js?v=20260827-ml1"></script>
+<script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
   (() => {
@@ -676,9 +661,9 @@
     // --- Camera Logic ---
     function setCameraButton(isOpen) {
       if (isOpen) {
-        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Close Camera Scanner</span><span class="gate-camera-btn-sub">Stop realtime QR verification</span>';
+        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Close Camera</span><span class="gate-camera-btn-sub">Stop secondary scanner</span>';
       } else {
-        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Launch Camera Scanner</span><span class="gate-camera-btn-sub">Realtime QR verification</span>';
+        toggleCameraBtn.innerHTML = '<span class="gate-camera-btn-title">Use Camera Here</span><span class="gate-camera-btn-sub">Secondary scanner</span>';
       }
     }
 

@@ -42,45 +42,36 @@
 <div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
   <section class="panel quick-links-panel">
     <div class="section-head">
-      <h2>Guard Workflow</h2>
-      <p>Follow this sequence to process vehicles quickly with fewer errors.</p>
+      <h2>Quick Actions</h2>
+      <p>For most vehicles, open the scanner and follow the on-screen prompt.</p>
     </div>
     <div class="quick-links-grid workflow-grid guard-workflow-grid">
       <a href="/scanner/auto" class="quick-link-card workflow-card">
         <span class="workflow-card-top">
           <span class="workflow-step">1</span>
-          <span class="workflow-stage">Scan at gate</span>
+          <span class="workflow-stage">Recommended</span>
         </span>
-        <h3>Open Phone Camera</h3>
-        <p>Start automatic QR capture at the gate camera station.</p>
-        <span class="workflow-action">Open camera <span aria-hidden="true">→</span></span>
+        <h3>Scan a Vehicle</h3>
+        <p>Scan the QR and complete entry approval on the same screen. Exits save automatically.</p>
+        <span class="workflow-action">Open scanner <span aria-hidden="true">→</span></span>
       </a>
       <a href="/scanner" class="quick-link-card workflow-card">
         <span class="workflow-card-top">
           <span class="workflow-step">2</span>
-          <span class="workflow-stage">Confirm access</span>
+          <span class="workflow-stage">When needed</span>
         </span>
-        <h3>Confirm Entry and Assign Slot</h3>
-        <p>Review pending scans and approve parking slot assignment.</p>
-        <span class="workflow-action">Open gate console <span aria-hidden="true">→</span></span>
+        <h3>Manual Lookup &amp; Pending Scans</h3>
+        <p>Use this when a QR cannot be read or a remote phone sent an entry request.</p>
+        <span class="workflow-action">Open manual tools <span aria-hidden="true">→</span></span>
       </a>
       <a href="/visitor-passes" class="quick-link-card workflow-card">
         <span class="workflow-card-top">
           <span class="workflow-step">3</span>
-          <span class="workflow-stage">Manage visitors</span>
+          <span class="workflow-stage">Visitors</span>
         </span>
-        <h3>Approve Visitor Passes</h3>
-        <p>Handle visitor, parent, supplier, delivery, and temporary permit requests.</p>
-        <span class="workflow-action">Review visitor passes <span aria-hidden="true">→</span></span>
-      </a>
-      <a href="/guard" class="quick-link-card workflow-card">
-        <span class="workflow-card-top">
-          <span class="workflow-step">4</span>
-          <span class="workflow-stage">Monitor activity</span>
-        </span>
-        <h3>Monitor Queue and Alerts</h3>
-        <p>Track phone status, queue health, and overstay notifications.</p>
-        <span class="workflow-action">View dashboard <span aria-hidden="true">→</span></span>
+        <h3>Visitor Passes</h3>
+        <p>Approve temporary permits and record visitor movement.</p>
+        <span class="workflow-action">Manage visitors <span aria-hidden="true">→</span></span>
       </a>
     </div>
   </section>
@@ -113,14 +104,14 @@
       </article>
     </div>
     <p id="guardHealthHint" class="helper-text" style="margin-top:0.55rem;">
-      Open <a href="/scanner/auto" class="link-btn">Phone Camera Scan</a> on the phone to start heartbeat updates.
+      Open <a href="/scanner/auto?mode=remote" class="link-btn">Remote Phone Mode</a> on the phone to start heartbeat updates.
     </p>
   </section>
 
   <section class="panel remote-queue-panel">
     <div class="section-head">
-      <h2>Gate Console Assignment</h2>
-      <p>Choose parking slots for phone-scanned ENTRY requests from this guard dashboard.</p>
+      <h2>Pending Remote Entries</h2>
+      <p>Only scans sent from Remote Phone Mode appear here for slot assignment.</p>
     </div>
     <div class="remote-queue-toolbar">
       <p id="guardQueueStatus" class="helper-text">Loading pending phone entries...</p>
@@ -132,7 +123,7 @@
     </div>
     <div id="guardQueueList" class="remote-queue-list"></div>
     <p class="helper-text" style="margin-top:0.65rem;">
-      Need full controls? <a href="/scanner" class="link-btn">Open Gate Console</a>
+      Need a manual search? <a href="/scanner" class="link-btn">Open manual gate tools</a>
     </p>
   </section>
 
