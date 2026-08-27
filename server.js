@@ -10,6 +10,14 @@ const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
 const { serializeForScript } = require("./lib/serialize-for-script");
+const {
+  ACADEMIC_PROGRAM_GROUPS,
+  YEAR_LEVELS,
+  findAcademicProgram,
+  getYearLevelLabel,
+  isValidAcademicProgram,
+  isValidYearLevel
+} = require("./lib/academic-programs");
 require("dotenv").config();
 
 const app = express();
@@ -4872,10 +4880,17 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       vehiclesByStudent.set(vehicle.student_id, studentVehicles);
     });
     // Attach vehicles array to each student
-    const students = studentRows.map(s => ({
-      ...s,
-      vehicles: vehiclesByStudent.get(s.id) || []
-    }));
+    const students = studentRows.map((student) => {
+      const academicProgram = findAcademicProgram(student.program);
+      return {
+        ...student,
+        program_is_official: Boolean(academicProgram),
+        program_display: academicProgram?.code || academicProgram?.name || student.program || "",
+        program_name: academicProgram?.name || student.program || "",
+        year_level_label: getYearLevelLabel(student.year_level),
+        vehicles: vehiclesByStudent.get(student.id) || []
+      };
+    });
     const flash = req.query.success
       ? { type: "success", message: "Student saved successfully." }
       : req.query.vsuccess
@@ -4886,6 +4901,8 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       ? { type: "error", message: "A student with that student number already exists." }
       : req.query.error === "vduplicate"
       ? { type: "error", message: "A vehicle with that plate number already exists." }
+      : req.query.error === "academic"
+      ? { type: "error", message: "Select a valid course and year level." }
       : req.query.error === "delete"
       ? { type: "error", message: "Unable to delete student — they may still have linked vehicles." }
       : req.query.deleted
@@ -4893,7 +4910,12 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       : req.query.vdeleted
       ? { type: "success", message: "Vehicle deleted successfully." }
       : null;
-    res.render("students", { students, flash });
+    res.render("students", {
+      students,
+      flash,
+      academicProgramGroups: ACADEMIC_PROGRAM_GROUPS,
+      yearLevels: YEAR_LEVELS
+    });
   } catch (error) {
     console.error("Students error:", error);
     res.status(500).send("An error occurred loading students.");
@@ -4901,13 +4923,19 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 });
 
 app.post("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
-  const { student_number, full_name, program, email, plate_number, model, color } = req.body;
+  const { student_number, full_name, program, year_level, email, plate_number, model, color } = req.body;
+  const normalizedProgram = String(program || "").trim();
+  const normalizedYearLevel = String(year_level || "").trim();
+  if (!isValidAcademicProgram(normalizedProgram) || !isValidYearLevel(normalizedYearLevel)) {
+    return res.redirect("/students?error=academic");
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      "INSERT INTO students (student_number, full_name, program, email) VALUES (?, ?, ?, ?)",
-      [student_number, full_name, program || null, email || null]
+      "INSERT INTO students (student_number, full_name, program, year_level, email) VALUES (?, ?, ?, ?, ?)",
+      [student_number, full_name, normalizedProgram, normalizedYearLevel, email || null]
     );
     // If plate_number provided, also register a vehicle
     if (plate_number && plate_number.trim()) {
@@ -4931,11 +4959,27 @@ app.post("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 });
 
 app.post("/students/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
-  const { student_number, full_name, program, email } = req.body;
+  const { student_number, full_name, program, year_level, email } = req.body;
+  const normalizedProgram = String(program || "").trim();
+  const normalizedYearLevel = String(year_level || "").trim();
+
   try {
+    const [existingRows] = await pool.query(
+      "SELECT program FROM students WHERE id = ? LIMIT 1",
+      [req.params.id]
+    );
+    if (!existingRows.length) return res.redirect("/students?error=1");
+
+    const isUnchangedLegacyProgram = normalizedProgram
+      && normalizedProgram === String(existingRows[0].program || "").trim();
+    if ((!isValidAcademicProgram(normalizedProgram) && !isUnchangedLegacyProgram)
+        || !isValidYearLevel(normalizedYearLevel)) {
+      return res.redirect("/students?error=academic");
+    }
+
     await pool.query(
-      "UPDATE students SET student_number = ?, full_name = ?, program = ?, email = ? WHERE id = ?",
-      [student_number, full_name, program || null, email || null, req.params.id]
+      "UPDATE students SET student_number = ?, full_name = ?, program = ?, year_level = ?, email = ? WHERE id = ?",
+      [student_number, full_name, normalizedProgram, normalizedYearLevel, email || null, req.params.id]
     );
     res.redirect("/students?esuccess=1");
   } catch (error) {

@@ -6919,6 +6919,7 @@ body[class] .overlap-wrapper > .panel[style] {
 /* Dashboard workflow: numbered operational path */
 .workflow-heading {
   display: flex;
+  flex-direction: row;
   align-items: flex-end;
   justify-content: space-between;
   gap: 1.25rem;

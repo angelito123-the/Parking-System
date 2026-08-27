@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS students (
   student_number VARCHAR(50) NOT NULL UNIQUE,
   full_name VARCHAR(150) NOT NULL,
   program VARCHAR(120),
+  year_level VARCHAR(20),
   email VARCHAR(120),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

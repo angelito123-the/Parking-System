@@ -2,6 +2,7 @@ const mysql = require("mysql2/promise");
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
+const { splitLegacyAcademicValue } = require("./lib/academic-programs");
 require("dotenv").config();
 
 const host = process.env.DB_HOST || process.env.MYSQLHOST || "localhost";
@@ -42,6 +43,7 @@ async function ensureDatabaseSchema() {
     .replace(/USE .*?;\s*/i, "");
 
   await pool.query(sql);
+  await ensureStudentMigrations();
   await ensureParkingSlotMigrations();
   await ensureScanLogMigrations();
   await ensureAutoScanQueueMigrations();
@@ -124,6 +126,33 @@ async function addIndexIfMissing(tableName, indexName, columnsSql) {
     await pool.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsSql})`);
   } catch (error) {
     if (error.errno !== 1061) throw error;
+  }
+}
+
+async function ensureStudentMigrations() {
+  if (!(await columnExists("students", "year_level"))) {
+    try {
+      await pool.query("ALTER TABLE students ADD COLUMN year_level VARCHAR(20) NULL AFTER program");
+    } catch (error) {
+      if (error.errno !== 1060) throw error;
+    }
+  }
+
+  const [studentRows] = await pool.query(
+    "SELECT id, program, year_level FROM students WHERE program IS NOT NULL OR year_level IS NOT NULL"
+  );
+
+  for (const student of studentRows) {
+    const academicInfo = splitLegacyAcademicValue(student.program, student.year_level);
+    const currentProgram = String(student.program || "").trim();
+    const currentYearLevel = String(student.year_level || "").trim();
+
+    if (academicInfo.program === currentProgram && academicInfo.yearLevel === currentYearLevel) continue;
+
+    await pool.query(
+      "UPDATE students SET program = ?, year_level = ? WHERE id = ?",
+      [academicInfo.program || null, academicInfo.yearLevel || null, student.id]
+    );
   }
 }
 
