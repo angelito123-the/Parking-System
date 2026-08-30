@@ -6,7 +6,7 @@
     <h2>Gate Operations</h2>
     <h1>Manual Gate Tools</h1>
   </div>
-  <p style="color: rgba(255,255,255,0.8); margin-top: 0.5rem;">Use manual lookup or review scans sent from a remote phone.</p>
+  <p class="hero-description">Use manual lookup or review scans sent from a remote phone.</p>
 </section>
 
 <div class="overlap-wrapper" style="display: grid; gap: 2rem;">
@@ -83,7 +83,7 @@
   </section>
   <% } %>
 
-  <section class="panel" id="gateResultsSection" style="border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
+  <section class="panel" id="gateResultsSection">
   <div class="section-head">
     <h2>Scanner Results</h2>
     <p>Select a vehicle to record gate movement.</p>
@@ -92,59 +92,27 @@
   <div id="gateResultsContainer"></div>
 </section>
 
-  <section class="panel" id="gateLogPanel" style="display:none; border:none; box-shadow:none; padding:0; background:transparent; border-top: 1px solid var(--line); padding-top: 2rem;">
+  <section class="panel" id="gateLogPanel" style="display:none;">
   <div class="section-head">
     <h2>Record Movement</h2>
     <p id="gateLogInfo">Recording for selected vehicle.</p>
   </div>
   <div id="gateLogDetails" style="margin-bottom: 0.75rem;"></div>
-  <div id="slotPickerPanel" style="display:none; margin-bottom: 1rem;">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap;">
-      <strong style="font-size:0.95rem;">Choose Parking Slot</strong>
+  <div id="slotPickerPanel" class="scanner-slot-picker" style="display:none;">
+    <div class="scanner-slot-picker-head">
+      <strong>Choose Parking Slot</strong>
       <span id="slotPickerStatus" class="helper-text">Loading parking map...</span>
     </div>
-    <div id="slotMap" style="background:#f8fafc; border:1px solid var(--line); border-radius:14px; padding:1rem;"></div>
+    <div id="slotMap" class="scanner-slot-map"></div>
   </div>
   <div id="gateLogFeedback" style="margin-bottom: 1rem;"></div>
-  <div id="movementBtnContainer" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-    <button type="button" id="gateEntryBtn" style="
-      background: linear-gradient(135deg, #16a34a, #15803d);
-      border: none;
-      color: #fff;
-      padding: 1.25rem 0.5rem;
-      font-size: 1rem;
-      font-weight: 800;
-      font-family: 'Outfit', sans-serif;
-      border-radius: 10px;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.4rem;
-      box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
-      transition: all 0.15s ease;
-    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(22,163,74,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(22,163,74,0.35)'">
-      <span style="font-size: 1.05rem; line-height:1; font-weight:900;">IN</span>
+  <div id="movementBtnContainer" class="scanner-movement-actions">
+    <button type="button" id="gateEntryBtn" class="scanner-movement-btn scanner-movement-entry">
+      <span class="scanner-movement-direction">IN</span>
       <span>Record ENTRY</span>
     </button>
-    <button type="button" id="gateExitBtn" style="
-      background: linear-gradient(135deg, #dc2626, #b91c1c);
-      border: none;
-      color: #fff;
-      padding: 1.25rem 0.5rem;
-      font-size: 1rem;
-      font-weight: 800;
-      font-family: 'Outfit', sans-serif;
-      border-radius: 10px;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 0.4rem;
-      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
-      transition: all 0.15s ease;
-    " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(220,38,38,0.45)'" onmouseout="this.style.transform=''; this.style.boxShadow='0 4px 14px rgba(220,38,38,0.35)'">
-      <span style="font-size: 1.05rem; line-height:1; font-weight:900;">OUT</span>
+    <button type="button" id="gateExitBtn" class="scanner-movement-btn scanner-movement-exit">
+      <span class="scanner-movement-direction">OUT</span>
       <span>Record EXIT</span>
     </button>
   </div>

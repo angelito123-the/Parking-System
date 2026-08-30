@@ -39,9 +39,9 @@
       min-height: 100vh;
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      place-items: center;
+      place-items: stretch;
       overflow-x: hidden;
-      padding: clamp(1rem, 3vw, 2.5rem);
+      padding: 0;
       color: var(--text);
       font-family: "Manrope", sans-serif;
       background:
@@ -79,19 +79,18 @@
     }
 
     .login-shell {
-      width: min(940px, 100%);
-      max-width: 100%;
+      width: 100%;
+      max-width: none;
       min-width: 0;
-      min-height: 560px;
+      min-height: 100vh;
+      min-height: 100dvh;
       display: grid;
-      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
       overflow: hidden;
-      border: 1px solid rgba(194, 208, 224, 0.92);
-      border-radius: 24px;
+      border: 0;
+      border-radius: 0;
       background: var(--surface);
-      box-shadow:
-        0 32px 80px rgba(15, 39, 66, 0.17),
-        0 8px 24px rgba(15, 39, 66, 0.08);
+      box-shadow: none;
       transform-origin: center;
       animation: shellEnter 620ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
       transition: transform 180ms ease, opacity 180ms ease, filter 180ms ease;
@@ -107,9 +106,11 @@
       position: relative;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      justify-content: center;
+      gap: clamp(2.5rem, 6vh, 4.5rem);
       overflow: hidden;
-      padding: clamp(2rem, 4vw, 3.2rem);
+      padding-block: clamp(2.5rem, 6vw, 7rem);
+      padding-inline: max(clamp(2.5rem, 5vw, 6rem), calc((100% - 520px) / 2));
       color: #fff;
       background:
         radial-gradient(circle at 105% 10%, rgba(96, 165, 250, 0.34), transparent 35%),
@@ -189,8 +190,9 @@
     }
 
     .brand-message {
-      max-width: 340px;
-      margin: clamp(3.4rem, 9vh, 6rem) 0 2rem;
+      width: 100%;
+      max-width: 520px;
+      margin: 0;
     }
 
     .brand-kicker {
@@ -233,6 +235,37 @@
       animation: contentEnter 540ms 350ms ease-out both;
     }
 
+    .brand-features {
+      display: grid;
+      gap: 0.55rem;
+      margin-top: 1.35rem;
+      color: rgba(239, 246, 255, 0.88);
+      font-size: 0.76rem;
+      font-weight: 650;
+      list-style: none;
+      animation: contentEnter 540ms 390ms ease-out both;
+    }
+
+    .brand-features li {
+      display: flex;
+      align-items: center;
+      gap: 0.62rem;
+    }
+
+    .feature-check {
+      width: 20px;
+      height: 20px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgba(147, 197, 253, 0.24);
+      border-radius: 6px;
+      color: #93c5fd;
+      background: rgba(59, 130, 246, 0.12);
+      font-size: 0.68rem;
+      line-height: 1;
+    }
+
     .portal-status {
       display: inline-flex;
       align-items: center;
@@ -268,12 +301,36 @@
     }
 
     .auth-panel {
+      position: relative;
       display: flex;
       min-width: 0;
       flex-direction: column;
       justify-content: center;
-      padding: clamp(2rem, 5vw, 4.1rem);
-      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      align-items: center;
+      overflow: hidden;
+      padding-block: clamp(2.5rem, 6vw, 7rem);
+      padding-inline: max(clamp(2.5rem, 5vw, 6rem), calc((100% - 520px) / 2));
+      background:
+        radial-gradient(circle at 100% 0%, rgba(59, 130, 246, 0.075), transparent 32%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    }
+
+    .auth-panel::before {
+      content: "";
+      position: absolute;
+      width: 260px;
+      height: 260px;
+      right: -150px;
+      bottom: -150px;
+      border: 42px solid rgba(37, 99, 235, 0.035);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .auth-panel > * {
+      position: relative;
+      z-index: 1;
+      width: min(520px, 100%);
     }
 
     .mobile-brand {
@@ -306,6 +363,7 @@
     .auth-kicker,
     .auth-title,
     .auth-copy,
+    .access-note,
     .login-error,
     .login-form,
     .login-note {
@@ -333,11 +391,63 @@
     }
 
     .auth-copy {
-      margin: 0.65rem 0 1.6rem;
+      margin: 0.65rem 0 1rem;
       color: var(--muted);
       font-size: 0.87rem;
       line-height: 1.55;
       animation-delay: 330ms;
+    }
+
+    .access-note {
+      display: flex;
+      align-items: center;
+      gap: 0.78rem;
+      margin-bottom: 1.35rem;
+      padding: 0.78rem 0.88rem;
+      border: 1px solid #d8e5f5;
+      border-radius: 11px;
+      color: #29415d;
+      background: rgba(239, 246, 255, 0.82);
+      animation-delay: 350ms;
+    }
+
+    .access-note-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 10px;
+      color: #1d4ed8;
+      background: #e5efff;
+    }
+
+    .access-note-icon svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.9;
+    }
+
+    .access-note-copy {
+      min-width: 0;
+      display: grid;
+      gap: 0.15rem;
+    }
+
+    .access-note-copy strong {
+      color: #23364d;
+      font-size: 0.76rem;
+      line-height: 1.2;
+    }
+
+    .access-note-copy small {
+      color: #71839a;
+      font-size: 0.67rem;
+      line-height: 1.35;
     }
 
     .login-error {
@@ -611,19 +721,24 @@
     }
 
     @media (max-width: 760px) {
-      body { padding: 1rem; }
+      body { padding: 0; }
 
       .login-shell {
         display: block;
         width: 100%;
-        max-width: 460px;
-        min-height: 0;
-        border-radius: 20px;
+        max-width: none;
+        min-height: 100vh;
+        min-height: 100dvh;
+        border-radius: 0;
       }
 
       .brand-panel { display: none; }
 
-      .auth-panel { padding: clamp(1.5rem, 7vw, 2.3rem); }
+      .auth-panel {
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding: clamp(1.5rem, 7vw, 2.3rem);
+      }
 
       .mobile-brand { display: flex; }
 
@@ -633,9 +748,9 @@
     }
 
     @media (max-width: 380px) {
-      body { padding: 0.6rem; }
+      body { padding: 0; }
       .auth-panel { padding: 1.25rem; }
-      .login-shell { border-radius: 17px; }
+      .login-shell { border-radius: 0; }
       .auth-title { font-size: 1.65rem; }
       .mobile-brand { margin-bottom: 1.15rem; }
     }
@@ -670,6 +785,11 @@
         <p class="brand-copy">
           Manage vehicles, visitor passes, parking assignments, and gate activity from one authorized workspace.
         </p>
+        <ul class="brand-features">
+          <li><span class="feature-check" aria-hidden="true">✓</span>Fast QR vehicle verification</li>
+          <li><span class="feature-check" aria-hidden="true">✓</span>Live parking and gate visibility</li>
+          <li><span class="feature-check" aria-hidden="true">✓</span>Reliable activity and audit records</li>
+        </ul>
       </div>
 
       <div class="portal-status">
@@ -690,6 +810,19 @@
       <p class="auth-kicker">Authorized personnel</p>
       <h2 class="auth-title" id="login-title">Welcome back</h2>
       <p class="auth-copy">Sign in with your Admin or Guard account to continue.</p>
+
+      <div class="access-note">
+        <span class="access-note-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Z"></path>
+            <path d="m9 12 2 2 4-4"></path>
+          </svg>
+        </span>
+        <span class="access-note-copy">
+          <strong>Automatic role routing</strong>
+          <small>Your authorized dashboard opens automatically after sign-in.</small>
+        </span>
+      </div>
 
       <% if (locals.error) { %>
         <div class="login-error" role="alert">

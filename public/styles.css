@@ -860,12 +860,15 @@ label {
 }
 
 input,
-select,
-button:not(.icon-btn) {
+select {
   font: inherit;
   border-radius: var(--radius-sm);
   border: 1px solid var(--line);
   padding: 0.65rem 0.85rem;
+}
+
+button {
+  font: inherit;
 }
 
 input,
@@ -882,7 +885,8 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-button:not(.icon-btn) {
+button[type="submit"]:not(.icon-btn):not(.movement-btn),
+.btn-sm {
   width: fit-content;
   border: none;
   color: #fff;
@@ -893,22 +897,26 @@ button:not(.icon-btn) {
   box-shadow: 0 2px 6px rgba(30, 64, 175, 0.25);
 }
 
-button:not(.icon-btn):hover {
+button[type="submit"]:not(.icon-btn):not(.movement-btn):hover,
+.btn-sm:hover {
   background: linear-gradient(135deg, var(--navy), var(--blue-1));
   box-shadow: 0 4px 12px rgba(30, 64, 175, 0.35);
   transform: translateY(-1px);
 }
 
-button:not(.icon-btn):active {
+button[type="submit"]:not(.icon-btn):not(.movement-btn):active,
+.btn-sm:active {
   transform: translateY(0px);
 }
 
-button:not(.icon-btn).danger {
+button[type="submit"]:not(.icon-btn):not(.movement-btn).danger,
+.btn-sm.danger {
   background: linear-gradient(135deg, #be123c, #991b1b);
   box-shadow: 0 2px 6px rgba(190, 18, 60, 0.25);
 }
 
-button:not(.icon-btn).danger:hover {
+button[type="submit"]:not(.icon-btn):not(.movement-btn).danger:hover,
+.btn-sm.danger:hover {
   background: linear-gradient(135deg, #9f1239, #7f1d1d);
 }
 
@@ -4624,7 +4632,8 @@ textarea:focus {
   border-color: rgba(43, 109, 232, 0.72);
 }
 
-button:not(.icon-btn) {
+button[type="submit"]:not(.icon-btn):not(.movement-btn),
+.btn-sm {
   border-radius: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -7956,7 +7965,7 @@ textarea:focus {
 }
 
 .btn-sm,
-button[type="submit"]:not(.icon-btn) {
+button[type="submit"]:not(.icon-btn):not(.movement-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7971,7 +7980,7 @@ button[type="submit"]:not(.icon-btn) {
 }
 
 .btn-sm:hover,
-button[type="submit"]:not(.icon-btn):hover {
+button[type="submit"]:not(.icon-btn):not(.movement-btn):hover {
   color: #ffffff;
   border-color: #1d4ed8;
   background: #1d4ed8;
@@ -7980,7 +7989,7 @@ button[type="submit"]:not(.icon-btn):hover {
 }
 
 .btn-sm.danger,
-button[type="submit"]:not(.icon-btn).danger {
+button[type="submit"]:not(.icon-btn):not(.movement-btn).danger {
   color: #be123c !important;
   border-color: #fecdd3 !important;
   background-color: #fff1f2 !important;
@@ -7989,7 +7998,7 @@ button[type="submit"]:not(.icon-btn).danger {
 }
 
 .btn-sm.danger:hover,
-button[type="submit"]:not(.icon-btn).danger:hover {
+button[type="submit"]:not(.icon-btn):not(.movement-btn).danger:hover {
   color: #9f1239 !important;
   border-color: #fda4af !important;
   background-color: #ffe4e6 !important;
@@ -7998,7 +8007,7 @@ button[type="submit"]:not(.icon-btn).danger:hover {
 }
 
 [data-theme="dark"] .btn-sm.danger,
-[data-theme="dark"] button[type="submit"]:not(.icon-btn).danger {
+[data-theme="dark"] button[type="submit"]:not(.icon-btn):not(.movement-btn).danger {
   color: #fda4af !important;
   border-color: rgba(244, 63, 94, 0.3) !important;
   background-color: rgba(190, 18, 60, 0.12) !important;

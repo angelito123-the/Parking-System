@@ -3,7 +3,157 @@
     </div><!-- /.content-area -->
   </div>
 
-  <!-- Mobile Navigation removed (now handled by top nav) -->
+  <div class="confirm-dialog" id="confirmDialog" hidden>
+    <button type="button" class="confirm-dialog-backdrop" data-confirm-close aria-label="Cancel action"></button>
+    <div class="confirm-dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogMessage">
+      <span class="confirm-dialog-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.6 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"></path></svg>
+      </span>
+      <div class="confirm-dialog-copy">
+        <h2 id="confirmDialogTitle">Confirm action</h2>
+        <p id="confirmDialogMessage">This action cannot be undone.</p>
+      </div>
+      <div class="confirm-dialog-actions">
+        <button type="button" class="btn-cancel-sm" data-confirm-close>Cancel</button>
+        <button type="button" class="btn-confirm-danger" id="confirmDialogSubmit">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const body = document.body;
+      const mobileTrigger = document.getElementById("mobileNavTrigger");
+      const mobileClose = document.getElementById("mobileNavClose");
+      const mobileBackdrop = document.getElementById("mobileNavBackdrop");
+      const mobileSidebar = document.getElementById("mobileSidebar");
+      const accountButton = document.getElementById("accountMenuButton");
+      const accountMenu = document.getElementById("accountMenu");
+
+      const setMobileNavigation = (open, restoreFocus = true) => {
+        if (!body || !mobileTrigger) return;
+        body.classList.toggle("mobile-nav-open", open);
+        mobileTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          window.requestAnimationFrame(() => mobileClose?.focus());
+        } else if (restoreFocus && window.matchMedia("(max-width: 1080px)").matches) {
+          mobileTrigger.focus({ preventScroll: true });
+        }
+      };
+
+      mobileTrigger?.addEventListener("click", () => setMobileNavigation(true, false));
+      mobileClose?.addEventListener("click", () => setMobileNavigation(false));
+      mobileBackdrop?.addEventListener("click", () => setMobileNavigation(false));
+      mobileSidebar?.querySelectorAll("a[href]").forEach((link) => {
+        link.addEventListener("click", () => setMobileNavigation(false, false));
+      });
+
+      const setAccountMenu = (open, restoreFocus = true) => {
+        if (!accountButton || !accountMenu) return;
+        accountMenu.hidden = !open;
+        accountButton.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open) {
+          window.requestAnimationFrame(() => accountMenu.querySelector('[role="menuitem"]')?.focus());
+        } else if (restoreFocus) {
+          accountButton.focus({ preventScroll: true });
+        }
+      };
+
+      accountButton?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setAccountMenu(accountMenu?.hidden !== false, false);
+      });
+      accountMenu?.addEventListener("click", (event) => event.stopPropagation());
+      document.addEventListener("click", () => {
+        if (accountMenu && !accountMenu.hidden) setAccountMenu(false, false);
+      });
+
+      window.addEventListener("resize", () => {
+        if (!window.matchMedia("(max-width: 1080px)").matches) setMobileNavigation(false, false);
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (body?.classList.contains("mobile-nav-open")) {
+          setMobileNavigation(false);
+          return;
+        }
+        if (accountMenu && !accountMenu.hidden) setAccountMenu(false);
+      });
+    })();
+  </script>
+
+  <script>
+    (() => {
+      const dialog = document.getElementById("confirmDialog");
+      const title = document.getElementById("confirmDialogTitle");
+      const message = document.getElementById("confirmDialogMessage");
+      const confirmButton = document.getElementById("confirmDialogSubmit");
+      let targetForm = null;
+      let returnFocus = null;
+
+      const closeActionMenu = (except = null) => {
+        document.querySelectorAll(".action-menu.is-open").forEach((menu) => {
+          if (menu === except) return;
+          menu.classList.remove("is-open");
+          menu.querySelector("[data-action-menu-trigger]")?.setAttribute("aria-expanded", "false");
+        });
+      };
+
+      document.addEventListener("click", (event) => {
+        const menuTrigger = event.target instanceof Element ? event.target.closest("[data-action-menu-trigger]") : null;
+        if (menuTrigger) {
+          event.preventDefault();
+          event.stopPropagation();
+          const menu = menuTrigger.closest(".action-menu");
+          const willOpen = !menu?.classList.contains("is-open");
+          closeActionMenu(menu);
+          menu?.classList.toggle("is-open", willOpen);
+          menuTrigger.setAttribute("aria-expanded", willOpen ? "true" : "false");
+          return;
+        }
+        if (!(event.target instanceof Element) || !event.target.closest(".action-menu")) closeActionMenu();
+      });
+
+      const closeDialog = (restoreFocus = true) => {
+        if (!dialog) return;
+        dialog.hidden = true;
+        document.body.classList.remove("confirm-dialog-open");
+        targetForm = null;
+        if (restoreFocus && returnFocus) returnFocus.focus({ preventScroll: true });
+        returnFocus = null;
+      };
+
+      document.addEventListener("click", (event) => {
+        const trigger = event.target instanceof Element ? event.target.closest("[data-destructive-trigger]") : null;
+        if (!trigger || !dialog) return;
+        event.preventDefault();
+        closeActionMenu();
+        targetForm = document.getElementById(trigger.dataset.formId || "");
+        if (!(targetForm instanceof HTMLFormElement)) return;
+        returnFocus = trigger;
+        title.textContent = trigger.dataset.confirmTitle || "Confirm deletion";
+        message.textContent = trigger.dataset.confirmMessage || "This action cannot be undone.";
+        confirmButton.textContent = trigger.dataset.confirmLabel || "Delete";
+        dialog.hidden = false;
+        document.body.classList.add("confirm-dialog-open");
+        window.requestAnimationFrame(() => confirmButton.focus());
+      });
+
+      dialog?.querySelectorAll("[data-confirm-close]").forEach((control) => {
+        control.addEventListener("click", () => closeDialog());
+      });
+      confirmButton?.addEventListener("click", () => {
+        const form = targetForm;
+        closeDialog(false);
+        if (form) form.requestSubmit();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && dialog && !dialog.hidden) closeDialog();
+      });
+    })();
+  </script>
+
   <script>
     (() => {
       const clock = document.getElementById("liveClock");
@@ -37,15 +187,36 @@
 
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const pageLoader = document.getElementById("pageLoader");
+      let pageLoaderHideTimer = null;
 
       const showPageLoader = () => {
+        if (pageLoaderHideTimer) {
+          window.clearTimeout(pageLoaderHideTimer);
+          pageLoaderHideTimer = null;
+        }
+        if (pageLoader) {
+          pageLoader.hidden = false;
+          pageLoader.setAttribute("aria-hidden", "false");
+        }
         pageLoader?.classList.add("is-active");
         body.classList.add("page-transitioning");
       };
 
       const hidePageLoader = () => {
         pageLoader?.classList.remove("is-active");
+        pageLoader?.setAttribute("aria-hidden", "true");
         body.classList.remove("page-transitioning");
+        if (!pageLoader) return;
+        if (pageLoaderHideTimer) window.clearTimeout(pageLoaderHideTimer);
+        const finishHide = () => {
+          pageLoaderHideTimer = null;
+          if (!pageLoader.classList.contains("is-active")) pageLoader.hidden = true;
+        };
+        if (prefersReducedMotion) {
+          finishHide();
+        } else {
+          pageLoaderHideTimer = window.setTimeout(finishHide, 140);
+        }
       };
 
       requestAnimationFrame(() => requestAnimationFrame(hidePageLoader));

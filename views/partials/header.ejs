@@ -9,7 +9,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#11263f">
+  <meta id="themeColor" name="theme-color" content="#f4f7fa">
   <meta name="application-name" content="NAAP Parking">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="<%= fontStylesheetUrl %>" media="print" onload="this.media='all'" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
   <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
+  <link rel="stylesheet" href="/design-system.css?v=20260829-directory-search" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -60,14 +61,20 @@
   <!-- Dark Mode Init (Prevent FOUC) -->
   <script>
     (function () {
-      const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      const savedTheme = localStorage.getItem('theme');
+      const theme = savedTheme === 'dark' || savedTheme === 'light'
+        ? savedTheme
+        : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+      const themeColor = document.getElementById('themeColor');
+      if (themeColor) themeColor.setAttribute('content', theme === 'dark' ? '#0b1220' : '#f4f7fa');
     })();
   </script>
   <style>
     html,
     body {
-      background: #f6f8fb;
+      background: #f4f7fa;
     }
 
     html[data-theme="dark"],
@@ -91,19 +98,19 @@
   const pageTitleMap = {
     "/": "Dashboard",
     "/admin": "Admin Dashboard",
-    "/admin/slots": "Available Slots",
-    "/admin/updates": "Latest Updates",
+    "/admin/slots": "Parking Slots",
+    "/admin/updates": "Live Updates",
     "/admin/alerts": "Notifications & Alerts",
     "/admin/records": "Gate Records",
     "/admin/scanner-analytics": "Scanner Performance",
-    "/admin/data": "Data Backup & Import",
+    "/admin/data": "Data Backup",
     "/guard": "Guard Dashboard",
     "/admin/users": "User Management",
     "/account/security": "Account Security",
     "/visitor-passes": "Visitor Passes",
     "/students": "Students & Vehicles",
     "/stickers": "Stickers",
-    "/reports": "Analytics Dashboard",
+    "/reports": "Reports",
     "/scanner": "Manual Gate Tools",
     "/scanner/auto": "Scan & Process"
   };
@@ -162,13 +169,17 @@
 %>
 
   <body class="page-<%= pageSlug %>" data-role="<%= roleNow %>">
-    <div id="pageLoader" class="page-loader is-active" role="progressbar" aria-label="Loading page">
+    <a class="skip-link" href="#mainContent">Skip to main content</a>
+    <div id="pageLoader" class="page-loader is-active" role="progressbar" aria-label="Loading page" aria-hidden="false">
       <span class="page-loader-bar"></span>
     </div>
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="mobileSidebar" aria-label="Application navigation">
+        <button type="button" class="mobile-nav-close" id="mobileNavClose" aria-label="Close navigation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path></svg>
+        </button>
         <div class="sidebar-identity">
-          <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>">
+          <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>" aria-label="NAAP Parking dashboard">
             <span class="sidebar-brand-mark" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <path d="M6 20V5h7a5 5 0 0 1 0 10H9"></path>
@@ -194,7 +205,7 @@
               <p class="side-nav-group-label"><%= section.label %></p>
               <% section.links.forEach((link) => { %>
                 <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
-                <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
+                <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %><%= roleNow === 'guard' && link.href === '/scanner/auto' ? ' nav-primary-action' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
                   <span class="nav-link-icon" aria-hidden="true"><%- navIconByHref[link.href] || navIconFallback %></span>
                   <span class="nav-link-label"><%= link.label %></span>
                 </a>
@@ -203,21 +214,20 @@
           <% }) %>
         </nav>
       </aside>
+      <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Close navigation" tabindex="-1"></button>
       <div class="content-area">
       <nav class="top-nav">
         <div class="top-nav-upper">
+          <button type="button" class="icon-btn mobile-nav-trigger" id="mobileNavTrigger" aria-label="Open navigation" aria-controls="mobileSidebar" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h16"></path></svg>
+          </button>
           <div class="top-nav-page-title">
             <span>Parking operations</span>
             <h2><%= pageTitle %></h2>
           </div>
           <div class="top-nav-actions">
-            <button class="icon-btn theme-toggle" id="themeToggle" title="Toggle theme mode" aria-label="Toggle theme mode">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-              </svg>
-            </button>
             <% if (roleNow === "admin" || roleNow === "guard") { %>
-            <button class="notification-btn" id="notificationBell" title="Open notifications" aria-label="Open notifications" aria-haspopup="dialog" aria-expanded="false">
+            <button class="notification-btn" id="notificationBell" title="Open notifications" aria-label="Open notifications" aria-haspopup="dialog" aria-controls="notificationPanel" aria-expanded="false">
               <span class="notification-btn-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <path d="M12 3a5 5 0 0 0-5 5v3.8L5.2 15a1 1 0 0 0 .8 1.5h12a1 1 0 0 0 .8-1.5L17 11.8V8a5 5 0 0 0-5-5Z"></path>
@@ -228,24 +238,43 @@
                 <strong>Notifications</strong>
                 <small id="notificationTriggerMeta">View alerts</small>
               </span>
-              <span id="notificationUnreadBadge" class="notification-unread-badge" style="display:none;">0</span>
+              <span id="notificationUnreadBadge" class="notification-unread-badge is-hidden">0</span>
             </button>
             <% } %>
             <span class="chip chip-live is-online desktop-only" id="networkIndicator">Online</span>
-            <span class="role-chip"><%= roleLabel %></span>
-            <a href="/logout" class="icon-btn signout-btn" title="Sign out" aria-label="Sign out">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-                <path d="M10 17l5-5-5-5"></path>
-                <path d="M15 12H3"></path>
-              </svg>
-            </a>
-            <div class="avatar-dot top-nav-avatar"><%= avatarInitial %></div>
+            <button type="button" class="account-menu-trigger" id="accountMenuButton" aria-label="Open account menu" aria-haspopup="menu" aria-controls="accountMenu" aria-expanded="false">
+              <span class="avatar-dot top-nav-avatar"><%= avatarInitial %></span>
+              <svg class="account-menu-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"></path></svg>
+            </button>
+            <div class="account-menu" id="accountMenu" role="menu" hidden>
+              <div class="account-menu-head">
+                <span class="avatar-dot"><%= avatarInitial %></span>
+                <span><strong><%= usernameNow %></strong><small><%= roleLabel %> account</small></span>
+              </div>
+              <div class="account-menu-separator"></div>
+              <a href="/account/security" class="account-menu-item" role="menuitem">
+                <span class="account-menu-icon" aria-hidden="true"><%- navIconByHref['/account/security'] %></span>
+                <span>Account security</span>
+              </a>
+              <a href="/account/security#password" class="account-menu-item" role="menuitem">
+                <span class="account-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg></span>
+                <span>Change password</span>
+              </a>
+              <button type="button" class="account-menu-item" id="themeToggle" role="menuitem">
+                <span class="account-menu-icon" data-theme-icon aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></span>
+                <span data-theme-label>Dark mode</span>
+              </button>
+              <div class="account-menu-separator"></div>
+              <a href="/logout" class="account-menu-item account-menu-signout" role="menuitem">
+                <span class="account-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path></svg></span>
+                <span>Sign out</span>
+              </a>
+            </div>
           </div>
         </div>
       </nav>
       <% if (roleNow === "admin" || roleNow === "guard") { %>
-      <div id="notificationPanel" class="notification-panel" role="dialog" aria-label="Notifications" aria-hidden="true">
+      <div id="notificationPanel" class="notification-panel" role="dialog" aria-label="Notifications" aria-hidden="true" inert>
         <div class="notification-panel-head">
           <div class="notification-panel-heading">
             <span class="notification-panel-icon" aria-hidden="true">
@@ -285,13 +314,12 @@
 
       <div class="main-shell">
 
-        <main class="container">
+        <main id="mainContent" class="container" tabindex="-1">
 
           <script>
             // Theme Toggle Logic
             window.addEventListener('DOMContentLoaded', () => {
               const toggleBtn = document.getElementById('themeToggle');
-              const mobileToggleBtn = document.getElementById('mobileThemeToggle');
               const moonIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
               const sunIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="M4.93 4.93l1.41 1.41"></path><path d="M17.66 17.66l1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="M6.34 17.66l-1.41 1.41"></path><path d="M19.07 4.93l-1.41 1.41"></path></svg>';
 
@@ -299,12 +327,20 @@
                 const isDark = theme === 'dark';
                 const icon = isDark ? sunIcon : moonIcon;
                 const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-                [toggleBtn, mobileToggleBtn].forEach(btn => {
+                [toggleBtn].forEach(btn => {
                   if (!btn) return;
-                  btn.innerHTML = icon;
+                  const iconTarget = btn.querySelector('[data-theme-icon]');
+                  const labelTarget = btn.querySelector('[data-theme-label]');
+                  if (iconTarget) iconTarget.innerHTML = icon;
+                  else btn.innerHTML = icon;
+                  if (labelTarget) labelTarget.textContent = isDark ? 'Light mode' : 'Dark mode';
                   btn.title = label;
                   btn.setAttribute('aria-label', label);
+                  btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
                 });
+                document.documentElement.style.colorScheme = theme;
+                const themeColor = document.getElementById('themeColor');
+                if (themeColor) themeColor.setAttribute('content', isDark ? '#0b1220' : '#f4f7fa');
               };
 
               const handleToggle = () => {
@@ -314,14 +350,10 @@
                 localStorage.setItem('theme', newTheme);
                 setThemeIcon(newTheme);
 
-                [toggleBtn, mobileToggleBtn].forEach(btn => {
-                  if (btn) btn.blur();
-                });
               };
               setThemeIcon(document.documentElement.getAttribute('data-theme') || 'light');
 
               if (toggleBtn) toggleBtn.addEventListener('click', handleToggle);
-              if (mobileToggleBtn) mobileToggleBtn.addEventListener('click', handleToggle);
 
               const notificationBell = document.getElementById('notificationBell');
               const notificationPanel = document.getElementById('notificationPanel');
@@ -338,6 +370,7 @@
               let notifySummaryInterval = null;
               let notifyStartTimer = null;
               let notificationUpdatesStarted = false;
+              let notificationReturnFocus = null;
 
               const escapeHtml = (value) => String(value == null ? '' : value)
                 .replace(/&/g, '&amp;')
@@ -377,11 +410,11 @@
                 }
                 if (!notificationUnreadBadge) return;
                 if (safeCount <= 0) {
-                  notificationUnreadBadge.style.display = 'none';
+                  notificationUnreadBadge.classList.add('is-hidden');
                   notificationUnreadBadge.textContent = '0';
                   return;
                 }
-                notificationUnreadBadge.style.display = '';
+                notificationUnreadBadge.classList.remove('is-hidden');
                 notificationUnreadBadge.textContent = safeCount > 99 ? '99+' : String(safeCount);
               };
 
@@ -407,7 +440,7 @@
                     </div>
                     <div class="notification-row-actions">
                       ${isUnread ? `<button type="button" class="btn-sm notification-read-btn" data-alert-id="${row.id}">Read</button>` : ''}
-                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm danger notification-resolve-btn" data-alert-id="${row.id}">Resolve</button>` : ''}
+                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${row.id}">Resolve</button>` : ''}
                     </div>
                   </article>
                 `;
@@ -499,17 +532,31 @@
 
               const openNotificationPanel = () => {
                 if (!notificationPanel) return;
+                notificationReturnFocus = document.activeElement instanceof HTMLElement
+                  ? document.activeElement
+                  : notificationBell;
+                notificationPanel.removeAttribute('inert');
                 notificationPanel.classList.add('open');
                 notificationPanel.setAttribute('aria-hidden', 'false');
                 notificationBell?.setAttribute('aria-expanded', 'true');
                 fetchNotificationList();
+                window.requestAnimationFrame(() => notificationCloseBtn?.focus());
               };
 
-              const closeNotificationPanel = () => {
+              const closeNotificationPanel = ({ restoreFocus = true } = {}) => {
                 if (!notificationPanel) return;
+                const wasOpen = notificationPanel.classList.contains('open');
                 notificationPanel.classList.remove('open');
                 notificationPanel.setAttribute('aria-hidden', 'true');
+                notificationPanel.setAttribute('inert', '');
                 notificationBell?.setAttribute('aria-expanded', 'false');
+                if (wasOpen && restoreFocus) {
+                  const returnTarget = notificationReturnFocus?.isConnected
+                    ? notificationReturnFocus
+                    : notificationBell;
+                  returnTarget?.focus({ preventScroll: true });
+                }
+                notificationReturnFocus = null;
               };
 
               const closeNotificationEvents = () => {
@@ -569,6 +616,11 @@
                 const target = event.target;
                 if (!(target instanceof Element)) return;
                 if (target.closest('#notificationPanel') || target.closest('#notificationBell')) return;
+                closeNotificationPanel({ restoreFocus: false });
+              });
+              document.addEventListener('keydown', (event) => {
+                if (event.key !== 'Escape' || !notificationPanel?.classList.contains('open')) return;
+                event.preventDefault();
                 closeNotificationPanel();
               });
 

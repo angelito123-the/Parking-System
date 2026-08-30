@@ -5663,16 +5663,140 @@ app.get("/api/parking-slot-history", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
 
 app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const [studentResult, vehicleResult] = await Promise.all([
-      pool.query("SELECT * FROM students ORDER BY created_at DESC, id DESC"),
-      pool.query("SELECT v.* FROM vehicles v ORDER BY v.created_at ASC, v.id ASC")
+    const allowedPageSizes = new Set([10, 25, 50]);
+    const allowedVehicleStates = new Set(["all", "with_vehicle", "without_vehicle"]);
+    const allowedStickerStates = new Set(["all", "active", "expired", "revoked", "none"]);
+    const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.page_size, 10) || 10;
+    const pageSize = allowedPageSizes.has(requestedPageSize) ? requestedPageSize : 10;
+    const filters = {
+      q: String(req.query.q || "").trim().slice(0, 100),
+      course: String(req.query.course || "").trim(),
+      year_level: String(req.query.year_level || "").trim(),
+      vehicle_status: allowedVehicleStates.has(String(req.query.vehicle_status || ""))
+        ? String(req.query.vehicle_status)
+        : "all",
+      sticker_status: allowedStickerStates.has(String(req.query.sticker_status || ""))
+        ? String(req.query.sticker_status)
+        : "all"
+    };
+
+    const whereParts = [];
+    const whereParams = [];
+    if (filters.q) {
+      const searchTerm = `%${filters.q}%`;
+      whereParts.push(`(
+        s.student_number LIKE ?
+        OR s.full_name LIKE ?
+        OR s.email LIKE ?
+        OR s.program LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM vehicles search_vehicle
+          WHERE search_vehicle.student_id = s.id
+            AND (search_vehicle.plate_number LIKE ? OR search_vehicle.model LIKE ?)
+        )
+      )`);
+      whereParams.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+    }
+    if (filters.course) {
+      whereParts.push("s.program = ?");
+      whereParams.push(filters.course);
+    }
+    if (filters.year_level) {
+      whereParts.push("s.year_level = ?");
+      whereParams.push(filters.year_level);
+    }
+    if (filters.vehicle_status === "with_vehicle") {
+      whereParts.push("EXISTS (SELECT 1 FROM vehicles vehicle_filter WHERE vehicle_filter.student_id = s.id)");
+    } else if (filters.vehicle_status === "without_vehicle") {
+      whereParts.push("NOT EXISTS (SELECT 1 FROM vehicles vehicle_filter WHERE vehicle_filter.student_id = s.id)");
+    }
+    if (filters.sticker_status === "active") {
+      whereParts.push(`EXISTS (
+        SELECT 1 FROM vehicles sticker_vehicle
+        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
+        WHERE sticker_vehicle.student_id = s.id
+          AND sticker_filter.status = 'active'
+          AND (sticker_filter.expires_at IS NULL OR sticker_filter.expires_at >= CURDATE())
+      )`);
+    } else if (filters.sticker_status === "expired") {
+      whereParts.push(`EXISTS (
+        SELECT 1 FROM vehicles sticker_vehicle
+        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
+        WHERE sticker_vehicle.student_id = s.id
+          AND sticker_filter.status = 'active'
+          AND sticker_filter.expires_at < CURDATE()
+      )`);
+    } else if (filters.sticker_status === "revoked") {
+      whereParts.push(`EXISTS (
+        SELECT 1 FROM vehicles sticker_vehicle
+        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
+        WHERE sticker_vehicle.student_id = s.id AND sticker_filter.status = 'revoked'
+      )`);
+    } else if (filters.sticker_status === "none") {
+      whereParts.push(`NOT EXISTS (
+        SELECT 1 FROM vehicles sticker_vehicle
+        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
+        WHERE sticker_vehicle.student_id = s.id
+      )`);
+    }
+
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+    const [summaryResult, countResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          (SELECT COUNT(*) FROM students) AS student_count,
+          (SELECT COUNT(*) FROM vehicles) AS vehicle_count
+      `),
+      pool.query(`SELECT COUNT(*) AS total FROM students s ${whereSql}`, whereParams)
     ]);
-    const studentRows = studentResult[0];
-    const vehicleRows = vehicleResult[0];
+    const total = Number(countResult[0][0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const offset = (page - 1) * pageSize;
+    const [studentRows] = await pool.query(
+      `SELECT s.* FROM students s ${whereSql} ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`,
+      [...whereParams, pageSize, offset]
+    );
+
+    const studentIds = studentRows.map((student) => Number(student.id)).filter(Number.isFinite);
+    let vehicleRows = [];
+    let stickerRows = [];
+    if (studentIds.length) {
+      const placeholders = studentIds.map(() => "?").join(", ");
+      const [vehicleResult] = await pool.query(
+        `SELECT v.* FROM vehicles v WHERE v.student_id IN (${placeholders}) ORDER BY v.created_at ASC, v.id ASC`,
+        studentIds
+      );
+      vehicleRows = vehicleResult;
+      const vehicleIds = vehicleRows.map((vehicle) => Number(vehicle.id)).filter(Number.isFinite);
+      if (vehicleIds.length) {
+        const stickerPlaceholders = vehicleIds.map(() => "?").join(", ");
+        const [stickerResult] = await pool.query(
+          `SELECT id, vehicle_id, status, expires_at, created_at
+           FROM stickers
+           WHERE vehicle_id IN (${stickerPlaceholders})
+           ORDER BY created_at DESC, id DESC`,
+          vehicleIds
+        );
+        stickerRows = stickerResult;
+      }
+    }
+
+    const latestStickerByVehicle = new Map();
+    stickerRows.forEach((sticker) => {
+      if (!latestStickerByVehicle.has(sticker.vehicle_id)) {
+        const expired = sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now();
+        latestStickerByVehicle.set(sticker.vehicle_id, {
+          ...sticker,
+          display_status: sticker.status === "revoked" ? "revoked" : expired ? "expired" : "active"
+        });
+      }
+    });
     const vehiclesByStudent = new Map();
     vehicleRows.forEach((vehicle) => {
       const studentVehicles = vehiclesByStudent.get(vehicle.student_id) || [];
-      studentVehicles.push(vehicle);
+      studentVehicles.push({ ...vehicle, latest_sticker: latestStickerByVehicle.get(vehicle.id) || null });
       vehiclesByStudent.set(vehicle.student_id, studentVehicles);
     });
     // Attach vehicles array to each student
@@ -5710,7 +5834,31 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       students,
       flash,
       academicProgramGroups: ACADEMIC_PROGRAM_GROUPS,
-      yearLevels: YEAR_LEVELS
+      yearLevels: YEAR_LEVELS,
+      filters,
+      directorySummary: {
+        students: Number(summaryResult[0][0]?.student_count || 0),
+        vehicles: Number(summaryResult[0][0]?.vehicle_count || 0)
+      },
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        from: total ? offset + 1 : 0,
+        to: Math.min(offset + studentRows.length, total)
+      },
+      makeStudentDirectoryQuery: (overrides = {}) => {
+        const values = { ...filters, page, page_size: pageSize, ...overrides };
+        const params = new URLSearchParams();
+        ["q", "course", "year_level", "vehicle_status", "sticker_status", "page", "page_size"].forEach((key) => {
+          const value = values[key];
+          if (value === undefined || value === null || value === "" || value === "all") return;
+          params.set(key, String(value));
+        });
+        const query = params.toString();
+        return `/students${query ? `?${query}` : ""}#directory`;
+      }
     });
   } catch (error) {
     console.error("Students error:", error);

@@ -78,14 +78,18 @@
         <article class="security-session-item">
           <div><strong><%= sessionItem.current ? "This device" : `Session ${sessionItem.fingerprint}` %></strong><span>Expires <%= dateLabel(sessionItem.expires_at) %></span></div>
           <% if (sessionItem.current) { %><span class="badge">Current</span><% } else { %>
-            <form method="post" action="/account/sessions/<%= sessionItem.fingerprint %>/revoke"><button type="submit" class="btn-delete-sm">Revoke</button></form>
+            <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeSession_<%= sessionItem.fingerprint %>" data-confirm-title="Revoke session?" data-confirm-message="Sign this device out of your account?" data-confirm-label="Revoke session">Revoke</button>
+            <form id="revokeSession_<%= sessionItem.fingerprint %>" class="destructive-form" method="post" action="/account/sessions/<%= sessionItem.fingerprint %>/revoke" hidden></form>
           <% } %>
         </article>
       <% }) %>
       <% if (!safeSessions.length) { %><p class="helper-text">No active session records were found.</p><% } %>
     </div>
     <% if (safeSessions.some((item) => !item.current)) { %>
-      <form method="post" action="/account/sessions/revoke-others" class="security-revoke-all"><button type="submit" class="btn-delete-sm">Revoke All Other Sessions</button></form>
+      <div class="security-revoke-all">
+        <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeOtherSessions" data-confirm-title="Revoke other sessions?" data-confirm-message="Sign out every other device currently using your account?" data-confirm-label="Revoke sessions">Revoke All Other Sessions</button>
+        <form id="revokeOtherSessions" class="destructive-form" method="post" action="/account/sessions/revoke-others" hidden></form>
+      </div>
     <% } %>
   </section>
 

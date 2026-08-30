@@ -30,13 +30,13 @@
     </div>
   </div>
   <% if (flash) { %>
-    <div class="flash flash-<%= flash.type === 'success' ? 'success' : 'error' %>" style="margin-top:1rem;">
+    <div class="flash flash-spaced flash-<%= flash.type === 'success' ? 'success' : 'error' %>">
       <%= flash.message %>
     </div>
   <% } %>
 </section>
 
-<div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
+<div class="overlap-wrapper panel-stack">
   <section class="panel">
     <div class="section-head">
       <h2>Add User</h2>
@@ -98,18 +98,29 @@
               <td><span class="badge"><%= user.role %></span></td>
               <td><%= new Date(user.created_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
               <td>
-                <button
-                  type="button"
-                  class="btn-edit-sm"
-                  onclick="window.toggleUserEditor('<%= user.id %>')"
-                  id="editUserBtn_<%= user.id %>">
-                  Edit
-                </button>
+                <div class="table-action-group">
+                  <button
+                    type="button"
+                    class="btn-edit-sm"
+                    onclick="window.toggleUserEditor('<%= user.id %>')"
+                    id="editUserBtn_<%= user.id %>">
+                    Edit
+                  </button>
+                  <div class="action-menu">
+                    <button type="button" class="action-menu-trigger action-menu-trigger-compact" data-action-menu-trigger aria-label="More actions for <%= user.username %>" aria-haspopup="menu" aria-expanded="false">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
+                    </button>
+                    <div class="action-menu-popover action-menu-popover-end" role="menu">
+                      <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteUserForm_<%= user.id %>" data-confirm-title="Delete user account?" data-confirm-message="Delete the account for <%= user.username %>? They will immediately lose access and this cannot be undone." data-confirm-label="Delete account">Delete user</button>
+                    </div>
+                  </div>
+                  <form id="deleteUserForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/delete" hidden></form>
+                </div>
               </td>
             </tr>
-            <tr id="userEditor_<%= user.id %>" style="display:none;">
+            <tr id="userEditor_<%= user.id %>" hidden>
               <td colspan="4">
-                <form method="post" action="/admin/users/<%= user.id %>/edit" class="inline-edit-form" style="display:block;">
+                <form method="post" action="/admin/users/<%= user.id %>/edit" class="inline-edit-form is-visible">
                   <div class="form-row-3">
                     <div>
                       <label>Username</label>
@@ -137,13 +148,6 @@
                     </button>
                   </div>
                 </form>
-                <form
-                  method="post"
-                  action="/admin/users/<%= user.id %>/delete"
-                  onsubmit="return confirm('Delete user <%= user.username %>? This cannot be undone.')"
-                  style="margin-top:0.75rem;">
-                  <button type="submit" class="btn-delete-sm">Delete User</button>
-                </form>
               </td>
             </tr>
           <% }) %>
@@ -159,8 +163,8 @@
       const row = document.getElementById(`userEditor_${userId}`);
       const trigger = document.getElementById(`editUserBtn_${userId}`);
       if (!row || !trigger) return;
-      const isOpen = row.style.display !== "none";
-      row.style.display = isOpen ? "none" : "";
+      const isOpen = !row.hidden;
+      row.hidden = isOpen;
       trigger.textContent = isOpen ? "Edit" : "Close";
     };
   })();

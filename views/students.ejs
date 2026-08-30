@@ -1,6 +1,24 @@
 <%- include("partials/header") %>
 
-<% const pageFlash = typeof flash !== 'undefined' ? flash : null; %>
+<%
+  const pageFlash = typeof flash !== 'undefined' ? flash : null;
+  const safeFilters = typeof filters === 'object' && filters ? filters : {
+    q: '', course: '', year_level: '', vehicle_status: 'all', sticker_status: 'all'
+  };
+  const safePagination = typeof pagination === 'object' && pagination ? pagination : {
+    page: 1, pageSize: 10, total: students.length, totalPages: 1, from: students.length ? 1 : 0, to: students.length
+  };
+  const safeDirectorySummary = typeof directorySummary === 'object' && directorySummary
+    ? directorySummary
+    : { students: students.length, vehicles: students.reduce((total, student) => total + (student.vehicles || []).length, 0) };
+  const directoryQuery = typeof makeStudentDirectoryQuery === 'function'
+    ? makeStudentDirectoryQuery
+    : (() => '/students#directory');
+  const hasDirectoryFilters = Boolean(
+    safeFilters.q || safeFilters.course || safeFilters.year_level
+    || safeFilters.vehicle_status !== 'all' || safeFilters.sticker_status !== 'all'
+  );
+%>
 
 <section class="dashboard-hero">
   <div class="hero-greeting">
@@ -10,15 +28,15 @@
   <div class="hero-cards">
     <div class="hero-card">
       <h3>Enrolled Students</h3>
-      <p><%= students.length %></p>
+      <p><%= safeDirectorySummary.students %></p>
     </div>
     <div class="hero-card">
       <h3>Registered Vehicles</h3>
-      <p><%= students.reduce((t, s) => t + (s.vehicles ? s.vehicles.length : 0), 0) %></p>
+      <p><%= safeDirectorySummary.vehicles %></p>
     </div>
   </div>
   <% if (pageFlash) { %>
-    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
+    <div class="flash flash-spaced flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>">
       <strong><%= pageFlash.type === 'success' ? 'Success:' : 'Notice:' %></strong> <%= pageFlash.message %>
     </div>
   <% } %>
@@ -93,8 +111,8 @@
       </div>
 
       <!-- Vehicle Fields (hidden by default) -->
-      <div id="vehicleSection" class="vehicle-section" style="display:none;">
-        <div class="form-group-label" style="margin-top:0;">Vehicle Information <span class="optional-label">(optional)</span></div>
+      <div id="vehicleSection" class="vehicle-section" hidden>
+        <div class="form-group-label no-top-margin">Vehicle Information <span class="optional-label">(optional)</span></div>
         <div class="form-row-2">
           <div>
             <label for="v_plate">Plate Number</label>
@@ -126,8 +144,8 @@
       <p>Search student records, update account details, and manage registered vehicles.</p>
     </div>
 
-    <div class="table-tools directory-toolbar">
-      <div class="directory-search">
+    <form class="directory-filter-form" method="get" action="/students#directory">
+      <div class="directory-search directory-filter-search">
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <circle cx="11" cy="11" r="7"></circle>
           <path d="m20 20-3.8-3.8"></path>
@@ -135,20 +153,74 @@
         <label for="studentSearch" class="sr-only">Search students</label>
         <input
           id="studentSearch"
+          name="q"
           type="search"
           autocomplete="off"
           placeholder="Search students or plate numbers"
+          value="<%= safeFilters.q %>"
         />
-        <button type="button" id="studentSearchClear" class="icon-btn directory-search-clear" aria-label="Clear search" hidden>
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="m7 7 10 10M17 7 7 17"></path>
-          </svg>
-        </button>
       </div>
+      <div class="directory-filter-field">
+        <label for="directoryCourse">Course</label>
+        <select id="directoryCourse" name="course">
+          <option value="">All courses</option>
+          <% academicProgramGroups.forEach(group => { %>
+            <optgroup label="<%= group.institute %>">
+              <% group.programs.forEach(program => { %>
+                <option value="<%= program.name %>" <%= safeFilters.course === program.name ? 'selected' : '' %>><%= program.code || program.name %></option>
+              <% }) %>
+            </optgroup>
+          <% }) %>
+        </select>
+      </div>
+      <div class="directory-filter-field">
+        <label for="directoryYear">Year level</label>
+        <select id="directoryYear" name="year_level">
+          <option value="">All years</option>
+          <% yearLevels.forEach(year => { %>
+            <option value="<%= year.value %>" <%= safeFilters.year_level === year.value ? 'selected' : '' %>><%= year.label %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="directory-filter-field">
+        <label for="directoryVehicleStatus">Vehicle</label>
+        <select id="directoryVehicleStatus" name="vehicle_status">
+          <option value="all" <%= safeFilters.vehicle_status === 'all' ? 'selected' : '' %>>Any status</option>
+          <option value="with_vehicle" <%= safeFilters.vehicle_status === 'with_vehicle' ? 'selected' : '' %>>Has vehicle</option>
+          <option value="without_vehicle" <%= safeFilters.vehicle_status === 'without_vehicle' ? 'selected' : '' %>>No vehicle</option>
+        </select>
+      </div>
+      <div class="directory-filter-field">
+        <label for="directoryStickerStatus">Sticker</label>
+        <select id="directoryStickerStatus" name="sticker_status">
+          <option value="all" <%= safeFilters.sticker_status === 'all' ? 'selected' : '' %>>Any status</option>
+          <option value="active" <%= safeFilters.sticker_status === 'active' ? 'selected' : '' %>>Active</option>
+          <option value="expired" <%= safeFilters.sticker_status === 'expired' ? 'selected' : '' %>>Expired</option>
+          <option value="revoked" <%= safeFilters.sticker_status === 'revoked' ? 'selected' : '' %>>Revoked</option>
+          <option value="none" <%= safeFilters.sticker_status === 'none' ? 'selected' : '' %>>No sticker</option>
+        </select>
+      </div>
+      <input type="hidden" name="page_size" value="<%= safePagination.pageSize %>" />
+      <div class="directory-filter-actions">
+        <button type="submit" class="btn-filter-apply">Apply filters</button>
+        <% if (hasDirectoryFilters) { %><a class="btn-filter-clear" href="/students#directory">Reset</a><% } %>
+      </div>
+    </form>
+
+    <div class="directory-results-bar">
       <p class="directory-count" aria-live="polite">
         <span class="directory-count-dot" aria-hidden="true"></span>
-        <span id="studentSearchCount">Showing <%= students.length %> student<%= students.length === 1 ? '' : 's' %></span>
+        <span>Showing <%= safePagination.from %>–<%= safePagination.to %> of <%= safePagination.total %> student<%= safePagination.total === 1 ? '' : 's' %></span>
       </p>
+      <form method="get" action="/students#directory" class="directory-page-size-form">
+        <% ['q', 'course', 'year_level', 'vehicle_status', 'sticker_status'].forEach(key => { %>
+          <% if (safeFilters[key] && safeFilters[key] !== 'all') { %><input type="hidden" name="<%= key %>" value="<%= safeFilters[key] %>" /><% } %>
+        <% }) %>
+        <label for="directoryPageSize">Rows</label>
+        <select id="directoryPageSize" name="page_size" onchange="this.form.submit()">
+          <% [10, 25, 50].forEach(size => { %><option value="<%= size %>" <%= safePagination.pageSize === size ? 'selected' : '' %>><%= size %></option><% }) %>
+        </select>
+      </form>
     </div>
 
     <% if (students.length === 0) { %>
@@ -161,7 +233,7 @@
             <path d="M21 19v-1.3a4 4 0 0 0-2.8-3.8"></path>
           </svg>
         </div>
-        <p>No students registered yet. Open the Register tab to add one.</p>
+        <p><%= hasDirectoryFilters ? 'No students match the selected filters.' : 'No students registered yet. Open the Register tab to add one.' %></p>
       </div>
     <% } %>
 
@@ -186,9 +258,15 @@
           </div>
           <div class="sc-header-actions">
             <button type="button" class="btn-edit-sm" onclick="toggleStudentEdit(<%= student.id %>)" id="editStudentBtn_<%= student.id %>" aria-controls="studentEditForm_<%= student.id %>" aria-expanded="false">Edit</button>
-            <form style="margin:0;" method="post" action="/students/<%= student.id %>/delete"
-                  onsubmit="return confirm('Delete <%= student.full_name %>? This will also remove all their vehicles and cannot be undone.')">
-              <button type="submit" class="btn-delete-sm">Delete</button>
+            <div class="action-menu">
+              <button type="button" class="action-menu-trigger" data-action-menu-trigger aria-label="More actions for <%= student.full_name %>" aria-haspopup="menu" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
+              </button>
+              <div class="action-menu-popover" role="menu">
+                <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteStudentForm_<%= student.id %>" data-confirm-title="Delete student?" data-confirm-message="Delete <%= student.full_name %> and all linked vehicles and stickers? This cannot be undone." data-confirm-label="Delete student">Delete student</button>
+              </div>
+            </div>
+            <form id="deleteStudentForm_<%= student.id %>" class="destructive-form" method="post" action="/students/<%= student.id %>/delete" hidden>
             </form>
           </div>
         </div>
@@ -234,7 +312,7 @@
         </div>
 
         <!-- section -->
-        <div class="inline-edit-form" id="studentEditForm_<%= student.id %>" style="display:none;">
+        <div class="inline-edit-form" id="studentEditForm_<%= student.id %>" hidden>
           <form method="post" action="/students/<%= student.id %>/edit" class="edit-form-grid">
             <div class="form-row-2">
               <div>
@@ -300,7 +378,7 @@
           </div>
 
           <!-- Add Vehicle Inline Form -->
-          <div class="inline-edit-form add-vehicle-form" id="addVehicleForm_<%= student.id %>" style="display:none;">
+          <div class="inline-edit-form add-vehicle-form" id="addVehicleForm_<%= student.id %>" hidden>
             <form method="post" action="/vehicles" class="edit-form-grid">
               <input type="hidden" name="student_id" value="<%= student.id %>" />
               <div class="form-row-3">
@@ -350,19 +428,27 @@
                         <span class="sv-color"><%= vehicle.color %></span>
                       <% } %>
                     </span>
+                    <% const stickerState = vehicle.latest_sticker?.display_status || 'none'; %>
+                    <span class="vehicle-sticker-status state-<%= stickerState %>"><%= stickerState === 'none' ? 'No sticker' : `${stickerState.charAt(0).toUpperCase()}${stickerState.slice(1)} sticker` %></span>
                   </span>
                 </div>
                 <div class="sv-item-actions">
                   <button type="button" class="btn-edit-xs" onclick="toggleVehicleEdit(<%= vehicle.id %>)" id="editVehicleBtn_<%= vehicle.id %>" aria-controls="vehicleEditForm_<%= vehicle.id %>" aria-expanded="false">Edit</button>
-                  <form style="margin:0;" method="post" action="/vehicles/<%= vehicle.id %>/delete"
-                        onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>? This cannot be undone.')">
-                    <button type="submit" class="btn-delete-xs">Delete</button>
+                  <div class="action-menu">
+                    <button type="button" class="action-menu-trigger action-menu-trigger-compact" data-action-menu-trigger aria-label="More actions for vehicle <%= vehicle.plate_number %>" aria-haspopup="menu" aria-expanded="false">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
+                    </button>
+                    <div class="action-menu-popover" role="menu">
+                      <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteVehicleForm_<%= vehicle.id %>" data-confirm-title="Delete vehicle?" data-confirm-message="Delete vehicle <%= vehicle.plate_number %> and its linked sticker records? This cannot be undone." data-confirm-label="Delete vehicle">Delete vehicle</button>
+                    </div>
+                  </div>
+                  <form id="deleteVehicleForm_<%= vehicle.id %>" class="destructive-form" method="post" action="/vehicles/<%= vehicle.id %>/delete" hidden>
                   </form>
                 </div>
               </div>
 
               <!-- Inline Vehicle Edit Form -->
-              <div class="inline-edit-form vehicle-edit-form" id="vehicleEditForm_<%= vehicle.id %>" style="display:none;">
+              <div class="inline-edit-form vehicle-edit-form" id="vehicleEditForm_<%= vehicle.id %>" hidden>
                 <form method="post" action="/vehicles/<%= vehicle.id %>/edit" class="edit-form-grid">
                   <div class="form-row-3">
                     <div>
@@ -391,17 +477,22 @@
       </div>
     <% }) %>
     </div>
-    <div id="studentNoResults" class="directory-no-results" hidden>
-      <span class="directory-no-results-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24">
-          <circle cx="11" cy="11" r="7"></circle>
-          <path d="m20 20-3.8-3.8M8.5 11h5"></path>
-        </svg>
-      </span>
-      <strong>No matching students</strong>
-      <p>Try a name, student number, course, year level, email address, or plate number.</p>
-      <button type="button" id="studentNoResultsClear" class="btn-clear-search">Clear search</button>
-    </div>
+    <% if (safePagination.totalPages > 1) { %>
+      <nav class="directory-pagination" aria-label="Student directory pages">
+        <a class="pagination-control <%= safePagination.page <= 1 ? 'is-disabled' : '' %>" href="<%= safePagination.page > 1 ? directoryQuery({ page: safePagination.page - 1 }) : '#' %>" <%- safePagination.page <= 1 ? 'aria-disabled="true" tabindex="-1"' : '' %>>Previous</a>
+        <div class="pagination-pages">
+          <%
+            const firstPage = Math.max(1, safePagination.page - 2);
+            const lastPage = Math.min(safePagination.totalPages, firstPage + 4);
+            const visibleFirstPage = Math.max(1, lastPage - 4);
+          %>
+          <% for (let pageNumber = visibleFirstPage; pageNumber <= lastPage; pageNumber += 1) { %>
+            <a class="pagination-page <%= pageNumber === safePagination.page ? 'is-active' : '' %>" href="<%= directoryQuery({ page: pageNumber }) %>" <%- pageNumber === safePagination.page ? 'aria-current="page"' : '' %>><%= pageNumber %></a>
+          <% } %>
+        </div>
+        <a class="pagination-control <%= safePagination.page >= safePagination.totalPages ? 'is-disabled' : '' %>" href="<%= safePagination.page < safePagination.totalPages ? directoryQuery({ page: safePagination.page + 1 }) : '#' %>" <%- safePagination.page >= safePagination.totalPages ? 'aria-disabled="true" tabindex="-1"' : '' %>>Next</a>
+      </nav>
+    <% } %>
   </section>
 </div>
 
@@ -1345,8 +1436,8 @@
   function toggleVehicleSection() {
     const section = document.getElementById('vehicleSection');
     const btn = document.getElementById('vehicleToggle');
-    const isVisible = section.style.display !== 'none';
-    section.style.display = isVisible ? 'none' : 'grid';
+    const isVisible = !section.hidden;
+    section.hidden = isVisible;
     btn.textContent = isVisible ? 'Add Vehicle Details' : 'Hide Vehicle Details';
 
     // Update submit button text
@@ -1358,8 +1449,8 @@
   function toggleStudentEdit(id) {
     const form = document.getElementById('studentEditForm_' + id);
     const btn = document.getElementById('editStudentBtn_' + id);
-    const isVisible = form.style.display !== 'none';
-    form.style.display = isVisible ? 'none' : 'block';
+    const isVisible = !form.hidden;
+    form.hidden = isVisible;
     btn.textContent = isVisible ? 'Edit' : 'Close';
     btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
@@ -1368,8 +1459,8 @@
   function toggleVehicleEdit(id) {
     const form = document.getElementById('vehicleEditForm_' + id);
     const btn = document.getElementById('editVehicleBtn_' + id);
-    const isVisible = form.style.display !== 'none';
-    form.style.display = isVisible ? 'none' : 'block';
+    const isVisible = !form.hidden;
+    form.hidden = isVisible;
     if (btn) {
       btn.textContent = isVisible ? 'Edit' : 'Close';
       btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
@@ -1380,8 +1471,8 @@
   function toggleAddVehicle(studentId) {
     const form = document.getElementById('addVehicleForm_' + studentId);
     const btn = document.getElementById('addVehicleBtn_' + studentId);
-    const isVisible = form.style.display !== 'none';
-    form.style.display = isVisible ? 'none' : 'block';
+    const isVisible = !form.hidden;
+    form.hidden = isVisible;
     btn.innerHTML = isVisible ? '<span aria-hidden="true">+</span> Add vehicle' : 'Cancel';
     btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
@@ -1410,50 +1501,11 @@
     const params = new URLSearchParams(window.location.search);
     const hashView = String(window.location.hash || "").replace("#", "").trim().toLowerCase();
     const successParams = ["success", "vsuccess", "esuccess", "deleted", "vdeleted"];
+    const directoryParams = ["q", "course", "year_level", "vehicle_status", "sticker_status", "page", "page_size"];
     const hasSuccess = successParams.some((key) => params.has(key));
-    const defaultView = hashView === "directory" || hasSuccess ? "directory" : "register";
+    const hasDirectoryQuery = directoryParams.some((key) => params.has(key));
+    const defaultView = hashView === "directory" || hasSuccess || hasDirectoryQuery ? "directory" : "register";
     setFlowView(defaultView);
-  })();
-
-  // Search filter
-  (() => {
-    const searchInput = document.getElementById("studentSearch");
-    const countLabel = document.getElementById("studentSearchCount");
-    const clearButton = document.getElementById("studentSearchClear");
-    const emptyState = document.getElementById("studentNoResults");
-    const emptyClearButton = document.getElementById("studentNoResultsClear");
-    if (!searchInput || !countLabel) return;
-
-    const cards = Array.from(document.querySelectorAll("#studentDirectory .student-card"));
-    const total = cards.length;
-
-    function updateFilter() {
-      const q = searchInput.value.trim().toLowerCase();
-      let visible = 0;
-      cards.forEach(card => {
-        const match = !q || card.dataset.searchable.toLowerCase().includes(q);
-        card.style.display = match ? "" : "none";
-        if (match) visible++;
-      });
-
-      countLabel.textContent = q
-        ? `Showing ${visible} of ${total} students`
-        : `Showing ${total} student${total !== 1 ? 's' : ''}`;
-
-      if (clearButton) clearButton.hidden = !q;
-      if (emptyState) emptyState.hidden = !q || visible > 0;
-    }
-
-    function clearSearch() {
-      searchInput.value = "";
-      updateFilter();
-      searchInput.focus();
-    }
-
-    searchInput.addEventListener("input", updateFilter);
-    if (clearButton) clearButton.addEventListener("click", clearSearch);
-    if (emptyClearButton) emptyClearButton.addEventListener("click", clearSearch);
-    updateFilter();
   })();
 </script>
 
