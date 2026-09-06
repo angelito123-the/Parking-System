@@ -106,6 +106,13 @@
                 <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn" style="text-decoration:none; color:var(--blue-mid); font-weight:600; font-size:0.8rem;">View QR</a>
                 <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn" style="text-decoration:none; color:var(--text); font-weight:600; font-size:0.8rem;">⬇ Download</a>
                 <button type="button" class="link-btn copy-sticker-link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>">Copy link</button>
+                <% if (displayStatus === "active" && sticker.email) { %>
+                  <form method="post" action="/stickers/<%= sticker.id %>/email" class="inline-form">
+                    <button type="submit" class="link-btn" title="Send QR code to <%= sticker.email %>">Email QR</button>
+                  </form>
+                <% } else if (displayStatus === "active") { %>
+                  <span class="helper-text" title="Add an email address in Student Management first">No email</span>
+                <% } %>
               </div>
             </td>
             <td style="text-align: right; padding-right: 1.5rem;">
@@ -148,7 +155,15 @@
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
             <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="btn btn-mobile-touch" style="background:var(--blue-soft); color:var(--blue-mid); border: 1px solid rgba(37,99,235,0.2); text-decoration:none;">View QR</a>
             <a href="/stickers/<%= sticker.id %>/qr" download class="btn btn-mobile-touch" style="background:var(--surface-soft); color:var(--text); border:1px solid var(--line); text-decoration:none;">Download</a>
+            <% if (displayStatus === "active" && sticker.email) { %>
+              <form method="post" action="/stickers/<%= sticker.id %>/email" class="inline-form">
+                <button type="submit" class="btn btn-mobile-touch" title="Send QR code to <%= sticker.email %>">Email QR</button>
+              </form>
+            <% } %>
           </div>
+          <% if (displayStatus === "active" && !sticker.email) { %>
+            <span class="helper-text">Add the student's email address to enable email delivery.</span>
+          <% } %>
           <% if (sticker.status === "active") { %>
             <button type="button" class="danger btn-mobile-touch" data-destructive-trigger data-form-id="revokeStickerMobile_<%= sticker.id %>" data-confirm-title="Revoke sticker?" data-confirm-message="Revoke sticker <%= sticker.sticker_code %>? It will no longer grant parking access." data-confirm-label="Revoke sticker">Revoke Sticker</button>
             <form id="revokeStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/revoke" hidden></form>

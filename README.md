@@ -40,6 +40,7 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - Register student vehicles
 - Issue parking stickers with unique QR token
 - View printable QR image per sticker
+- Email an active sticker QR code to the student's registered email address
 - Camera-based scanner page for gate officers
 - Automatic phone camera QR detection mode with guard slot assignment
 - Auto log each scan with result and entry/exit action
@@ -55,6 +56,7 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - `/guard` Guard dashboard
 - `/students` Manage students (Admin)
 - `/stickers` Issue/revoke stickers and view QR links (Admin)
+- `POST /stickers/:id/email` Email an active sticker QR image to its student (Admin)
 - `/scanner` Live camera QR scanner (Guard/Admin)
 - `/scanner/auto` Automatic gate phone camera scanner (Guard/Admin)
 - `/verify/:token` Manual verification endpoint
@@ -67,5 +69,6 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 
 - Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.
+- QR email delivery requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in `.env`. Set `SMTP_SECURE=true` for implicit TLS (normally port 465); port 587 normally uses `false` and upgrades with STARTTLS.
 - For a no-cost online deployment, follow [DEPLOY_FREE.md](./DEPLOY_FREE.md).
 - Before using a phone or tablet at a gate, follow the [scanner device test checklist](./docs/SCANNER_DEVICE_TESTING.md).

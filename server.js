@@ -10,6 +10,11 @@ const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
+const {
+  MailConfigurationError,
+  normalizeEmailAddress,
+  sendStudentQrEmail
+} = require("./lib/student-qr-email");
 const { serializeForScript } = require("./lib/serialize-for-script");
 const { parseCsv, stringifyCsv } = require("./lib/csv");
 const {
@@ -6004,7 +6009,7 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          ORDER BY v.id DESC`
       ),
       pool.query(
-        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number
+        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number, s.email
          FROM stickers st
          JOIN vehicles v ON v.id = st.vehicle_id
          JOIN students s ON s.id = v.student_id
@@ -6017,6 +6022,18 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       ? { type: "success", message: "Sticker issued successfully." }
       : req.query.revoked
       ? { type: "success", message: "Sticker has been revoked." }
+      : req.query.email === "sent"
+      ? { type: "success", message: "QR code emailed to the student successfully." }
+      : req.query.email === "no_email"
+      ? { type: "error", message: "This student does not have a valid email address. Add one in Student Management first." }
+      : req.query.email === "inactive"
+      ? { type: "error", message: "Only an active, unexpired sticker QR code can be emailed." }
+      : req.query.email === "not_configured"
+      ? { type: "error", message: "Email delivery is not configured. Add the SMTP settings shown in .env.example." }
+      : req.query.email === "failed"
+      ? { type: "error", message: "The email could not be sent. Check the mail server settings and try again." }
+      : req.query.email === "not_found"
+      ? { type: "error", message: "Sticker not found." }
       : null;
     res.render("stickers", { stickers, vehicles, APP_BASE_URL, flash });
   } catch (error) {
@@ -6065,6 +6082,56 @@ app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   } catch (error) {
     console.error("QR generation error:", error);
     res.status(500).send("Unable to generate QR code.");
+  }
+});
+
+app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT st.id, st.sticker_code, st.qr_token, st.status, st.expires_at,
+              v.plate_number, s.id AS student_id, s.student_number, s.full_name, s.email
+       FROM stickers st
+       JOIN vehicles v ON v.id = st.vehicle_id
+       JOIN students s ON s.id = v.student_id
+       WHERE st.id = ?
+       LIMIT 1`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.redirect("/stickers?email=not_found");
+
+    const sticker = rows[0];
+    const isExpired = sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now();
+    if (sticker.status !== "active" || isExpired) {
+      return res.redirect("/stickers?email=inactive");
+    }
+
+    const recipient = normalizeEmailAddress(sticker.email);
+    if (!recipient) return res.redirect("/stickers?email=no_email");
+
+    const verifyUrl = `${APP_BASE_URL.replace(/\/+$/, "")}/verify/${sticker.qr_token}`;
+    const qrPng = await generateBrandedQrPng(verifyUrl);
+    await sendStudentQrEmail({
+      to: recipient,
+      studentName: sticker.full_name,
+      studentNumber: sticker.student_number,
+      stickerCode: sticker.sticker_code,
+      plateNumber: sticker.plate_number,
+      verifyUrl,
+      qrPng
+    });
+    await recordSecurityAudit(req, "STICKER_QR_EMAILED", {
+      targetType: "sticker",
+      targetId: sticker.id,
+      metadata: { student_id: sticker.student_id }
+    });
+    return res.redirect("/stickers?email=sent");
+  } catch (error) {
+    if (error instanceof MailConfigurationError || error?.code === "MAIL_NOT_CONFIGURED") {
+      console.error("QR email configuration error:", error.message);
+      return res.redirect("/stickers?email=not_configured");
+    }
+    console.error("QR email delivery error:", error);
+    return res.redirect("/stickers?email=failed");
   }
 });
 
