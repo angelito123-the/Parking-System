@@ -17,6 +17,13 @@ test("QR email delivery is queued, audited, retried, and shown to administrators
   assert.match(read("views/stickers.ejs"), /Confirm QR email/);
 });
 
+test("sticker management remains available when optional history data is unavailable", () => {
+  assert.match(server, /async function loadOptionalStickerRows/);
+  assert.match(server, /Sticker dashboard \$\{label\} unavailable/);
+  assert.match(server, /emailDeliveryAvailable: latestEmailJobs\.available && emailHistory\.available/);
+  assert.match(read("views/stickers.ejs"), /Sticker issuing, QR viewing, printing, replacement, and revocation remain available/);
+});
+
 test("administrator and guard account controls enforce practical security", () => {
   assert.match(server, /REQUIRE_ADMIN_2FA/);
   assert.match(server, /mustChangePassword/);

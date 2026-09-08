@@ -7117,50 +7117,104 @@ app.post("/vehicles/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res)
   }
 });
 
+async function loadOptionalStickerRows(label, sql) {
+  try {
+    const [rows] = await pool.query(sql);
+    return { available: true, rows };
+  } catch (error) {
+    console.warn(`Sticker dashboard ${label} unavailable:`, error.code || error.message);
+    return { available: false, rows: [] };
+  }
+}
+
+async function getStickerManagementData() {
+  const [vehicleResult, stickerResult] = await Promise.all([
+    pool.query(
+      `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
+       FROM vehicles v
+       JOIN students s ON s.id = v.student_id
+       ORDER BY v.id DESC`
+    ),
+    pool.query(
+      `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number, s.email
+       FROM stickers st
+       JOIN vehicles v ON v.id = st.vehicle_id
+       JOIN students s ON s.id = v.student_id
+       ORDER BY st.id DESC`
+    )
+  ]);
+
+  const [scanStats, qrHistory, latestEmailJobs, emailHistory] = await Promise.all([
+    loadOptionalStickerRows(
+      "scan history",
+      `SELECT sticker_id, MAX(scanned_at) AS last_scanned_at,
+              SUM(CASE WHEN result <> 'VALID' THEN 1 ELSE 0 END) AS rejected_scan_count
+       FROM scan_logs
+       WHERE sticker_id IS NOT NULL
+       GROUP BY sticker_id`
+    ),
+    loadOptionalStickerRows(
+      "QR replacement history",
+      `SELECT sticker_id, COUNT(*) AS qr_rotation_count
+       FROM sticker_qr_history
+       GROUP BY sticker_id`
+    ),
+    loadOptionalStickerRows(
+      "latest email status",
+      `SELECT ej.id, ej.sticker_id, ej.status, ej.attempts, ej.last_error, ej.sent_at
+       FROM email_delivery_jobs ej
+       JOIN (
+         SELECT sticker_id, MAX(id) AS latest_id
+         FROM email_delivery_jobs
+         GROUP BY sticker_id
+       ) latest ON latest.latest_id = ej.id`
+    ),
+    loadOptionalStickerRows(
+      "email history",
+      `SELECT ej.id, ej.sticker_id, ej.recipient, ej.status, ej.attempts,
+              ej.max_attempts, ej.last_error, ej.created_at, ej.sent_at,
+              st.sticker_code, s.full_name
+       FROM email_delivery_jobs ej
+       JOIN stickers st ON st.id = ej.sticker_id
+       JOIN vehicles v ON v.id = st.vehicle_id
+       JOIN students s ON s.id = v.student_id
+       ORDER BY ej.id DESC
+       LIMIT 30`
+    )
+  ]);
+
+  const scanStatsBySticker = new Map(scanStats.rows.map((row) => [Number(row.sticker_id), row]));
+  const qrHistoryBySticker = new Map(qrHistory.rows.map((row) => [Number(row.sticker_id), row]));
+  const latestEmailBySticker = new Map(latestEmailJobs.rows.map((row) => [Number(row.sticker_id), row]));
+  const stickers = stickerResult[0].map((sticker) => {
+    const stickerId = Number(sticker.id);
+    const scan = scanStatsBySticker.get(stickerId);
+    const rotation = qrHistoryBySticker.get(stickerId);
+    const email = latestEmailBySticker.get(stickerId);
+    return {
+      ...sticker,
+      email_job_id: email?.id || null,
+      email_status: email?.status || null,
+      email_attempts: Number(email?.attempts || 0),
+      email_last_error: email?.last_error || null,
+      email_sent_at: email?.sent_at || null,
+      last_scanned_at: scan?.last_scanned_at || null,
+      rejected_scan_count: Number(scan?.rejected_scan_count || 0),
+      qr_rotation_count: Number(rotation?.qr_rotation_count || 0)
+    };
+  });
+
+  return {
+    vehicles: vehicleResult[0],
+    stickers,
+    emailDeliveries: emailHistory.rows,
+    emailDeliveryAvailable: latestEmailJobs.available && emailHistory.available
+  };
+}
+
 app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const [vehicleResult, stickerResult, deliveryResult] = await Promise.all([
-      pool.query(
-        `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
-         FROM vehicles v
-         JOIN students s ON s.id = v.student_id
-         ORDER BY v.id DESC`
-      ),
-      pool.query(
-        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number, s.email,
-                email_job.id AS email_job_id,
-                email_job.status AS email_status,
-                email_job.attempts AS email_attempts,
-                email_job.last_error AS email_last_error,
-                email_job.sent_at AS email_sent_at,
-                (SELECT MAX(sl.scanned_at) FROM scan_logs sl WHERE sl.sticker_id = st.id) AS last_scanned_at,
-                (SELECT COUNT(*) FROM scan_logs sl WHERE sl.sticker_id = st.id AND sl.result <> 'VALID') AS rejected_scan_count,
-                (SELECT COUNT(*) FROM sticker_qr_history qh WHERE qh.sticker_id = st.id) AS qr_rotation_count
-         FROM stickers st
-         JOIN vehicles v ON v.id = st.vehicle_id
-         JOIN students s ON s.id = v.student_id
-         LEFT JOIN email_delivery_jobs email_job ON email_job.id = (
-           SELECT ej.id FROM email_delivery_jobs ej
-           WHERE ej.sticker_id = st.id
-           ORDER BY ej.created_at DESC, ej.id DESC LIMIT 1
-         )
-         ORDER BY st.created_at DESC, st.id DESC`
-      ),
-      pool.query(
-        `SELECT ej.id, ej.sticker_id, ej.recipient, ej.status, ej.attempts,
-                ej.max_attempts, ej.last_error, ej.created_at, ej.sent_at,
-                st.sticker_code, s.full_name
-         FROM email_delivery_jobs ej
-         JOIN stickers st ON st.id = ej.sticker_id
-         JOIN vehicles v ON v.id = st.vehicle_id
-         JOIN students s ON s.id = v.student_id
-         ORDER BY ej.created_at DESC, ej.id DESC
-         LIMIT 30`
-      )
-    ]);
-    const vehicles = vehicleResult[0];
-    const stickers = stickerResult[0];
-    const emailDeliveries = deliveryResult[0];
+    const { vehicles, stickers, emailDeliveries, emailDeliveryAvailable } = await getStickerManagementData();
     const flash = req.query.success
       ? { type: "success", message: "Sticker issued successfully." }
       : req.query.revoked
@@ -7190,7 +7244,14 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       : req.query.email === "rate_limited"
       ? { type: "error", message: "Too many QR emails were requested. Wait a few minutes and try again." }
       : null;
-    res.render("stickers", { stickers, vehicles, emailDeliveries, APP_BASE_URL, flash });
+    res.render("stickers", {
+      stickers,
+      vehicles,
+      emailDeliveries,
+      emailDeliveryAvailable,
+      APP_BASE_URL,
+      flash
+    });
   } catch (error) {
     console.error("Stickers error:", error);
     res.status(500).send("An error occurred loading stickers.");

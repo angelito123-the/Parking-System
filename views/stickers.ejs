@@ -5,6 +5,7 @@
     : APP_BASE_URL;
   const pageFlash = typeof flash !== 'undefined' ? flash : null;
   const safeEmailDeliveries = Array.isArray(emailDeliveries) ? emailDeliveries : [];
+  const canDeliverEmail = typeof emailDeliveryAvailable !== 'boolean' || emailDeliveryAvailable;
 
   function calendarDateKey(value) {
     const date = new Date(value);
@@ -119,14 +120,16 @@
                 <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">Download</a>
                 <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn">Print card</a>
                 <button type="button" class="link-btn copy-sticker-link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>">Copy link</button>
-                <% if (displayStatus === "active" && sticker.email) { %>
+                <% if (canDeliverEmail && displayStatus === "active" && sticker.email) { %>
                   <button type="button" class="link-btn email-preview-btn"
                     data-email-preview data-sticker-id="<%= sticker.id %>"
                     data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
                     data-plate-number="<%= sticker.plate_number %>" data-sticker-code="<%= sticker.sticker_code %>"
                     data-recipient="<%= sticker.email %>">Email QR</button>
-                <% } else if (displayStatus === "active") { %>
+                <% } else if (canDeliverEmail && displayStatus === "active") { %>
                   <span class="helper-text" title="Add an email address in Student Management first">No email</span>
+                <% } else if (!canDeliverEmail && displayStatus === "active") { %>
+                  <span class="helper-text">Email temporarily unavailable</span>
                 <% } %>
                 <% if (sticker.email_status) { %>
                   <span class="badge badge-<%= ['sent', 'queued', 'retrying', 'sending'].includes(sticker.email_status) ? 'soft' : 'invalid' %>"><%= sticker.email_status %></span>
@@ -177,7 +180,7 @@
             <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="btn btn-mobile-touch">View QR</a>
             <a href="/stickers/<%= sticker.id %>/qr" download class="btn btn-mobile-touch">Download</a>
             <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="btn btn-mobile-touch">Print card</a>
-            <% if (displayStatus === "active" && sticker.email) { %>
+            <% if (canDeliverEmail && displayStatus === "active" && sticker.email) { %>
               <button type="button" class="btn btn-mobile-touch email-preview-btn"
                 data-email-preview data-sticker-id="<%= sticker.id %>"
                 data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
@@ -185,8 +188,10 @@
                 data-recipient="<%= sticker.email %>">Email QR</button>
             <% } %>
           </div>
-          <% if (displayStatus === "active" && !sticker.email) { %>
+          <% if (canDeliverEmail && displayStatus === "active" && !sticker.email) { %>
             <span class="helper-text">Add the student's email address to enable email delivery.</span>
+          <% } else if (!canDeliverEmail && displayStatus === "active") { %>
+            <span class="helper-text">Email delivery is temporarily unavailable.</span>
           <% } %>
           <% if (sticker.status === "active") { %>
             <button type="button" class="btn-mobile-touch" data-destructive-trigger data-form-id="rotateStickerMobile_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR will stop working immediately." data-confirm-label="Replace QR">Replace QR</button>
@@ -205,6 +210,9 @@
       <h2>QR Email Delivery</h2>
       <p>Messages are sent in the background. Failed deliveries can be safely retried.</p>
     </div>
+    <% if (!canDeliverEmail) { %>
+      <div class="flash flash-error">Email history is temporarily unavailable. Sticker issuing, QR viewing, printing, replacement, and revocation remain available.</div>
+    <% } %>
     <div class="email-delivery-list">
       <% safeEmailDeliveries.forEach((delivery) => { %>
         <article class="email-delivery-item">
