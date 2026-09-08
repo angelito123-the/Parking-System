@@ -229,16 +229,23 @@ async function ensureUserMigrations() {
     console.warn("users role enum migration warning (non-fatal):", error.message);
   }
 
+  const isProduction = process.env.NODE_ENV === "production";
+  const configuredAdminPassword = String(process.env.ADMIN_PASSWORD || "");
+  const configuredGuardPassword = String(process.env.GUARD_PASSWORD || "");
+  if (isProduction && (!configuredAdminPassword || !configuredGuardPassword)) {
+    throw new Error("ADMIN_PASSWORD and GUARD_PASSWORD are required in production.");
+  }
+
   const defaultUsers = [
     {
       username: String(process.env.ADMIN_USERNAME || "admin").trim(),
-      password: String(process.env.ADMIN_PASSWORD || "naap2024"),
+      password: configuredAdminPassword || "naap2024",
       role: "admin",
       studentId: null
     },
     {
       username: String(process.env.GUARD_USERNAME || "guard").trim(),
-      password: String(process.env.GUARD_PASSWORD || "guard123"),
+      password: configuredGuardPassword || "guard123",
       role: "guard",
       studentId: null
     }

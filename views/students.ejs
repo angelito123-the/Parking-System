@@ -3,7 +3,7 @@
 <%
   const pageFlash = typeof flash !== 'undefined' ? flash : null;
   const safeFilters = typeof filters === 'object' && filters ? filters : {
-    q: '', course: '', year_level: '', vehicle_status: 'all', sticker_status: 'all'
+    q: '', course: '', year_level: '', vehicle_status: 'all', sticker_status: 'all', sort: 'registered', direction: 'desc'
   };
   const safePagination = typeof pagination === 'object' && pagination ? pagination : {
     page: 1, pageSize: 10, total: students.length, totalPages: 1, from: students.length ? 1 : 0, to: students.length
@@ -107,7 +107,7 @@
 
       <!-- Vehicle Toggle -->
       <div class="vehicle-toggle-row">
-        <button type="button" class="btn-ghost" id="vehicleToggle" onclick="toggleVehicleSection()">Add Vehicle Details</button>
+        <button type="button" class="btn-ghost" id="vehicleToggle" data-ui-action="toggle-registration-vehicle">Add Vehicle Details</button>
       </div>
 
       <!-- Vehicle Fields (hidden by default) -->
@@ -139,10 +139,51 @@
 
   <!-- section -->
   <section class="directory-panel" data-flow-view="directory">
-    <div class="section-head">
-      <h2>Student Directory</h2>
-      <p>Search student records, update account details, and manage registered vehicles.</p>
+    <div class="directory-heading-row">
+      <div class="section-head">
+        <h2>Student Directory</h2>
+        <p>Search student records, update account details, and manage registered vehicles.</p>
+      </div>
+      <div class="directory-heading-actions">
+        <a class="btn-directory-secondary" href="/students/import/template" download>Download template</a>
+        <button type="button" class="btn-directory-primary" id="studentImportToggle" aria-controls="studentImportPanel" aria-expanded="false">Import CSV</button>
+      </div>
     </div>
+
+    <section class="student-import-panel" id="studentImportPanel" hidden aria-labelledby="studentImportTitle">
+      <div class="student-import-heading">
+        <div>
+          <h3 id="studentImportTitle">Bulk student import</h3>
+          <p>Choose a CSV, review every row, then confirm. Existing student numbers will be updated; new ones will be created.</p>
+        </div>
+        <button type="button" class="student-import-close" id="studentImportClose" aria-label="Close CSV import">&times;</button>
+      </div>
+      <div class="student-import-file-row">
+        <div>
+          <label for="studentCsvFile">Student CSV file</label>
+          <input id="studentCsvFile" type="file" accept=".csv,text/csv" />
+          <small>Required headers: student_number, full_name, program, year_level. Email is optional. Maximum 2 MB or 2,000 rows.</small>
+        </div>
+        <button type="button" class="btn-directory-primary" id="studentCsvPreviewButton" disabled>Validate and preview</button>
+      </div>
+      <div class="student-import-status" id="studentImportStatus" aria-live="polite">Select a CSV file to begin.</div>
+      <div id="studentImportResults" hidden>
+        <div class="student-import-summary" id="studentImportSummary"></div>
+        <div class="student-import-messages" id="studentImportMessages"></div>
+        <div class="student-import-table-wrap">
+          <table class="student-import-table">
+            <thead><tr><th>Row</th><th>Student</th><th>Course</th><th>Year</th><th>Email</th><th>Result</th></tr></thead>
+            <tbody id="studentImportPreviewBody"></tbody>
+          </table>
+        </div>
+        <form method="post" action="/students/import" id="studentImportConfirmForm" class="student-import-confirm">
+          <textarea name="csv_data" id="studentImportCsvData" hidden required></textarea>
+          <input type="hidden" name="preview_token" id="studentImportPreviewToken" />
+          <p id="studentImportConfirmHint">Import remains locked until every row is valid.</p>
+          <button type="submit" id="studentImportConfirmButton" disabled>Import validated students</button>
+        </form>
+      </div>
+    </section>
 
     <form class="directory-filter-form" method="get" action="/students#directory">
       <div class="directory-search directory-filter-search">
@@ -200,6 +241,22 @@
           <option value="none" <%= safeFilters.sticker_status === 'none' ? 'selected' : '' %>>No sticker</option>
         </select>
       </div>
+      <div class="directory-filter-field">
+        <label for="directorySort">Sort by</label>
+        <select id="directorySort" name="sort">
+          <option value="name" <%= safeFilters.sort === 'name' ? 'selected' : '' %>>Name</option>
+          <option value="course" <%= safeFilters.sort === 'course' ? 'selected' : '' %>>Course</option>
+          <option value="year" <%= safeFilters.sort === 'year' ? 'selected' : '' %>>Year level</option>
+          <option value="registered" <%= safeFilters.sort === 'registered' ? 'selected' : '' %>>Registration date</option>
+        </select>
+      </div>
+      <div class="directory-filter-field directory-order-field">
+        <label for="directoryDirection">Order</label>
+        <select id="directoryDirection" name="direction">
+          <option value="asc" <%= safeFilters.direction === 'asc' ? 'selected' : '' %>>Ascending</option>
+          <option value="desc" <%= safeFilters.direction === 'desc' ? 'selected' : '' %>>Descending</option>
+        </select>
+      </div>
       <input type="hidden" name="page_size" value="<%= safePagination.pageSize %>" />
       <div class="directory-filter-actions">
         <button type="submit" class="btn-filter-apply">Apply filters</button>
@@ -213,11 +270,11 @@
         <span>Showing <%= safePagination.from %>–<%= safePagination.to %> of <%= safePagination.total %> student<%= safePagination.total === 1 ? '' : 's' %></span>
       </p>
       <form method="get" action="/students#directory" class="directory-page-size-form">
-        <% ['q', 'course', 'year_level', 'vehicle_status', 'sticker_status'].forEach(key => { %>
+        <% ['q', 'course', 'year_level', 'vehicle_status', 'sticker_status', 'sort', 'direction'].forEach(key => { %>
           <% if (safeFilters[key] && safeFilters[key] !== 'all') { %><input type="hidden" name="<%= key %>" value="<%= safeFilters[key] %>" /><% } %>
         <% }) %>
         <label for="directoryPageSize">Rows</label>
-        <select id="directoryPageSize" name="page_size" onchange="this.form.submit()">
+        <select id="directoryPageSize" name="page_size">
           <% [10, 25, 50].forEach(size => { %><option value="<%= size %>" <%= safePagination.pageSize === size ? 'selected' : '' %>><%= size %></option><% }) %>
         </select>
       </form>
@@ -237,6 +294,10 @@
       </div>
     <% } %>
 
+    <% if (students.length > 0) { %>
+    <div class="student-directory-columns" aria-hidden="true">
+      <span>Student</span><span>Course</span><span>Year</span><span>Sticker</span><span>Registered</span><span>Actions</span>
+    </div>
     <div id="studentDirectory" class="student-directory">
     <% students.forEach(student => { %>
       <div class="student-card" data-searchable="<%= student.student_number %> <%= student.full_name %> <%= student.program_name %> <%= student.program_display %> <%= student.year_level_label %> <%= student.email %> <%= (student.vehicles || []).map(v => v.plate_number + ' ' + v.model).join(' ') %>">
@@ -254,10 +315,12 @@
                 </svg>
                 Student no. <strong><%= student.student_number %></strong>
               </span>
+              <span class="sc-email"><%= student.email || 'No email address' %></span>
             </div>
           </div>
           <div class="sc-header-actions">
-            <button type="button" class="btn-edit-sm" onclick="toggleStudentEdit(<%= student.id %>)" id="editStudentBtn_<%= student.id %>" aria-controls="studentEditForm_<%= student.id %>" aria-expanded="false">Edit</button>
+            <button type="button" class="btn-details-sm" data-ui-action="toggle-student-details" data-target-id="<%= student.id %>" id="studentDetailsBtn_<%= student.id %>" aria-controls="studentDetails_<%= student.id %>" aria-expanded="false">Details</button>
+            <button type="button" class="btn-edit-sm" data-ui-action="toggle-student-edit" data-target-id="<%= student.id %>" id="editStudentBtn_<%= student.id %>" aria-controls="studentEditForm_<%= student.id %>" aria-expanded="false">Edit</button>
             <div class="action-menu">
               <button type="button" class="action-menu-trigger" data-action-menu-trigger aria-label="More actions for <%= student.full_name %>" aria-haspopup="menu" aria-expanded="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
@@ -285,7 +348,7 @@
               <strong class="<%= student.program_display ? '' : 'is-empty' %>" title="<%= student.program_name || '' %>"><%= student.program_display || 'Not provided' %></strong>
             </span>
           </div>
-          <div class="sc-info-item">
+          <div class="sc-info-item sc-info-year">
             <span class="sc-info-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <rect x="4" y="5" width="16" height="15" rx="2"></rect>
@@ -297,7 +360,7 @@
               <strong class="<%= student.year_level_label ? '' : 'is-empty' %>"><%= student.year_level_label || 'Not provided' %></strong>
             </span>
           </div>
-          <div class="sc-info-item">
+          <div class="sc-info-item sc-info-email">
             <span class="sc-info-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24">
                 <rect x="3" y="5" width="18" height="14" rx="2"></rect>
@@ -307,6 +370,24 @@
             <span class="sc-info-copy">
               <span>Email address</span>
               <strong class="<%= student.email ? '' : 'is-empty' %>"><%= student.email || 'Not provided' %></strong>
+            </span>
+          </div>
+          <div class="sc-info-item sc-info-sticker">
+            <span class="sc-info-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 5h10l4 4-10 10-4-4V5Z"></path><circle cx="10" cy="10" r="1.3"></circle></svg>
+            </span>
+            <span class="sc-info-copy">
+              <span>Sticker</span>
+              <strong><span class="vehicle-sticker-status state-<%= student.sticker_status %>"><%= student.sticker_status === 'none' ? 'No sticker' : student.sticker_status.charAt(0).toUpperCase() + student.sticker_status.slice(1) %></span></strong>
+            </span>
+          </div>
+          <div class="sc-info-item sc-info-registered">
+            <span class="sc-info-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"></rect><path d="M8 3v4M16 3v4M4 10h16"></path></svg>
+            </span>
+            <span class="sc-info-copy">
+              <span>Registered</span>
+              <strong><%= student.created_at ? new Date(student.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown' %></strong>
             </span>
           </div>
         </div>
@@ -360,19 +441,19 @@
             </div>
             <div class="edit-form-actions">
               <button type="submit" class="btn-save-sm">Save Changes</button>
-              <button type="button" class="btn-cancel-sm" onclick="toggleStudentEdit(<%= student.id %>)">Cancel</button>
+              <button type="button" class="btn-cancel-sm" data-ui-action="toggle-student-edit" data-target-id="<%= student.id %>">Cancel</button>
             </div>
           </form>
         </div>
 
         <!-- section -->
-        <div class="sc-vehicles">
+        <div class="sc-vehicles" id="studentDetails_<%= student.id %>" hidden>
           <div class="sv-header">
             <span class="sv-title">
               Registered vehicles
               <span class="sv-count"><%= (student.vehicles || []).length %></span>
             </span>
-            <button type="button" class="btn-add-vehicle" onclick="toggleAddVehicle(<%= student.id %>)" id="addVehicleBtn_<%= student.id %>" aria-controls="addVehicleForm_<%= student.id %>" aria-expanded="false">
+            <button type="button" class="btn-add-vehicle" data-ui-action="toggle-add-vehicle" data-target-id="<%= student.id %>" id="addVehicleBtn_<%= student.id %>" aria-controls="addVehicleForm_<%= student.id %>" aria-expanded="false">
               <span aria-hidden="true">+</span> Add vehicle
             </button>
           </div>
@@ -397,7 +478,7 @@
               </div>
               <div class="edit-form-actions">
                 <button type="submit" class="btn-save-sm">Register Vehicle</button>
-                <button type="button" class="btn-cancel-sm" onclick="toggleAddVehicle(<%= student.id %>)">Cancel</button>
+                <button type="button" class="btn-cancel-sm" data-ui-action="toggle-add-vehicle" data-target-id="<%= student.id %>">Cancel</button>
               </div>
             </form>
           </div>
@@ -433,7 +514,7 @@
                   </span>
                 </div>
                 <div class="sv-item-actions">
-                  <button type="button" class="btn-edit-xs" onclick="toggleVehicleEdit(<%= vehicle.id %>)" id="editVehicleBtn_<%= vehicle.id %>" aria-controls="vehicleEditForm_<%= vehicle.id %>" aria-expanded="false">Edit</button>
+                  <button type="button" class="btn-edit-xs" data-ui-action="toggle-vehicle-edit" data-target-id="<%= vehicle.id %>" id="editVehicleBtn_<%= vehicle.id %>" aria-controls="vehicleEditForm_<%= vehicle.id %>" aria-expanded="false">Edit</button>
                   <div class="action-menu">
                     <button type="button" class="action-menu-trigger action-menu-trigger-compact" data-action-menu-trigger aria-label="More actions for vehicle <%= vehicle.plate_number %>" aria-haspopup="menu" aria-expanded="false">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
@@ -466,7 +547,7 @@
                   </div>
                   <div class="edit-form-actions">
                     <button type="submit" class="btn-save-sm">Save</button>
-                    <button type="button" class="btn-cancel-sm" onclick="toggleVehicleEdit(<%= vehicle.id %>)">Cancel</button>
+                    <button type="button" class="btn-cancel-sm" data-ui-action="toggle-vehicle-edit" data-target-id="<%= vehicle.id %>">Cancel</button>
                   </div>
                 </form>
               </div>
@@ -477,6 +558,7 @@
       </div>
     <% }) %>
     </div>
+    <% } %>
     <% if (safePagination.totalPages > 1) { %>
       <nav class="directory-pagination" aria-label="Student directory pages">
         <a class="pagination-control <%= safePagination.page <= 1 ? 'is-disabled' : '' %>" href="<%= safePagination.page > 1 ? directoryQuery({ page: safePagination.page - 1 }) : '#' %>" <%- safePagination.page <= 1 ? 'aria-disabled="true" tabindex="-1"' : '' %>>Previous</a>
@@ -575,6 +657,246 @@
     margin: 0.45rem 0 0;
     color: var(--muted);
     max-width: 70ch;
+  }
+
+  .directory-heading-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .directory-heading-actions,
+  .student-import-file-row,
+  .student-import-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .btn-directory-primary,
+  .btn-directory-secondary {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.52rem 0.82rem;
+    border-radius: 9px;
+    font-size: 0.76rem;
+    font-weight: 750;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  button.btn-directory-primary {
+    border: 1px solid var(--blue-mid);
+    background: var(--blue-mid);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  .btn-directory-secondary {
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--text-secondary);
+  }
+
+  .btn-directory-secondary:hover {
+    border-color: rgba(37, 99, 235, 0.35);
+    color: var(--blue-mid);
+    text-decoration: none;
+  }
+
+  .student-import-panel {
+    margin-bottom: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(37, 99, 235, 0.24);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklab, var(--blue-soft) 42%, var(--surface) 58%);
+  }
+
+  .student-import-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .student-import-heading h3,
+  .student-import-heading p {
+    margin: 0;
+  }
+
+  .student-import-heading h3 {
+    color: var(--text);
+    font-size: 0.98rem;
+  }
+
+  .student-import-heading p,
+  .student-import-file-row small,
+  .student-import-confirm p {
+    margin-top: 0.28rem;
+    color: var(--muted);
+    font-size: 0.75rem;
+    line-height: 1.45;
+  }
+
+  button.student-import-close {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--muted);
+    box-shadow: none;
+    font-size: 1.25rem;
+  }
+
+  .student-import-file-row {
+    align-items: end;
+    margin-top: 0.9rem;
+  }
+
+  .student-import-file-row > div {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .student-import-file-row input[type="file"] {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.42rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--text-secondary);
+  }
+
+  .student-import-status,
+  .student-import-messages {
+    margin-top: 0.8rem;
+    padding: 0.68rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+  }
+
+  .student-import-status.is-error,
+  .student-import-messages.has-errors {
+    border-color: var(--red-border);
+    background: var(--red-soft);
+    color: var(--red-text);
+  }
+
+  .student-import-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-top: 0.8rem;
+  }
+
+  .student-import-summary > div {
+    padding: 0.62rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--surface);
+  }
+
+  .student-import-summary span,
+  .student-import-summary strong {
+    display: block;
+  }
+
+  .student-import-summary span {
+    color: var(--muted);
+    font-size: 0.65rem;
+    font-weight: 750;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .student-import-summary strong {
+    margin-top: 0.15rem;
+    color: var(--text);
+    font-size: 1.08rem;
+  }
+
+  .student-import-table-wrap {
+    max-height: 360px;
+    margin-top: 0.75rem;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .student-import-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+  }
+
+  .student-import-table th,
+  .student-import-table td {
+    padding: 0.56rem 0.62rem;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-secondary);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .student-import-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-soft);
+    color: var(--muted);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+  }
+
+  .student-import-table tr.is-invalid td {
+    background: color-mix(in oklab, var(--red-soft) 62%, var(--surface) 38%);
+  }
+
+  .student-import-student-cell {
+    white-space: pre-line;
+  }
+
+  .student-import-result {
+    display: inline-flex;
+    padding: 0.2rem 0.42rem;
+    border-radius: 999px;
+    background: var(--blue-soft);
+    color: var(--blue-mid);
+    font-size: 0.63rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .student-import-result.is-update { background: var(--orange-soft); color: var(--orange-text); }
+  .student-import-result.is-invalid { background: var(--red-soft); color: var(--red-text); }
+
+  .student-import-issues {
+    display: block;
+    margin-top: 0.24rem;
+    color: var(--red-text);
+    line-height: 1.35;
+  }
+
+  .student-import-confirm {
+    justify-content: space-between;
+    margin-top: 0.8rem;
+  }
+
+  .student-import-confirm p {
+    margin: 0;
   }
 
   .form-group-label {
@@ -801,35 +1123,64 @@
     background: var(--blue-mid);
   }
 
+  .student-directory-columns,
+  .student-card {
+    grid-template-columns: minmax(210px, 1.4fr) minmax(150px, 1.1fr) 72px 104px 112px 156px;
+  }
+
+  .student-directory-columns {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.58rem 0.75rem;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 11px 11px 0 0;
+    background: var(--surface-soft);
+    color: var(--muted);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .student-directory-columns span:last-child {
+    text-align: right;
+  }
+
   .student-directory {
     display: grid;
-    gap: 0.9rem;
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 0 0 11px 11px;
+    background: var(--surface);
   }
 
   .student-card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    padding: 0;
-    box-shadow: var(--shadow-sm);
-    transition: border-color 0.16s ease, box-shadow 0.16s ease;
     display: grid;
-    gap: 0;
-    overflow: hidden;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.66rem 0.75rem;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: none;
+    transition: background-color 0.16s ease;
+    overflow: visible;
+  }
+
+  .student-card:last-child {
+    border-bottom: 0;
   }
 
   .student-card:hover {
-    border-color: rgba(37, 99, 235, 0.32);
-    box-shadow: var(--shadow-md);
+    border-color: var(--line);
+    background: color-mix(in oklab, var(--blue-soft) 25%, var(--surface) 75%);
+    box-shadow: none;
   }
 
   .sc-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding: 1rem 1.1rem 0.8rem;
+    display: contents;
   }
 
   .sc-meta {
@@ -840,16 +1191,16 @@
   }
 
   .sc-avatar {
-    width: 42px;
-    height: 42px;
-    flex: 0 0 42px;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
     display: grid;
     place-items: center;
     border-radius: 12px;
     background: var(--blue-soft);
     border: 1px solid rgba(37, 99, 235, 0.18);
     color: var(--blue-mid);
-    font-size: 0.96rem;
+    font-size: 0.82rem;
     font-weight: 800;
   }
 
@@ -860,7 +1211,7 @@
   }
 
   .sc-name {
-    font-size: 1rem;
+    font-size: 0.84rem;
     font-weight: 760;
     font-family: "Plus Jakarta Sans", sans-serif;
     color: var(--text);
@@ -873,7 +1224,7 @@
     gap: 0.3rem;
     width: fit-content;
     color: var(--muted);
-    font-size: 0.73rem;
+    font-size: 0.67rem;
     line-height: 1.2;
   }
 
@@ -892,35 +1243,28 @@
 
   .sc-header-actions {
     display: flex;
+    justify-content: flex-end;
     gap: 0.4rem;
     align-items: center;
   }
 
   .sc-info-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.2fr) minmax(145px, 0.55fr) minmax(0, 1fr);
-    gap: 0.55rem;
-    margin: 0;
-    padding: 0 1.1rem 1rem;
-    border-top: 0;
+    display: contents;
   }
 
   .sc-info-item {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 0.58rem;
-    background: var(--surface-soft);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    padding: 0.58rem 0.68rem;
+    gap: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
   }
 
   .sc-info-icon {
-    width: 30px;
-    height: 30px;
-    flex: 0 0 30px;
-    display: grid;
+    display: none;
     place-items: center;
     border-radius: 8px;
     background: var(--surface);
@@ -945,17 +1289,13 @@
   }
 
   .sc-info-copy > span {
-    color: var(--muted);
-    font-size: 0.68rem;
-    font-weight: 650;
-    text-transform: uppercase;
-    letter-spacing: 0.045em;
+    display: none;
   }
 
   .sc-info-copy strong {
     min-width: 0;
     color: var(--text-secondary);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
     font-weight: 650;
     overflow-wrap: anywhere;
   }
@@ -963,6 +1303,35 @@
   .sc-info-copy strong.is-empty {
     color: var(--muted);
     font-weight: 500;
+  }
+
+  .sc-email {
+    max-width: 230px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.65rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sc-info-email {
+    display: none;
+  }
+
+  .sc-info-sticker .vehicle-sticker-status {
+    margin: 0;
+  }
+
+  button.btn-details-sm {
+    min-height: 34px;
+    padding: 0.38rem 0.62rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    box-shadow: none;
+    font-size: 0.72rem;
+    font-weight: 700;
   }
 
   button.btn-edit-sm,
@@ -1026,6 +1395,7 @@
   }
 
   .student-card > .inline-edit-form {
+    grid-column: 1 / -1;
     margin: 0 1.1rem 1rem;
   }
 
@@ -1076,6 +1446,7 @@
   }
 
   .sc-vehicles {
+    grid-column: 1 / -1;
     margin-top: 0;
     border-top: 1px solid var(--line);
     padding: 0.85rem 1.1rem 1rem;
@@ -1321,12 +1692,8 @@
   }
 
   @media (max-width: 1100px) {
-    .sc-info-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
     .sc-info-course {
-      grid-column: 1 / -1;
+      grid-column: auto;
     }
   }
 
@@ -1352,18 +1719,64 @@
     .directory-count {
       align-self: center;
     }
+
+    .directory-heading-row,
+    .student-import-file-row,
+    .student-import-confirm {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .directory-heading-actions {
+      align-self: stretch;
+    }
+
+    .directory-heading-actions > * {
+      flex: 1;
+    }
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 980px) {
     .reg-panel,
     .directory-panel {
       padding: 1.1rem;
     }
 
+    .student-import-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .student-directory-columns {
+      display: none;
+    }
+
+    .student-directory {
+      gap: 0.8rem;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .student-card {
+      display: block;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .student-card:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+
     .sc-header {
+      display: flex;
       flex-direction: column;
       align-items: stretch;
       gap: 0.7rem;
+      padding: 0.9rem 0.9rem 0.7rem;
     }
 
     .sc-header-actions {
@@ -1372,11 +1785,52 @@
     }
 
     .sc-info-row {
+      display: grid;
       grid-template-columns: 1fr;
+      gap: 0.5rem;
+      padding: 0 0.9rem 0.9rem;
     }
 
     .sc-info-course {
       grid-column: auto;
+    }
+
+    .sc-info-item,
+    .sc-info-email {
+      display: flex;
+      gap: 0.58rem;
+      padding: 0.58rem 0.68rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-soft);
+    }
+
+    .sc-info-icon {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
+      display: grid;
+    }
+
+    .sc-info-copy > span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.045em;
+      text-transform: uppercase;
+    }
+
+    .sc-info-copy strong {
+      font-size: 0.78rem;
+    }
+
+    .sc-email {
+      display: none;
+    }
+
+    .sc-info-sticker .vehicle-sticker-status {
+      margin-top: 0.18rem;
     }
 
     .student-card > .inline-edit-form {
@@ -1428,10 +1882,19 @@
     .sv-vehicle-identity {
       width: 100%;
     }
+
+    .directory-heading-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .student-import-summary {
+      grid-template-columns: 1fr 1fr;
+    }
   }
 </style>
 
-<script>
+<script nonce="<%= cspNonce %>">
   // Toggle vehicle section in registration form
   function toggleVehicleSection() {
     const section = document.getElementById('vehicleSection');
@@ -1443,6 +1906,16 @@
     // Update submit button text
     const submitBtn = document.getElementById('regSubmitBtn');
     submitBtn.textContent = isVisible ? 'Save Student' : 'Save Student and Vehicle';
+  }
+
+  function toggleStudentDetails(id) {
+    const details = document.getElementById('studentDetails_' + id);
+    const button = document.getElementById('studentDetailsBtn_' + id);
+    if (!details || !button) return;
+    const isVisible = !details.hidden;
+    details.hidden = isVisible;
+    button.textContent = isVisible ? 'Details' : 'Hide details';
+    button.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
 
   // Toggle student inline edit form
@@ -1477,6 +1950,35 @@
     btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
 
+  document.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-ui-action]') : null;
+    if (!button) return;
+    const id = Number(button.dataset.targetId);
+    switch (button.dataset.uiAction) {
+      case 'toggle-registration-vehicle':
+        toggleVehicleSection();
+        break;
+      case 'toggle-student-details':
+        if (Number.isInteger(id) && id > 0) toggleStudentDetails(id);
+        break;
+      case 'toggle-student-edit':
+        if (Number.isInteger(id) && id > 0) toggleStudentEdit(id);
+        break;
+      case 'toggle-vehicle-edit':
+        if (Number.isInteger(id) && id > 0) toggleVehicleEdit(id);
+        break;
+      case 'toggle-add-vehicle':
+        if (Number.isInteger(id) && id > 0) toggleAddVehicle(id);
+        break;
+      default:
+        break;
+    }
+  });
+
+  document.getElementById('directoryPageSize')?.addEventListener('change', (event) => {
+    if (event.currentTarget.form) event.currentTarget.form.requestSubmit();
+  });
+
   (() => {
     const tabButtons = Array.from(document.querySelectorAll(".flow-tab-btn[data-flow-tab]"));
     const sections = Array.from(document.querySelectorAll("[data-flow-view]"));
@@ -1500,12 +2002,169 @@
 
     const params = new URLSearchParams(window.location.search);
     const hashView = String(window.location.hash || "").replace("#", "").trim().toLowerCase();
-    const successParams = ["success", "vsuccess", "esuccess", "deleted", "vdeleted"];
-    const directoryParams = ["q", "course", "year_level", "vehicle_status", "sticker_status", "page", "page_size"];
+    const successParams = ["success", "vsuccess", "esuccess", "deleted", "vdeleted", "imported", "import_error"];
+    const directoryParams = ["q", "course", "year_level", "vehicle_status", "sticker_status", "sort", "direction", "page", "page_size"];
     const hasSuccess = successParams.some((key) => params.has(key));
     const hasDirectoryQuery = directoryParams.some((key) => params.has(key));
     const defaultView = hashView === "directory" || hasSuccess || hasDirectoryQuery ? "directory" : "register";
     setFlowView(defaultView);
+  })();
+
+  (() => {
+    const panel = document.getElementById('studentImportPanel');
+    const toggle = document.getElementById('studentImportToggle');
+    const close = document.getElementById('studentImportClose');
+    const fileInput = document.getElementById('studentCsvFile');
+    const previewButton = document.getElementById('studentCsvPreviewButton');
+    const status = document.getElementById('studentImportStatus');
+    const results = document.getElementById('studentImportResults');
+    const summary = document.getElementById('studentImportSummary');
+    const messages = document.getElementById('studentImportMessages');
+    const previewBody = document.getElementById('studentImportPreviewBody');
+    const csvData = document.getElementById('studentImportCsvData');
+    const previewToken = document.getElementById('studentImportPreviewToken');
+    const confirmButton = document.getElementById('studentImportConfirmButton');
+    const confirmHint = document.getElementById('studentImportConfirmHint');
+    if (!panel || !toggle || !fileInput || !previewButton) return;
+
+    const setPanelOpen = (open) => {
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) fileInput.focus();
+    };
+
+    const resetPreview = (message = 'Select a CSV file to begin.') => {
+      results.hidden = true;
+      summary.replaceChildren();
+      messages.replaceChildren();
+      previewBody.replaceChildren();
+      csvData.value = '';
+      previewToken.value = '';
+      confirmButton.disabled = true;
+      status.classList.remove('is-error');
+      status.textContent = message;
+    };
+
+    const addSummaryItem = (label, value) => {
+      const item = document.createElement('div');
+      const caption = document.createElement('span');
+      const number = document.createElement('strong');
+      caption.textContent = label;
+      number.textContent = String(value);
+      item.append(caption, number);
+      summary.append(item);
+    };
+
+    const renderMessages = (data) => {
+      const items = [
+        ...(Array.isArray(data.headerErrors) ? data.headerErrors : []),
+        ...(Array.isArray(data.headerWarnings) ? data.headerWarnings : [])
+      ];
+      messages.replaceChildren();
+      messages.classList.toggle('has-errors', data.headerErrors?.length > 0);
+      if (!items.length) {
+        messages.textContent = 'Headers are valid. Review the row results below before importing.';
+        return;
+      }
+      const list = document.createElement('ul');
+      items.forEach((message) => {
+        const item = document.createElement('li');
+        item.textContent = message;
+        list.append(item);
+      });
+      messages.append(list);
+    };
+
+    const renderRows = (rows) => {
+      previewBody.replaceChildren();
+      rows.forEach((row) => {
+        const tableRow = document.createElement('tr');
+        tableRow.classList.toggle('is-invalid', row.action === 'invalid');
+        const values = [
+          row.rowNumber,
+          `${row.fullName || 'Missing name'}\n${row.studentNumber || 'Missing student number'}`,
+          row.programCode || row.program || 'Missing course',
+          row.yearLevel || 'Missing',
+          row.email || 'Optional'
+        ];
+        values.forEach((value, index) => {
+          const cell = document.createElement('td');
+          cell.textContent = String(value);
+          if (index === 1) cell.classList.add('student-import-student-cell');
+          tableRow.append(cell);
+        });
+        const resultCell = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = `student-import-result is-${row.action}`;
+        badge.textContent = row.action;
+        resultCell.append(badge);
+        if (Array.isArray(row.issues) && row.issues.length) {
+          const issue = document.createElement('span');
+          issue.className = 'student-import-issues';
+          issue.textContent = row.issues.join(' ');
+          resultCell.append(issue);
+        }
+        tableRow.append(resultCell);
+        previewBody.append(tableRow);
+      });
+    };
+
+    toggle.addEventListener('click', () => setPanelOpen(panel.hidden));
+    close?.addEventListener('click', () => setPanelOpen(false));
+    fileInput.addEventListener('change', () => {
+      resetPreview(fileInput.files?.[0]
+        ? `${fileInput.files[0].name} is ready for validation.`
+        : 'Select a CSV file to begin.');
+      previewButton.disabled = !fileInput.files?.[0];
+    });
+
+    previewButton.addEventListener('click', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        resetPreview('The CSV file is too large. Maximum size is 2 MB.');
+        status.classList.add('is-error');
+        return;
+      }
+      previewButton.disabled = true;
+      previewButton.textContent = 'Validating...';
+      status.classList.remove('is-error');
+      status.textContent = 'Checking headers, student numbers, courses, years, and emails...';
+      try {
+        const text = await file.text();
+        const response = await fetch('/students/import/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ csv_data: text })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.message || 'Unable to validate this CSV file.');
+        results.hidden = false;
+        summary.replaceChildren();
+        addSummaryItem('Total rows', data.total);
+        addSummaryItem('Create', data.createCount);
+        addSummaryItem('Update', data.updateCount);
+        addSummaryItem('Invalid', data.invalidCount);
+        renderMessages(data);
+        renderRows(Array.isArray(data.rows) ? data.rows : []);
+        csvData.value = text;
+        previewToken.value = data.previewToken || '';
+        confirmButton.disabled = !data.canImport;
+        confirmHint.textContent = data.canImport
+          ? `Ready to import ${data.total} validated student record(s). No database changes have been made yet.`
+          : 'Fix every invalid row, save the CSV, and validate it again before importing.';
+        status.textContent = data.canImport
+          ? 'Validation complete. All rows are ready to import.'
+          : `Validation complete. ${data.invalidCount} row(s) need attention.`;
+        status.classList.toggle('is-error', !data.canImport);
+      } catch (error) {
+        resetPreview(error.message || 'Unable to validate this CSV file.');
+        status.classList.add('is-error');
+      } finally {
+        previewButton.disabled = !fileInput.files?.[0];
+        previewButton.textContent = 'Validate and preview';
+      }
+    });
   })();
 </script>
 

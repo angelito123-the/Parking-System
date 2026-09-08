@@ -141,8 +141,17 @@
   </div>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     const slotMetricTotal = document.getElementById("slotMetricTotal");
     const slotMetricAvailable = document.getElementById("slotMetricAvailable");
     const slotMetricOccupied = document.getElementById("slotMetricOccupied");
@@ -221,7 +230,8 @@
     }
 
     function renderParkingSlotCard(slot) {
-      const occupancy = slot.occupancy || "available";
+      const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
+      const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy) ? requestedOccupancy : "disabled";
       const code = slot.slot_code || "-";
       const isSelected = normalizeSlotCode(code) === normalizeSlotCode(selectedSlotCode);
       const tileMeta = occupancy === "occupied"
@@ -233,11 +243,11 @@
       return `<button
         type="button"
         class="parking-slot-tile ${occupancy} ${isSelected ? "selected" : ""}"
-        data-slot-code="${code}"
+        data-slot-code="${escapeHtml(code)}"
         aria-pressed="${isSelected ? "true" : "false"}"
-        aria-label="Parking slot ${code} ${occupancy}">
-        <span class="tile-code">${code}</span>
-        <span class="tile-meta">${tileMeta}</span>
+        aria-label="Parking slot ${escapeHtml(code)} ${occupancy}">
+        <span class="tile-code">${escapeHtml(code)}</span>
+        <span class="tile-meta">${escapeHtml(tileMeta)}</span>
       </button>`;
     }
 
@@ -283,7 +293,7 @@
       const visible = availableSlots.slice(0, 18);
       availableSlotsStripEl.innerHTML = `
         <span class="available-slots-label">Available now (${summary.available || availableSlots.length}):</span>
-        ${visible.map((slot) => `<button type="button" class="available-slot-pill" data-slot-pill="${slot.slot_code || ""}">${slot.slot_code || "-"}</button>`).join("")}
+        ${visible.map((slot) => `<button type="button" class="available-slot-pill" data-slot-pill="${escapeHtml(slot.slot_code || "")}">${escapeHtml(slot.slot_code || "-")}</button>`).join("")}
         ${availableSlots.length > visible.length ? `<span class="available-slots-more">+${availableSlots.length - visible.length} more</span>` : ""}
       `;
     }
@@ -326,11 +336,11 @@
       const stateLabel = item.is_ongoing ? "INSIDE" : "EXITED";
       return `<article class="parking-inspector-history-item ${stateClass}">
         <div class="parking-inspector-history-top">
-          <strong>${item.full_name || "Unknown Student"}</strong>
+          <strong>${escapeHtml(item.full_name || "Unknown Student")}</strong>
           <span class="parking-inspector-mini-badge ${stateClass}">${stateLabel}</span>
         </div>
-        <p>${item.plate_number || "-"} | ${item.student_number || "-"}</p>
-        <p>${parkedAt ? toPht(parkedAt) : "-"} | ${item.duration_label || "-"}</p>
+        <p>${escapeHtml(item.plate_number || "-")} | ${escapeHtml(item.student_number || "-")}</p>
+        <p>${parkedAt ? escapeHtml(toPht(parkedAt)) : "-"} | ${escapeHtml(item.duration_label || "-")}</p>
       </article>`;
     }
 
@@ -348,7 +358,10 @@
         return;
       }
 
-      const occupancy = slot.occupancy || "available";
+      const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
+      const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
+        ? requestedOccupancy
+        : "disabled";
       const statusText = occupancy.toUpperCase();
       slotInspectorTitleEl.textContent = slot.slot_code || "-";
       slotInspectorStatusEl.textContent = statusText;
@@ -360,10 +373,10 @@
           : "This slot is currently disabled and cannot be assigned.";
 
       slotInspectorDetailsEl.innerHTML = `
-        <div class="parking-inspector-detail"><span>Zone</span><strong>${slot.zone || "General"}</strong></div>
+        <div class="parking-inspector-detail"><span>Zone</span><strong>${escapeHtml(slot.zone || "General")}</strong></div>
         <div class="parking-inspector-detail"><span>Status</span><strong>${statusText}</strong></div>
-        <div class="parking-inspector-detail"><span>Plate</span><strong>${slot.occupied_by_plate || "-"}</strong></div>
-        <div class="parking-inspector-detail"><span>Student</span><strong>${slot.occupied_by_name || "-"}</strong></div>
+        <div class="parking-inspector-detail"><span>Plate</span><strong>${escapeHtml(slot.occupied_by_plate || "-")}</strong></div>
+        <div class="parking-inspector-detail"><span>Student</span><strong>${escapeHtml(slot.occupied_by_name || "-")}</strong></div>
       `;
 
       if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = false;
@@ -443,16 +456,16 @@
         : `<span class="badge badge-soft">COMPLETED</span>`;
       return `<div class="slot-history-card">
         <div class="slot-history-card-head">
-          <strong>${item.full_name || "Unknown Student"}</strong>
-          <span class="badge badge-soft">${item.parking_slot || "-"}</span>
+          <strong>${escapeHtml(item.full_name || "Unknown Student")}</strong>
+          <span class="badge badge-soft">${escapeHtml(item.parking_slot || "-")}</span>
         </div>
         <div>${statusChip}</div>
-        <div class="slot-history-card-meta">Student No: <strong>${item.student_number || "-"}</strong></div>
-        <div class="slot-history-card-meta">Plate: <strong>${item.plate_number || "-"}</strong></div>
-        <div class="slot-history-card-meta">Entry Gate: <strong>${item.entry_gate || item.gate || "-"}</strong></div>
-        <div class="slot-history-card-meta">Parked At: <strong>${parkedAt ? toPht(parkedAt) : "-"}</strong></div>
-        <div class="slot-history-card-meta">Exited At: <strong>${exitedAtText}</strong></div>
-        <div class="slot-history-card-meta">Duration: <strong>${durationText}</strong></div>
+        <div class="slot-history-card-meta">Student No: <strong>${escapeHtml(item.student_number || "-")}</strong></div>
+        <div class="slot-history-card-meta">Plate: <strong>${escapeHtml(item.plate_number || "-")}</strong></div>
+        <div class="slot-history-card-meta">Entry Gate: <strong>${escapeHtml(item.entry_gate || item.gate || "-")}</strong></div>
+        <div class="slot-history-card-meta">Parked At: <strong>${parkedAt ? escapeHtml(toPht(parkedAt)) : "-"}</strong></div>
+        <div class="slot-history-card-meta">Exited At: <strong>${escapeHtml(exitedAtText)}</strong></div>
+        <div class="slot-history-card-meta">Duration: <strong>${escapeHtml(durationText)}</strong></div>
       </div>`;
     }
 
@@ -546,7 +559,7 @@
             return `
               <section class="parking-zone-section">
                 <div class="parking-zone-header">
-                  <h4>${zoneName}</h4>
+                  <h4>${escapeHtml(zoneName)}</h4>
                   <span>${zoneAvailable}/${zoneSlots.length} available</span>
                 </div>
                 <div class="parking-zone-grid">

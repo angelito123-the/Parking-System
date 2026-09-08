@@ -192,7 +192,7 @@
 <script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
 <script src="/js/scanner-device-check.js?v=20260828-ops1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const shell = document.querySelector(".auto-gate-shell");
     const cooldownSeconds = Number(shell?.dataset.scanCooldown || 10);
@@ -517,7 +517,10 @@
     }
 
     function setResultState(state, title, message, detailsHtml = "") {
-      resultCard.className = `auto-result-card state-${state}`;
+      const safeState = ["idle", "processing", "success", "invalid", "error", "warning", "entry"].includes(state)
+        ? state
+        : "error";
+      resultCard.className = `auto-result-card state-${safeState}`;
       resultTitle.textContent = title;
       resultMessage.textContent = message;
       resultMeta.innerHTML = detailsHtml || "";
@@ -564,7 +567,8 @@
 
     function showScanInfoPopup(options = {}) {
       if (!scanInfoPopup || !scanInfoPopupCard) return;
-      const tone = String(options.tone || "info");
+      const requestedTone = String(options.tone || "info").toLowerCase();
+      const tone = ["info", "success", "warning", "error"].includes(requestedTone) ? requestedTone : "info";
       const title = String(options.title || "Scan Result");
       const message = String(options.message || "");
       const kicker = String(options.kicker || "Scan detected");
@@ -622,7 +626,8 @@
 
       sessionEventEmpty.style.display = "none";
       sessionEventList.innerHTML = sessionEvents.map((event) => {
-        const statusClass = event.status || "idle";
+        const requestedStatus = String(event.status || "idle").toLowerCase();
+        const statusClass = ["idle", "ok", "warning", "error"].includes(requestedStatus) ? requestedStatus : "idle";
         return `
           <article class="session-event ${statusClass}">
             <div class="session-event-main">
@@ -798,7 +803,13 @@
 
     function renderSlotMap() {
       const slots = Array.isArray(pendingSlotOverview?.slots) ? pendingSlotOverview.slots : [];
-      const summary = pendingSlotOverview?.summary || { total: 0, available: 0, occupied: 0, disabled: 0 };
+      const rawSummary = pendingSlotOverview?.summary || {};
+      const summary = {
+        total: Number.isFinite(Number(rawSummary.total)) ? Number(rawSummary.total) : slots.length,
+        available: Number.isFinite(Number(rawSummary.available)) ? Number(rawSummary.available) : 0,
+        occupied: Number.isFinite(Number(rawSummary.occupied)) ? Number(rawSummary.occupied) : 0,
+        disabled: Number.isFinite(Number(rawSummary.disabled)) ? Number(rawSummary.disabled) : 0
+      };
 
       if (!slots.length) {
         autoSlotMap.innerHTML = window.NaapUiState.render("empty", {
@@ -826,7 +837,10 @@
             <div class="auto-zone-grid">
               ${grouped[zone].map((slot) => {
                 const selected = String(selectedSlotId || "") === String(slot.id);
-                const occupancy = slot.occupancy || "available";
+                const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
+                const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
+                  ? requestedOccupancy
+                  : "disabled";
                 const selectable = occupancy === "available";
                 const occupant = slot.occupied_by_name
                   ? `<small>${escapeHtml(slot.occupied_by_name)}</small>`
@@ -1537,11 +1551,12 @@
       if (!window.ScannerDeviceCheck?.inspect || !scannerDeviceCheckResults) return;
       const result = window.ScannerDeviceCheck.inspect("autoQrReader");
       scannerDeviceCheckResults.hidden = false;
-      scannerDeviceCheckResults.className = `scanner-device-check-results grade-${result.grade}`;
+      const grade = ["excellent", "ready", "needs-attention"].includes(result.grade) ? result.grade : "needs-attention";
+      scannerDeviceCheckResults.className = `scanner-device-check-results grade-${grade}`;
       scannerDeviceCheckResults.innerHTML = `
         <strong>${result.ready ? "Device is ready for scanning" : "Device needs attention"}</strong>
-        <span>${result.deviceClass} · ${result.grade.replace("-", " ")}</span>
-        <ul>${result.checks.map((check) => `<li class="${check.passed ? "passed" : "failed"}">${check.passed ? "✓" : "!"} ${check.label}${!check.passed && !check.required ? " (optional)" : ""}</li>`).join("")}</ul>
+        <span>${escapeHtml(result.deviceClass)} · ${escapeHtml(grade.replace("-", " "))}</span>
+        <ul>${result.checks.map((check) => `<li class="${check.passed ? "passed" : "failed"}">${check.passed ? "✓" : "!"} ${escapeHtml(check.label)}${!check.passed && !check.required ? " (optional)" : ""}</li>`).join("")}</ul>
       `;
     });
 

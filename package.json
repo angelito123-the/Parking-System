@@ -28,12 +28,22 @@
     "express": "^4.19.2",
     "express-mysql-session": "^3.0.3",
     "express-session": "^1.19.0",
-    "mysql2": "^3.11.3",
-    "nodemailer": "^7.0.13",
+    "mysql2": "^3.24.3",
+    "nodemailer": "^10.0.0",
     "pngjs": "^5.0.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
+  },
+  "overrides": {
+    "express": {
+      "body-parser": "1.20.6",
+      "path-to-regexp": "0.1.13",
+      "qs": "6.16.0"
+    },
+    "mysql2": "$mysql2",
+    "brace-expansion": "5.0.9",
+    "picomatch": "2.3.2"
   }
 }

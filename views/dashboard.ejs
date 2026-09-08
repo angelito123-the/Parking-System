@@ -208,7 +208,7 @@
                 <% } %>
               </p>
             </div>
-            <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
+            <button type="button" class="btn-sm danger force-exit-btn" data-force-exit data-sticker-id="<%= item.sticker_id %>">Force Exit</button>
           </div>
         <% }) %>
       </div>
@@ -257,7 +257,7 @@
                 <% } %>
               </td>
               <td style="text-align:right;">
-                <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit</button>
+                <button type="button" class="btn-sm danger force-exit-btn" data-force-exit data-sticker-id="<%= item.sticker_id %>">Force Exit</button>
               </td>
             </tr>
           <% }) %>
@@ -293,7 +293,7 @@
             <% } %>
           </div>
           <div class="card-actions">
-            <button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('<%= item.sticker_id %>', this)">Force Exit Vehicle</button>
+            <button type="button" class="danger btn-mobile-touch force-exit-btn" data-force-exit data-sticker-id="<%= item.sticker_id %>">Force Exit Vehicle</button>
           </div>
         </div>
       <% }) %>
@@ -301,7 +301,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const insideBody = document.getElementById("insideVehiclesBody");
     const insideCards = document.getElementById("insideVehiclesCards");
@@ -356,6 +356,15 @@
       return `+${getDurationLabel({ minutes_inside: overstayMinutes })} over limit`;
     }
 
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     window.forceExit = async function forceExit(stickerId, button) {
       if (!confirm("Force exit this vehicle?")) return;
       if (button) {
@@ -387,53 +396,64 @@
       }
     };
 
+    document.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-force-exit]") : null;
+      if (!button) return;
+      const stickerId = Number(button.dataset.stickerId);
+      if (!Number.isInteger(stickerId) || stickerId <= 0) return;
+      window.forceExit(stickerId, button);
+    });
+
     function renderInsideRow(item) {
       const duration = getDurationLabel(item);
       const overstayLabel = getOverstayText(item);
+      const stickerId = Number.isInteger(Number(item.sticker_id)) ? Number(item.sticker_id) : 0;
       const statusChip = item.is_overstay
         ? `<span class="badge badge-overstay">OVERSTAY</span>`
         : `<span class="badge badge-inside">INSIDE</span>`;
       return `<tr class="${item.is_overstay ? "inside-row-overstay" : ""}">
-        <td><strong>${item.student_number || "-"}</strong></td>
-        <td>${item.full_name || "-"}</td>
-        <td><span class="badge badge-soft badge-plate">${item.plate_number || "-"}</span></td>
-        <td><span class="badge badge-active">${item.sticker_code || "-"}</span></td>
-        <td>${item.parking_slot || "-"}</td>
-        <td>${item.entry_gate || "-"}</td>
-        <td>${duration}</td>
-        <td>${statusChip}${overstayLabel ? `<div class="table-alert-sub">${overstayLabel}</div>` : ""}</td>
-        <td style="text-align:right;"><button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button></td>
+        <td><strong>${escapeHtml(item.student_number || "-")}</strong></td>
+        <td>${escapeHtml(item.full_name || "-")}</td>
+        <td><span class="badge badge-soft badge-plate">${escapeHtml(item.plate_number || "-")}</span></td>
+        <td><span class="badge badge-active">${escapeHtml(item.sticker_code || "-")}</span></td>
+        <td>${escapeHtml(item.parking_slot || "-")}</td>
+        <td>${escapeHtml(item.entry_gate || "-")}</td>
+        <td>${escapeHtml(duration)}</td>
+        <td>${statusChip}${overstayLabel ? `<div class="table-alert-sub">${escapeHtml(overstayLabel)}</div>` : ""}</td>
+        <td style="text-align:right;"><button type="button" class="btn-sm danger force-exit-btn" data-force-exit data-sticker-id="${stickerId}">Force Exit</button></td>
       </tr>`;
     }
 
     function renderInsideCard(item) {
       const duration = getDurationLabel(item);
       const overstayLabel = getOverstayText(item);
-      return `<div class="mobile-data-card ${item.is_overstay ? "overstay-card" : ""}" data-sticker-id="${item.sticker_id}">
-        <div class="card-header"><div class="card-title">${item.full_name || "Unknown"}</div>${item.is_overstay ? `<span class="badge badge-overstay">OVERSTAY</span>` : `<span class="badge badge-inside">INSIDE</span>`}</div>
+      const stickerId = Number.isInteger(Number(item.sticker_id)) ? Number(item.sticker_id) : 0;
+      return `<div class="mobile-data-card ${item.is_overstay ? "overstay-card" : ""}" data-sticker-id="${stickerId}">
+        <div class="card-header"><div class="card-title">${escapeHtml(item.full_name || "Unknown")}</div>${item.is_overstay ? `<span class="badge badge-overstay">OVERSTAY</span>` : `<span class="badge badge-inside">INSIDE</span>`}</div>
         <div class="card-body">
-          <div class="card-item">Plate: <strong>${item.plate_number || "-"}</strong></div>
-          <div class="card-item">Slot: <strong>${item.parking_slot || "-"}</strong></div>
-          <div class="card-item">Gate: <strong>${item.entry_gate || "-"}</strong></div>
+          <div class="card-item">Plate: <strong>${escapeHtml(item.plate_number || "-")}</strong></div>
+          <div class="card-item">Slot: <strong>${escapeHtml(item.parking_slot || "-")}</strong></div>
+          <div class="card-item">Gate: <strong>${escapeHtml(item.entry_gate || "-")}</strong></div>
           <div class="card-item">In: <strong>${item.entered_at ? new Date(item.entered_at).toLocaleTimeString() : "-"}</strong></div>
-          <div class="card-item">Duration: <strong>${duration}</strong></div>
-          ${overstayLabel ? `<div class="card-item overstay-card-alert"><strong>Alert:</strong> ${overstayLabel}</div>` : ""}
+          <div class="card-item">Duration: <strong>${escapeHtml(duration)}</strong></div>
+          ${overstayLabel ? `<div class="card-item overstay-card-alert"><strong>Alert:</strong> ${escapeHtml(overstayLabel)}</div>` : ""}
         </div>
-        <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit Vehicle</button></div>
+        <div class="card-actions"><button type="button" class="danger btn-mobile-touch force-exit-btn" data-force-exit data-sticker-id="${stickerId}">Force Exit Vehicle</button></div>
       </div>`;
     }
 
     function renderOverstayAlert(item) {
-      return `<div class="overstay-alert-item" data-sticker-id="${item.sticker_id || ""}">
+      const stickerId = Number.isInteger(Number(item.sticker_id)) ? Number(item.sticker_id) : 0;
+      return `<div class="overstay-alert-item" data-sticker-id="${stickerId || ""}">
         <div class="overstay-alert-main">
           <p class="overstay-alert-title">
-            <strong>${item.full_name || "Unknown Student"}</strong>
-            <span>${item.plate_number || "-"}</span>
-            <span>${item.parking_slot || "-"}</span>
+            <strong>${escapeHtml(item.full_name || "Unknown Student")}</strong>
+            <span>${escapeHtml(item.plate_number || "-")}</span>
+            <span>${escapeHtml(item.parking_slot || "-")}</span>
           </p>
-          <p class="helper-text">Entered ${item.entered_at ? toPht(item.entered_at) : "-"} | Stayed <strong>${getDurationLabel(item)}</strong>${item.is_overstay ? ` (${getOverstayText(item)})` : ""}</p>
+          <p class="helper-text">Entered ${item.entered_at ? escapeHtml(toPht(item.entered_at)) : "-"} | Stayed <strong>${escapeHtml(getDurationLabel(item))}</strong>${item.is_overstay ? ` (${escapeHtml(getOverstayText(item))})` : ""}</p>
         </div>
-        <button type="button" class="btn-sm danger force-exit-btn" onclick="window.forceExit('${item.sticker_id}', this)">Force Exit</button>
+        <button type="button" class="btn-sm danger force-exit-btn" data-force-exit data-sticker-id="${stickerId}">Force Exit</button>
       </div>`;
     }
 

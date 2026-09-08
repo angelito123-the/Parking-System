@@ -70,5 +70,8 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 - Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.
 - QR email delivery requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in `.env`. Set `SMTP_SECURE=true` for implicit TLS (normally port 465); port 587 normally uses `false` and upgrades with STARTTLS.
+- Production requires unique `ADMIN_PASSWORD`, `GUARD_PASSWORD`, and a `SESSION_SECRET` of at least 32 characters. Never commit real values to Git; rotate any value that was previously committed.
+- `TRUST_PROXY_HOPS=1` is appropriate for the standard Render proxy setup. Change it only when the number of trusted reverse proxies in front of the app changes.
+- Admin accounts should enable two-factor authentication from **Account > Security**.
 - For a no-cost online deployment, follow [DEPLOY_FREE.md](./DEPLOY_FREE.md).
 - Before using a phone or tablet at a gate, follow the [scanner device test checklist](./docs/SCANNER_DEVICE_TESTING.md).

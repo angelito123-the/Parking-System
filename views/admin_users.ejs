@@ -102,7 +102,7 @@
                   <button
                     type="button"
                     class="btn-edit-sm"
-                    onclick="window.toggleUserEditor('<%= user.id %>')"
+                    data-user-editor-id="<%= user.id %>"
                     id="editUserBtn_<%= user.id %>">
                     Edit
                   </button>
@@ -143,7 +143,7 @@
                     <button
                       type="button"
                       class="btn-cancel-sm"
-                      onclick="window.toggleUserEditor('<%= user.id %>')">
+                      data-user-editor-id="<%= user.id %>">
                       Cancel
                     </button>
                   </div>
@@ -157,7 +157,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     window.toggleUserEditor = (userId) => {
       const row = document.getElementById(`userEditor_${userId}`);
@@ -167,6 +167,11 @@
       row.hidden = isOpen;
       trigger.textContent = isOpen ? "Edit" : "Close";
     };
+    document.addEventListener("click", (event) => {
+      const button = event.target instanceof Element ? event.target.closest("[data-user-editor-id]") : null;
+      if (!button) return;
+      window.toggleUserEditor(button.dataset.userEditorId);
+    });
   })();
 </script>
 

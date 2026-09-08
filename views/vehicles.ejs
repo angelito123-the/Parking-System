@@ -14,7 +14,7 @@
     </div>
   </div>
   <% if (pageFlash) { %>
-    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %>" style="margin-top: 1rem;">
+    <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %> flash-spaced">
       <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
     </div>
   <% } %>
@@ -66,8 +66,8 @@
       </thead>
       <tbody>
         <% if (vehicles.length === 0) { %>
-          <tr style="box-shadow: none;">
-            <td colspan="5" style="background: transparent; border: none;">
+          <tr class="table-empty-row">
+            <td colspan="5" class="table-empty-cell">
               <div class="empty-state">
                 <div class="empty-state-icon">🚗</div>
                 <p>No vehicles registered yet. Use the form above to add one.</p>
@@ -77,16 +77,13 @@
         <% } %>
         <% vehicles.forEach(vehicle => { %>
           <tr>
-            <td><strong><%= vehicle.student_number %></strong> <span style="color:var(--muted); font-size:0.8rem; margin-left:0.5rem;"><%= vehicle.full_name %></span></td>
-            <td><span class="badge" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"><%= vehicle.plate_number %></span></td>
-            <td style="color: var(--muted);"><%= vehicle.model || "-" %></td>
-            <td style="color: var(--muted);"><%= vehicle.color || "-" %></td>
-            <td style="text-align: right; padding-right: 1.5rem;">
-              <form method="post" action="/vehicles/<%= vehicle.id %>/delete"
-                    onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>? This cannot be undone.')"
-                    style="margin:0; text-align:right;">
-                <button type="submit" class="danger btn-sm">Delete</button>
-              </form>
+            <td><strong><%= vehicle.student_number %></strong> <span class="record-secondary"><%= vehicle.full_name %></span></td>
+            <td><span class="badge badge-plate"><%= vehicle.plate_number %></span></td>
+            <td class="table-muted"><%= vehicle.model || "-" %></td>
+            <td class="table-muted"><%= vehicle.color || "-" %></td>
+            <td class="table-actions-cell">
+              <form id="deleteVehicleDesktop_<%= vehicle.id %>" method="post" action="/vehicles/<%= vehicle.id %>/delete" class="inline-form inline-form-end" hidden></form>
+              <button type="button" class="danger btn-sm" data-destructive-trigger data-form-id="deleteVehicleDesktop_<%= vehicle.id %>" data-confirm-title="Delete vehicle?" data-confirm-message="Delete vehicle <%= vehicle.plate_number %>? This cannot be undone." data-confirm-label="Delete vehicle">Delete</button>
             </td>
           </tr>
         <% }) %>
@@ -106,17 +103,15 @@
       <div class="mobile-data-card">
         <div class="card-header">
           <div class="card-title"><%= vehicle.plate_number %></div>
-          <span class="badge" style="background:var(--surface-soft); color:var(--text); border:1px solid var(--line);"><%= vehicle.color || "No Color" %></span>
+          <span class="badge badge-soft"><%= vehicle.color || "No Color" %></span>
         </div>
         <div class="card-body">
           <div class="card-item">👤 <strong>Owner:</strong> <%= vehicle.full_name %> (<%= vehicle.student_number %>)</div>
           <div class="card-item">🚘 <strong>Model:</strong> <%= vehicle.model || "-" %></div>
         </div>
         <div class="card-actions">
-          <form style="margin:0;" method="post" action="/vehicles/<%= vehicle.id %>/delete"
-                onsubmit="return confirm('Delete vehicle <%= vehicle.plate_number %>?')">
-            <button type="submit" class="danger btn-mobile-touch">Delete Vehicle</button>
-          </form>
+          <form id="deleteVehicleMobile_<%= vehicle.id %>" class="inline-form" method="post" action="/vehicles/<%= vehicle.id %>/delete" hidden></form>
+          <button type="button" class="danger btn-mobile-touch" data-destructive-trigger data-form-id="deleteVehicleMobile_<%= vehicle.id %>" data-confirm-title="Delete vehicle?" data-confirm-message="Delete vehicle <%= vehicle.plate_number %>? This cannot be undone." data-confirm-label="Delete vehicle">Delete Vehicle</button>
         </div>
       </div>
     <% }) %>

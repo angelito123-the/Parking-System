@@ -1,10 +1,11 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v28`;
+const CACHE_NAME = `${CACHE_PREFIX}v31`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
+  '/offline.js',
   '/styles.css?v=20260828-ops1',
-  '/design-system.css?v=20260829-directory-search',
+  '/design-system.css?v=20260902-consistency',
   '/manifest.json',
   '/icons/favicon-32.png',
   '/icons/apple-touch-icon.png',

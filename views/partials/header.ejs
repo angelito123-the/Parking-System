@@ -17,10 +17,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preload" as="style" href="<%= fontStylesheetUrl %>" />
-  <link rel="stylesheet" href="<%= fontStylesheetUrl %>" media="print" onload="this.media='all'" />
+  <link rel="stylesheet" href="<%= fontStylesheetUrl %>" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
   <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
-  <link rel="stylesheet" href="/design-system.css?v=20260829-directory-search" />
+  <link rel="stylesheet" href="/design-system.css?v=20260902-consistency" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -28,7 +28,7 @@
   <% if (needsOfflineScanner) { %>
   <script src="/offline-sync.js?v=20260828-ops1" defer></script>
   <% } %>
-  <script>
+  <script nonce="<%= cspNonce %>">
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
@@ -59,7 +59,7 @@
     });
   </script>
   <!-- Dark Mode Init (Prevent FOUC) -->
-  <script>
+  <script nonce="<%= cspNonce %>">
     (function () {
       const savedTheme = localStorage.getItem('theme');
       const theme = savedTheme === 'dark' || savedTheme === 'light'
@@ -316,7 +316,7 @@
 
         <main id="mainContent" class="container" tabindex="-1">
 
-          <script>
+          <script nonce="<%= cspNonce %>">
             // Theme Toggle Logic
             window.addEventListener('DOMContentLoaded', () => {
               const toggleBtn = document.getElementById('themeToggle');
@@ -423,6 +423,7 @@
                 const severityClass = getSeverityClass(row.severity);
                 const statusClass = String(row.status || '').toLowerCase() === 'resolved' ? 'state-resolved' : 'state-active';
                 const createdAt = row.created_at ? new Date(row.created_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : '-';
+                const alertId = Number.isInteger(Number(row.id)) ? Number(row.id) : 0;
                 return `
                   <article class="notification-row ${isUnread ? 'is-unread' : ''}">
                     <div class="notification-row-main">
@@ -439,8 +440,8 @@
                       </p>
                     </div>
                     <div class="notification-row-actions">
-                      ${isUnread ? `<button type="button" class="btn-sm notification-read-btn" data-alert-id="${row.id}">Read</button>` : ''}
-                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${row.id}">Resolve</button>` : ''}
+                      ${isUnread ? `<button type="button" class="btn-sm notification-read-btn" data-alert-id="${alertId}">Read</button>` : ''}
+                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${alertId}">Resolve</button>` : ''}
                     </div>
                   </article>
                 `;

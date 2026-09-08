@@ -6,10 +6,19 @@
  */
 
 :root {
+  --ui-space-1: 0.25rem;
+  --ui-space-2: 0.5rem;
+  --ui-space-3: 0.75rem;
+  --ui-space-4: 1rem;
+  --ui-space-5: 1.5rem;
   --ui-space-card: 1rem;
   --ui-space-section: 1.5rem;
   --ui-radius-card: 12px;
   --ui-radius-control: 9px;
+  --ui-control-height: 40px;
+  --ui-control-height-large: 48px;
+  --ui-control-height-compact: 34px;
+  --ui-touch-target: 44px;
   --ui-primary: #2563eb;
   --ui-primary-hover: #1d4ed8;
   --ui-success: #15803d;
@@ -46,6 +55,22 @@
   --orange-soft: #fff7ed;
   --orange-text: #b45309;
   --orange-border: #fed7aa;
+  --status-success-bg: var(--green-soft);
+  --status-success-text: var(--green-text);
+  --status-success-border: var(--green-border);
+  --status-warning-bg: var(--orange-soft);
+  --status-warning-text: var(--orange-text);
+  --status-warning-border: var(--orange-border);
+  --status-danger-bg: var(--red-soft);
+  --status-danger-text: var(--red-text);
+  --status-danger-border: var(--red-border);
+  --status-info-bg: var(--blue-soft);
+  --status-info-text: #1d4ed8;
+  --status-info-border: #bfdbfe;
+  --status-neutral-bg: #f8fafc;
+  --status-neutral-text: #475569;
+  --status-neutral-border: #cbd5e1;
+  --blue-text: var(--status-info-text);
   --ui-hover-border: #b9cbea;
   --radius-sm: var(--ui-radius-control);
   --radius-lg: var(--ui-radius-card);
@@ -53,6 +78,7 @@
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.035);
   --shadow-md: 0 6px 18px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.11);
+  --shadow-overlay: 0 14px 32px rgba(15, 23, 42, 0.14);
   color-scheme: light;
 }
 
@@ -88,10 +114,27 @@
   --orange-soft: rgba(180, 83, 9, 0.18);
   --orange-text: #fcd34d;
   --orange-border: rgba(245, 158, 11, 0.34);
+  --status-success-bg: rgba(22, 163, 74, 0.16);
+  --status-success-text: #86efac;
+  --status-success-border: rgba(74, 222, 128, 0.34);
+  --status-warning-bg: rgba(180, 83, 9, 0.2);
+  --status-warning-text: #fcd34d;
+  --status-warning-border: rgba(245, 158, 11, 0.38);
+  --status-danger-bg: rgba(190, 18, 60, 0.18);
+  --status-danger-text: #fda4af;
+  --status-danger-border: rgba(251, 113, 133, 0.34);
+  --status-info-bg: rgba(37, 99, 235, 0.18);
+  --status-info-text: #93c5fd;
+  --status-info-border: rgba(96, 165, 250, 0.34);
+  --status-neutral-bg: rgba(71, 85, 105, 0.35);
+  --status-neutral-text: #cbd5e1;
+  --status-neutral-border: rgba(148, 163, 184, 0.35);
+  --blue-text: var(--status-info-text);
   --ui-hover-border: #49658c;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-md: 0 8px 22px rgba(0, 0, 0, 0.26);
   --shadow-lg: 0 16px 34px rgba(0, 0, 0, 0.34);
+  --shadow-overlay: 0 16px 34px rgba(0, 0, 0, 0.38);
   color-scheme: dark;
 }
 
@@ -592,7 +635,12 @@ button.account-menu-item:hover,
   background: var(--green-soft);
 }
 
-.vehicle-sticker-status.state-expired,
+.vehicle-sticker-status.state-expired {
+  color: var(--orange-text);
+  border-color: var(--orange-border);
+  background: var(--orange-soft);
+}
+
 .vehicle-sticker-status.state-revoked {
   color: var(--red-text);
   border-color: var(--red-border);
@@ -820,7 +868,7 @@ body.mobile-nav-open {
 .dashboard-hero,
 body.page-visitor-passes .visitor-hero {
   border-radius: var(--ui-radius-card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .dashboard-hero:has(> .hero-cards) {
@@ -871,7 +919,7 @@ body[class] .overlap-wrapper > .panel[style] {
   border: 1px solid var(--line) !important;
   border-radius: var(--ui-radius-card) !important;
   background: var(--surface) !important;
-  box-shadow: var(--shadow-sm) !important;
+  box-shadow: none !important;
 }
 
 .section-head {
@@ -992,7 +1040,7 @@ input[type="file"] {
 }
 
 .btn-sm,
-button[type="submit"]:not(.icon-btn):not(.movement-btn),
+button[type="submit"]:not(.icon-btn):not(.movement-btn):not(.danger):not(.btn-delete-sm):not(.btn-delete-xs):not(.btn-confirm-danger),
 button.btn-save-sm,
 button.entry-confirm-btn {
   min-height: 38px;
@@ -1008,7 +1056,7 @@ button.entry-confirm-btn {
 }
 
 .btn-sm:hover,
-button[type="submit"]:not(.icon-btn):not(.movement-btn):hover,
+button[type="submit"]:not(.icon-btn):not(.movement-btn):not(.danger):not(.btn-delete-sm):not(.btn-delete-xs):not(.btn-confirm-danger):hover,
 button.btn-save-sm:hover,
 button.entry-confirm-btn:hover {
   color: #ffffff !important;
@@ -1135,6 +1183,51 @@ tbody tr:hover,
   min-width: 760px;
 }
 
+.table-empty-row,
+.table-empty-row:hover {
+  box-shadow: none !important;
+}
+
+.table-empty-cell,
+.table-empty-row:hover .table-empty-cell {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.record-secondary {
+  margin-left: var(--ui-space-2);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.table-muted {
+  color: var(--muted);
+}
+
+.table-actions-cell {
+  padding-right: var(--ui-space-5) !important;
+  text-align: right;
+}
+
+.table-action-row {
+  gap: var(--ui-space-2) !important;
+  flex-wrap: wrap;
+}
+
+.mobile-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+}
+
+.inline-form {
+  margin: 0;
+}
+
+.inline-form-end {
+  text-align: right;
+}
+
 .badge,
 .notification-chip,
 .auto-chip,
@@ -1147,7 +1240,7 @@ tbody tr:hover,
 /* Scanner and notification controls retain state-specific styling. */
 .auto-gate-camera-panel {
   background: var(--surface) !important;
-  box-shadow: var(--shadow-sm) !important;
+  box-shadow: none !important;
 }
 
 .auto-camera-wrapper {
@@ -1336,6 +1429,596 @@ button.scanner-movement-exit:hover {
   background: rgba(190, 18, 60, 0.24) !important;
 }
 
+/* Consistency contract: shared controls, semantic states, and restrained depth. */
+body[data-role] :is(
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+  select
+) {
+  min-height: var(--ui-control-height) !important;
+}
+
+body[data-role] :is(input, select, textarea) {
+  color: var(--text);
+  border-color: var(--line-strong);
+  border-radius: var(--ui-radius-control);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+body[data-role] textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+body[data-role] :is(input[type="checkbox"], input[type="radio"]) {
+  min-height: auto !important;
+  padding: 0;
+}
+
+body[data-role] :is(input, select, textarea)::placeholder {
+  color: var(--muted);
+  opacity: 0.82;
+}
+
+body[data-role] :is(input, select, textarea):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-primary) 55%, transparent);
+  outline-offset: 1px;
+  border-color: var(--ui-primary);
+  box-shadow: none;
+}
+
+body[data-role] :is(
+  .form-grid,
+  .edit-form-grid,
+  .visitor-form-grid,
+  .alerts-filter-grid,
+  .scanner-analytics-filters,
+  .analytics-v3-form,
+  .security-form
+) {
+  gap: var(--ui-space-3) !important;
+}
+
+body[data-role] :is(.form-actions, .edit-form-actions, .visitor-form-actions) {
+  gap: var(--ui-space-2) !important;
+  margin-top: var(--ui-space-4);
+}
+
+body[data-role] :is(
+  .btn,
+  .btn-sm,
+  .link-btn,
+  .btn-ghost,
+  .btn-save-sm,
+  .btn-edit-sm,
+  .btn-edit-xs,
+  .btn-delete-sm,
+  .btn-delete-xs,
+  .btn-add-vehicle,
+  .btn-cancel-sm,
+  .btn-details-sm,
+  .btn-filter-apply,
+  .btn-filter-clear,
+  .btn-directory-primary,
+  .btn-directory-secondary,
+  .btn-confirm-danger,
+  .entry-confirm-btn,
+  .entry-cancel-btn,
+  .auto-resume-btn,
+  .gate-search-btn,
+  .btn-mobile-touch,
+  button[type="submit"]:not(.icon-btn):not(.movement-btn):not(.scanner-movement-btn)
+) {
+  min-height: var(--ui-control-height) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.82rem !important;
+  border-radius: var(--ui-radius-control) !important;
+  box-shadow: none !important;
+  font: inherit;
+  font-size: 0.78rem !important;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  transform: none !important;
+}
+
+body[data-role] :is(
+  .btn-sm:not(.btn-reset):not(.danger):not(.refresh-btn),
+  .btn-save-sm,
+  .btn-filter-apply,
+  .btn-directory-primary,
+  .entry-confirm-btn,
+  .gate-search-btn,
+  button[type="submit"]:not(.danger):not(.btn-delete-sm):not(.btn-delete-xs):not(.btn-confirm-danger):not(.icon-btn):not(.movement-btn):not(.scanner-movement-btn)
+) {
+  color: #ffffff !important;
+  border: 1px solid var(--ui-primary) !important;
+  background: var(--ui-primary) !important;
+  background-image: none !important;
+}
+
+body[data-role] :is(
+  .btn-sm:not(.btn-reset):not(.danger):not(.refresh-btn),
+  .btn-save-sm,
+  .btn-filter-apply,
+  .btn-directory-primary,
+  .entry-confirm-btn,
+  .gate-search-btn,
+  button[type="submit"]:not(.danger):not(.btn-delete-sm):not(.btn-delete-xs):not(.btn-confirm-danger):not(.icon-btn):not(.movement-btn):not(.scanner-movement-btn)
+):hover {
+  color: #ffffff !important;
+  border-color: var(--ui-primary-hover) !important;
+  background: var(--ui-primary-hover) !important;
+}
+
+body[data-role] :is(
+  .btn,
+  .btn-sm.btn-reset,
+  .refresh-btn,
+  .link-btn,
+  .btn-ghost,
+  .btn-edit-sm,
+  .btn-edit-xs,
+  .btn-add-vehicle,
+  .btn-cancel-sm,
+  .btn-details-sm,
+  .btn-filter-clear,
+  .btn-directory-secondary,
+  .entry-cancel-btn,
+  .auto-resume-btn
+) {
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--line-strong) !important;
+  background: var(--surface) !important;
+  background-image: none !important;
+}
+
+body[data-role] :is(
+  .btn,
+  .btn-sm.btn-reset,
+  .refresh-btn,
+  .link-btn,
+  .btn-ghost,
+  .btn-edit-sm,
+  .btn-edit-xs,
+  .btn-add-vehicle,
+  .btn-cancel-sm,
+  .btn-details-sm,
+  .btn-filter-clear,
+  .btn-directory-secondary,
+  .entry-cancel-btn,
+  .auto-resume-btn
+):hover {
+  color: var(--status-info-text) !important;
+  border-color: var(--status-info-border) !important;
+  background: var(--status-info-bg) !important;
+}
+
+body[data-role] :is(
+  button.danger,
+  a.danger,
+  .btn-delete-sm,
+  .btn-delete-xs,
+  .btn-confirm-danger,
+  .action-menu-danger
+) {
+  color: var(--status-danger-text) !important;
+  border-color: var(--status-danger-border) !important;
+  background: var(--status-danger-bg) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+body[data-role] :is(
+  button.danger,
+  a.danger,
+  .btn-delete-sm,
+  .btn-delete-xs,
+  .btn-confirm-danger,
+  .action-menu-danger
+):hover {
+  color: var(--status-danger-text) !important;
+  border-color: var(--status-danger-text) !important;
+  background: var(--status-danger-bg) !important;
+}
+
+body[data-role] .btn-confirm-danger,
+body[data-role] .btn-confirm-danger:hover {
+  color: #ffffff !important;
+  border-color: var(--ui-danger) !important;
+  background: var(--ui-danger) !important;
+}
+
+body[data-role] :is(
+  .btn,
+  .btn-sm,
+  .link-btn,
+  .btn-ghost,
+  .btn-save-sm,
+  .btn-edit-sm,
+  .btn-edit-xs,
+  .btn-delete-sm,
+  .btn-delete-xs,
+  .btn-add-vehicle,
+  .btn-cancel-sm,
+  .btn-details-sm,
+  .btn-filter-apply,
+  .btn-filter-clear,
+  .btn-directory-primary,
+  .btn-directory-secondary,
+  .entry-confirm-btn,
+  .entry-cancel-btn,
+  .auto-resume-btn,
+  .gate-search-btn,
+  button[type="submit"]:not(.movement-btn):not(.scanner-movement-btn)
+):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ui-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+/* Semantic status colors stay identical across dashboards and themes. */
+:is(
+  .badge-valid,
+  .badge-active,
+  .badge-ok,
+  .vehicle-sticker-status.state-active,
+  .notification-chip.state-active,
+  .queue-health-badge.state-online,
+  .auto-chip.state-live,
+  .parking-inspector-badge.available,
+  .parking-inspector-mini-badge.inside
+) {
+  color: var(--status-success-text) !important;
+  border-color: var(--status-success-border) !important;
+  background: var(--status-success-bg) !important;
+}
+
+:is(
+  .badge-warning,
+  .badge-expired,
+  .badge-occupied,
+  .vehicle-sticker-status.state-expired,
+  .queue-health-badge.state-offline,
+  .auto-chip.state-warning,
+  .parking-inspector-badge.occupied,
+  .chip-live.is-offline
+) {
+  color: var(--status-warning-text) !important;
+  border-color: var(--status-warning-border) !important;
+  background: var(--status-warning-bg) !important;
+}
+
+:is(
+  .badge-invalid,
+  .badge-revoked,
+  .badge-overstay,
+  .badge-error,
+  .badge-failed,
+  .vehicle-sticker-status.state-revoked,
+  .auto-chip.state-error
+) {
+  color: var(--status-danger-text) !important;
+  border-color: var(--status-danger-border) !important;
+  background: var(--status-danger-bg) !important;
+}
+
+:is(
+  .badge-inside,
+  .badge-action,
+  .badge-entry,
+  .student-import-result
+) {
+  color: var(--status-info-text) !important;
+  border-color: var(--status-info-border) !important;
+  background: var(--status-info-bg) !important;
+}
+
+:is(
+  .badge-verify,
+  .badge-soft,
+  .badge-plate,
+  .badge-exit,
+  .badge-disabled,
+  .vehicle-sticker-status.state-none,
+  .notification-chip.state-resolved,
+  .auto-chip.state-idle,
+  .parking-inspector-badge.disabled,
+  .parking-inspector-mini-badge.exited
+) {
+  color: var(--status-neutral-text) !important;
+  border-color: var(--status-neutral-border) !important;
+  background: var(--status-neutral-bg) !important;
+}
+
+.scan-result-card.result-expired {
+  border-color: var(--status-warning-border) !important;
+  background: var(--status-warning-bg) !important;
+}
+
+.scan-result-card.result-invalid,
+.scan-result-card.result-revoked {
+  border-color: var(--status-danger-border) !important;
+  background: var(--status-danger-bg) !important;
+}
+
+.remote-queue-live-alert {
+  color: var(--status-info-text) !important;
+  border-color: var(--status-info-border) !important;
+  background: var(--status-info-bg) !important;
+}
+
+.remote-queue-live-alert.tone-success {
+  color: var(--status-success-text) !important;
+  border-color: var(--status-success-border) !important;
+  background: var(--status-success-bg) !important;
+}
+
+.remote-queue-live-alert.tone-warning {
+  color: var(--status-warning-text) !important;
+  border-color: var(--status-warning-border) !important;
+  background: var(--status-warning-bg) !important;
+}
+
+.remote-queue-live-alert.tone-error {
+  color: var(--status-danger-text) !important;
+  border-color: var(--status-danger-border) !important;
+  background: var(--status-danger-bg) !important;
+}
+
+.top-nav-actions .chip-live:not(.is-offline) {
+  color: var(--status-success-text) !important;
+  border-color: var(--status-success-border) !important;
+  background: var(--status-success-bg) !important;
+}
+
+.top-nav-actions .chip-live.is-offline {
+  color: var(--status-warning-text) !important;
+  border-color: var(--status-warning-border) !important;
+  background: var(--status-warning-bg) !important;
+}
+
+.alert-summary-card,
+.analytics-summary-card-muted {
+  background: var(--surface-soft) !important;
+}
+
+.alert-summary-card.tone-danger {
+  border-color: var(--line) !important;
+  border-left: 3px solid var(--status-danger-text) !important;
+}
+
+.alert-summary-card.tone-warning {
+  border-color: var(--line) !important;
+  border-left: 3px solid var(--status-warning-text) !important;
+}
+
+.alert-summary-card.tone-info,
+.alert-summary-card.tone-strong {
+  border-color: var(--line) !important;
+  border-left: 3px solid var(--status-info-text) !important;
+}
+
+/* The parking map uses the same surface and occupancy language in both themes. */
+.scanner-parking-map {
+  padding: var(--ui-space-card);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius-card);
+  background: var(--surface);
+}
+
+.scanner-parking-map-head,
+.scanner-parking-legend,
+.scanner-parking-legend-item {
+  display: flex;
+  align-items: center;
+}
+
+.scanner-parking-map-head {
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-3);
+  flex-wrap: wrap;
+}
+
+.scanner-parking-map-summary {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.scanner-parking-legend {
+  gap: var(--ui-space-2);
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.scanner-parking-legend-item {
+  gap: 0.3rem;
+}
+
+.scanner-parking-legend-dot {
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--status-neutral-border);
+  border-radius: 3px;
+  background: var(--status-neutral-bg);
+}
+
+.scanner-parking-legend-dot.available {
+  border-color: var(--status-success-border);
+  background: var(--status-success-text);
+}
+
+.scanner-parking-legend-dot.occupied {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-text);
+}
+
+.scanner-zone-block {
+  margin-bottom: var(--ui-space-2);
+  padding: var(--ui-space-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.scanner-zone-block:last-child {
+  margin-bottom: 0;
+}
+
+.scanner-zone-title {
+  margin-bottom: 0.45rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scanner-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 0.45rem;
+}
+
+button.slot-option-btn {
+  min-width: 72px;
+  min-height: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border: 1px solid var(--status-neutral-border);
+  border-radius: 10px;
+  color: var(--status-neutral-text);
+  background: var(--status-neutral-bg);
+  box-shadow: none;
+  font-weight: 800;
+  transform: none;
+}
+
+button.slot-option-btn.available {
+  color: var(--status-success-text);
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+  cursor: pointer;
+}
+
+button.slot-option-btn.occupied {
+  color: var(--status-warning-text);
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+}
+
+button.slot-option-btn.selected {
+  color: var(--status-info-text);
+  border: 2px solid var(--status-info-text);
+  background: var(--status-info-bg);
+  outline: 2px solid color-mix(in srgb, var(--status-info-text) 24%, transparent);
+  outline-offset: 1px;
+}
+
+button.slot-option-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.76;
+}
+
+.slot-option-code {
+  font-size: 0.88rem;
+}
+
+.slot-option-zone {
+  color: currentColor;
+  font-size: 0.66rem;
+  font-weight: 650;
+  opacity: 0.84;
+}
+
+.scanner-history-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--status-neutral-text);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.scanner-history-item.action-entry {
+  border-left-color: var(--status-info-text);
+}
+
+.scanner-history-icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.scanner-history-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.scanner-history-label,
+.scanner-history-meta {
+  margin: 0;
+}
+
+.scanner-history-label {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scanner-history-meta {
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.scanner-history-offline {
+  margin-left: 0.25rem;
+}
+
+/* Normal surfaces stay flat. Elevation is reserved for overlays. */
+body[data-role] :is(
+  .dashboard-hero,
+  .visitor-hero,
+  .panel,
+  .reg-panel,
+  .directory-panel,
+  .flow-assist-panel,
+  .student-card,
+  .auto-gate-camera-panel,
+  .update-item,
+  .parking-slot-tile,
+  .guard-slot-btn,
+  .flow-tab-btn
+) {
+  box-shadow: none !important;
+}
+
+body[data-role] :is(.update-item, .parking-slot-tile, .guard-slot-btn):hover {
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+:is(.account-menu, .action-menu-popover, .notification-panel, .confirm-dialog-card, .slot-history-dialog, .scan-info-popup-card) {
+  box-shadow: var(--shadow-overlay) !important;
+}
+
 /* Decorative motion is removed; feedback and progress motion remain. */
 body.is-ready .container > *,
 .ui-tap-pop {
@@ -1497,19 +2180,75 @@ body.is-ready .container > *,
   }
 }
 
-@media (pointer: coarse) {
-  .top-nav-actions > .icon-btn,
-  .top-nav-actions > .notification-btn,
-  .notification-panel button,
-  .side-nav a,
-  button.available-slot-pill,
-  button.slot-filter-btn,
-  button.scanner-torch-btn,
-  button.slot-history-close,
-  .btn-sm,
-  .link-btn {
-    min-width: 44px;
-    min-height: 44px;
+@media (max-width: 1080px), (any-pointer: coarse) {
+  body[data-role] :is(
+    .top-nav-actions > .icon-btn,
+    .top-nav-actions > .notification-btn,
+    .account-menu-trigger,
+    .account-menu-item,
+    .notification-panel button,
+    .notification-view-all,
+    .side-nav a,
+    .btn,
+    .btn-sm,
+    .link-btn,
+    .btn-ghost,
+    .btn-save-sm,
+    .btn-edit-sm,
+    .btn-edit-xs,
+    .btn-delete-sm,
+    .btn-delete-xs,
+    .btn-add-vehicle,
+    .btn-cancel-sm,
+    .btn-details-sm,
+    .btn-filter-apply,
+    .btn-filter-clear,
+    .btn-directory-primary,
+    .btn-directory-secondary,
+    .btn-confirm-danger,
+    .action-menu-danger,
+    .entry-confirm-btn,
+    .entry-cancel-btn,
+    .auto-resume-btn,
+    .flow-tab-btn,
+    .pagination-control,
+    .pagination-page,
+    .analytics-v3-preset,
+    .scan-mode-switch a,
+    button.available-slot-pill,
+    button.slot-filter-btn,
+    button.scanner-torch-btn,
+    button[type="submit"]:not(.movement-btn):not(.scanner-movement-btn)
+  ) {
+    min-width: var(--ui-touch-target);
+    min-height: var(--ui-touch-target) !important;
+  }
+
+  body[data-role] :is(
+    .mobile-nav-trigger,
+    .mobile-nav-close,
+    .action-menu-trigger,
+    .action-menu-trigger-compact,
+    .student-import-close,
+    .directory-search-clear,
+    button.slot-history-close
+  ) {
+    width: var(--ui-touch-target) !important;
+    height: var(--ui-touch-target) !important;
+    min-width: var(--ui-touch-target) !important;
+    min-height: var(--ui-touch-target) !important;
+  }
+
+  body[data-role] :is(
+    input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+    select
+  ) {
+    min-height: var(--ui-touch-target) !important;
+  }
+
+  .notification-row-actions .btn-sm,
+  .scanner-diagnostic-actions .link-btn {
+    min-height: var(--ui-touch-target) !important;
   }
 }
 
@@ -1551,6 +2290,34 @@ body.is-ready .container > *,
 
   .scanner-movement-actions {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  body[data-role] :is(
+    .form-actions,
+    .edit-form-actions,
+    .visitor-form-actions,
+    .directory-filter-actions,
+    .directory-heading-actions,
+    .entry-confirm-actions,
+    .remote-entry-actions
+  ) {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100%;
+  }
+
+  body[data-role] :is(
+    .form-actions,
+    .edit-form-actions,
+    .visitor-form-actions,
+    .directory-filter-actions,
+    .directory-heading-actions,
+    .entry-confirm-actions,
+    .remote-entry-actions
+  ) > :is(button, a) {
+    width: 100%;
   }
 }
 

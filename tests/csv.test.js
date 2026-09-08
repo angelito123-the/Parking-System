@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseCsv, stringifyCsv } = require("../lib/csv");
+const { parseCsv, parseCsvDocument, stringifyCsv } = require("../lib/csv");
 
 test("CSV backup round-trips quoted values and protects spreadsheets", () => {
   const columns = [{ key: "name", label: "name" }, { key: "note", label: "note" }];
@@ -22,4 +22,11 @@ test("CSV parser normalizes headers and rejects malformed files", () => {
 
 test("CSV parser enforces its data-row limit", () => {
   assert.throws(() => parseCsv("id\n1\n2", { maxRows: 1 }), /limited to 1/);
+});
+
+test("CSV document parser returns normalized headers for server-side validation", () => {
+  const document = parseCsvDocument("Student Number,Full Name\n2026-01,Student One");
+  assert.deepEqual(document.headers, ["student_number", "full_name"]);
+  assert.equal(document.records[0].__rowNumber, 2);
+  assert.equal(document.records[0].__columnCount, 2);
 });

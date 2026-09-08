@@ -155,7 +155,7 @@
 <script src="/js/ml-qr-detector.js?v=20260828-ops1"></script>
 <script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const searchInput = document.getElementById("gateSearchInput");
     const gateSelect = document.getElementById("gateNameSelect");
@@ -353,7 +353,7 @@
         remoteEntryConfirmBtn.disabled = false;
         remoteEntrySlotSelect.innerHTML = [
           '<option value="">Select parking slot...</option>',
-          ...slots.map((slot) => `<option value="${slot.id}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
+          ...slots.map((slot) => `<option value="${escapeHtml(slot.id)}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
         ].join("");
         remoteEntryHint.textContent = `${slots.length} slot(s) available.`;
       } catch (error) {
@@ -419,7 +419,7 @@
             </div>
             <div class="remote-queue-actions">
               <span class="badge badge-warning">Pending</span>
-              <button type="button" class="btn-sm remote-open-entry-btn" data-entry-id="${entry.id}">Assign & Confirm</button>
+              <button type="button" class="btn-sm remote-open-entry-btn" data-entry-id="${escapeHtml(entry.id)}">Assign & Confirm</button>
             </div>
           </article>
         `).join("");
@@ -500,40 +500,21 @@
 
     function renderSlotButton(slot) {
       const selected = String(selectedSlotId) === String(slot.id);
-      const occupancy = slot.occupancy || "available";
+      const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
+      const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
+        ? requestedOccupancy
+        : "disabled";
       const isSelectable = occupancy === "available";
-      const tone = occupancy === "available"
-        ? { bg: "#16a34a", border: "#166534", text: "#ffffff" }
-        : occupancy === "occupied"
-        ? { bg: "#ef4444", border: "#b91c1c", text: "#ffffff" }
-        : { bg: "#94a3b8", border: "#64748b", text: "#ffffff" };
       return `
         <button
           type="button"
-          class="slot-option-btn"
-          data-slot-id="${slot.id}"
-          data-slot-code="${slot.slot_code}"
+          class="slot-option-btn ${occupancy}${selected ? " selected" : ""}"
+          data-slot-id="${escapeHtml(slot.id)}"
+          data-slot-code="${escapeHtml(slot.slot_code)}"
           data-selectable="${isSelectable ? "1" : "0"}"
-          ${isSelectable ? "" : "disabled"}
-          style="
-            min-width:72px;
-            min-height:86px;
-            border-radius:12px;
-            border:2px solid ${selected ? "#1d4ed8" : tone.border};
-            background:${selected ? "#dbeafe" : tone.bg};
-            color:${selected ? "#0f172a" : tone.text};
-            font-weight:800;
-            display:flex;
-            flex-direction:column;
-            justify-content:center;
-            align-items:center;
-            gap:0.25rem;
-            cursor:${isSelectable ? "pointer" : "not-allowed"};
-            box-shadow:${selected ? '0 0 0 3px rgba(59,130,246,0.18)' : 'none'};
-            opacity:${isSelectable ? "1" : "0.86"};
-          ">
-            <span style="font-size:0.9rem;">${slot.slot_code}</span>
-          <span style="font-size:0.68rem; color:${selected ? "#334155" : "rgba(255,255,255,0.92)"};">${slot.zone}</span>
+          ${isSelectable ? "" : "disabled"}>
+          <span class="slot-option-code">${escapeHtml(slot.slot_code)}</span>
+          <span class="slot-option-zone">${escapeHtml(slot.zone)}</span>
         </button>
       `;
     }
@@ -544,7 +525,7 @@
           if (btn.dataset.selectable !== "1") return;
           selectedSlotId = btn.dataset.slotId;
           renderParkingMap(parkingOverview);
-          logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">Slot <strong>${btn.dataset.slotCode || "-"}</strong> selected for entry.</div>`;
+          logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">Slot <strong>${escapeHtml(btn.dataset.slotCode || "-")}</strong> selected for entry.</div>`;
         });
       });
     }
@@ -568,26 +549,30 @@
         return acc;
       }, {});
       const zoneNames = Object.keys(grouped);
-      const summary = overview?.summary || { total: slots.length, available: 0, occupied: 0, disabled: 0 };
+      const rawSummary = overview?.summary || {};
+      const summary = {
+        total: Number.isFinite(Number(rawSummary.total)) ? Number(rawSummary.total) : slots.length,
+        available: Number.isFinite(Number(rawSummary.available)) ? Number(rawSummary.available) : 0,
+        occupied: Number.isFinite(Number(rawSummary.occupied)) ? Number(rawSummary.occupied) : 0,
+        disabled: Number.isFinite(Number(rawSummary.disabled)) ? Number(rawSummary.disabled) : 0
+      };
 
       slotMap.innerHTML = `
-        <div style="border:2px solid #1d4ed8; border-radius:16px; padding:0.85rem; background:linear-gradient(180deg,#ffffff,#eff6ff);">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.7rem;">
-            <div style="font-size:0.78rem; color:#334155; font-weight:700;">
+        <div class="scanner-parking-map">
+          <div class="scanner-parking-map-head">
+            <div class="scanner-parking-map-summary">
               Campus Overview: ${summary.available || 0} Available / ${summary.total || slots.length} Total
             </div>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; font-size:0.7rem; color:#475569;">
-              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#16a34a;border:1px solid #166534;"></span>Available</span>
-              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444;border:1px solid #b91c1c;"></span>Occupied</span>
-              <span style="display:inline-flex; align-items:center; gap:0.3rem;"><span style="width:10px;height:10px;border-radius:3px;background:#94a3b8;border:1px solid #64748b;"></span>Disabled</span>
+            <div class="scanner-parking-legend" aria-label="Parking status legend">
+              <span class="scanner-parking-legend-item"><span class="scanner-parking-legend-dot available"></span>Available</span>
+              <span class="scanner-parking-legend-item"><span class="scanner-parking-legend-dot occupied"></span>Occupied</span>
+              <span class="scanner-parking-legend-item"><span class="scanner-parking-legend-dot disabled"></span>Disabled</span>
             </div>
           </div>
           ${zoneNames.map(zone => `
-            <div style="border:1px solid #dbe3ef; border-radius:12px; padding:0.55rem; margin-bottom:0.55rem; background:#f8fafc;">
-              <div style="font-size:0.74rem; font-weight:700; letter-spacing:0.03em; text-transform:uppercase; color:#334155; margin-bottom:0.45rem;">
-                ${zone}
-              </div>
-              <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:0.45rem;">
+            <div class="scanner-zone-block">
+              <div class="scanner-zone-title">${escapeHtml(zone)}</div>
+              <div class="scanner-slot-grid">
                 ${grouped[zone].map(renderSlotButton).join("")}
               </div>
             </div>
@@ -722,7 +707,7 @@
           setTimeout(() => document.querySelector('.select-vehicle-btn').click(), 100);
         } else {
           playBeep('error');
-          statusEl.innerHTML = `<span style="color:red">Warning: ${verifyRes.message} (Offline Mode)</span>`;
+          statusEl.innerHTML = `<span style="color:red">Warning: ${escapeHtml(verifyRes.message)} (Offline Mode)</span>`;
           setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
         }
       } else {
@@ -764,10 +749,14 @@
 
     // --- Search Logic ---
     function renderVehicleCard(item) {
-      const entityType = String(item.entity_type || "student").toLowerCase();
+      const requestedEntityType = String(item.entity_type || "student").toLowerCase();
+      const entityType = requestedEntityType === "visitor" ? "visitor" : "student";
       const isVisitor = entityType === "visitor";
       const statusRaw = String(item.sticker_status || "").toLowerCase();
-      const statusClass = statusRaw === "active" ? "valid" : statusRaw;
+      const allowedStatusClasses = new Set(["expired", "revoked", "pending", "invalid"]);
+      const statusClass = statusRaw === "active"
+        ? "valid"
+        : allowedStatusClasses.has(statusRaw) ? statusRaw : "invalid";
       const isActive = statusRaw === "active";
       const identityLabel = isVisitor
         ? `Pass: ${item.sticker_code || "-"}`
@@ -786,27 +775,27 @@
         <div class="mini-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; padding: 1rem;">
           <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:0.5rem;">
             <div>
-              <strong>${item.full_name || "-"}</strong>
-              <span class="helper-text" style="margin-left:0.5rem;">${identityLabel}</span>
+              <strong>${escapeHtml(item.full_name || "-")}</strong>
+              <span class="helper-text" style="margin-left:0.5rem;">${escapeHtml(identityLabel)}</span>
             </div>
-            <span class="badge badge-${statusClass}">${item.sticker_status || "no sticker"}</span>
+            <span class="badge badge-${statusClass}">${escapeHtml(item.sticker_status || "no sticker")}</span>
           </div>
           <div class="helper-text">
-            Vehicle: <strong>${item.plate_number || "-"}</strong>${vehicleDetail}
+            Vehicle: <strong>${escapeHtml(item.plate_number || "-")}</strong>${escapeHtml(vehicleDetail)}
           </div>
           <div class="helper-text">
-            ${isVisitor ? "Pass" : "Sticker"}: <strong>${item.sticker_code || "None"}</strong>
+            ${isVisitor ? "Pass" : "Sticker"}: <strong>${escapeHtml(item.sticker_code || "None")}</strong>
             ${item.expires_at ? ` · Expires: ${new Date(item.expires_at).toLocaleDateString()}` : ""}
           </div>
-          ${item.current_slot ? `<div class="helper-text">Current Slot: <strong>${item.current_slot}</strong></div>` : ""}
+          ${item.current_slot ? `<div class="helper-text">Current Slot: <strong>${escapeHtml(item.current_slot)}</strong></div>` : ""}
           ${isActive && item.qr_token
             ? `<button type="button" class="select-vehicle-btn btn-sm"
-                data-token="${item.qr_token}"
-                data-label="${item.full_name} · ${item.plate_number}"
+                data-token="${escapeHtml(item.qr_token)}"
+                data-label="${escapeHtml(item.full_name)} · ${escapeHtml(item.plate_number)}"
                 data-entity="${entityType}"
                 data-scope="${isVisitor ? "visitor" : "all"}"
-                data-lastaction="${item.last_action || ''}"
-                data-currentslot="${item.current_slot || ''}">
+                data-lastaction="${escapeHtml(item.last_action || '')}"
+                data-currentslot="${escapeHtml(item.current_slot || '')}">
                 ${isVisitor ? "Select this Pass" : "Select this Vehicle"}
               </button>`
             : `<span class="helper-text">Access: ${restrictedReason}</span>`
@@ -827,9 +816,9 @@
           logInfo.textContent = selectedLabel;
           const currentSlot = btn.dataset.currentslot || "";
           logDetails.innerHTML = `
-            <p class="helper-text">Gate: <strong>${gateSelect.value}</strong></p>
+            <p class="helper-text">Gate: <strong>${escapeHtml(gateSelect.value)}</strong></p>
             <p class="helper-text">Mode: <strong>${selectedEntityType === "visitor" ? "Visitor Pass" : "Student Vehicle"}</strong></p>
-            ${currentSlot ? `<p class="helper-text">Current Slot: <strong>${currentSlot}</strong></p>` : ""}
+            ${currentSlot ? `<p class="helper-text">Current Slot: <strong>${escapeHtml(currentSlot)}</strong></p>` : ""}
           `;
           logFeedback.innerHTML = "";
           logPanel.style.display = "block";
@@ -988,7 +977,7 @@
             }, 900);
           } else {
              playBeep('error');
-             logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">${data.message || "Unable to record"}</div>`;
+             logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">${escapeHtml(data.message || "Unable to record")}</div>`;
           }
           setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
         } catch (err) {
@@ -1023,16 +1012,15 @@
       historyEmpty.style.display = "none";
       historyList.innerHTML = scanHistory.map(entry => {
         const actionClass = entry.action === "ENTRY" ? "entry" : "exit";
-        const actionColor = entry.action === "ENTRY" ? "#15803d" : "#be123c";
         const statusIcon  = entry.isSuccess ? "OK" : "WARN";
-        const offlineTag  = entry.isOffline ? `<span style="font-size:0.65rem;background:var(--orange-soft);color:var(--orange-text);border:1px solid var(--orange-border);padding:0.1rem 0.4rem;border-radius:999px;font-weight:700;">OFFLINE</span>` : "";
-        return `<div style="display:flex;align-items:center;gap:0.65rem;padding:0.65rem 0.85rem;background:var(--surface-soft);border:1px solid var(--line);border-radius:var(--radius-sm);border-left:3px solid ${actionColor};">
-          <span style="font-size:1.1rem;line-height:1;">${statusIcon}</span>
-          <div style="flex:1;min-width:0;">
-            <p style="margin:0;font-size:0.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${entry.label}</p>
-            <p style="margin:0;font-size:0.72rem;color:var(--muted);">${entry.time} ${offlineTag}</p>
+        const offlineTag  = entry.isOffline ? `<span class="badge badge-warning scanner-history-offline">Offline</span>` : "";
+        return `<div class="scanner-history-item action-${actionClass}">
+          <span class="scanner-history-icon" aria-hidden="true">${statusIcon}</span>
+          <div class="scanner-history-copy">
+            <p class="scanner-history-label">${escapeHtml(entry.label)}</p>
+            <p class="scanner-history-meta">${escapeHtml(entry.time)} ${offlineTag}</p>
           </div>
-          <span class="badge badge-action" style="background:${entry.action==="ENTRY"?"var(--green-soft)":"var(--red-soft)"};color:${actionColor};border-color:${entry.action==="ENTRY"?"var(--green-border)":"var(--red-border)"};">${entry.action}</span>
+          <span class="badge badge-${actionClass}">${entry.action}</span>
         </div>`;
       }).join("");
     }

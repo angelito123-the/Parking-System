@@ -340,7 +340,7 @@
   </article>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const queueStatus = document.getElementById("guardQueueStatus");
     const queueRefreshBtn = document.getElementById("guardQueueRefreshBtn");
@@ -949,7 +949,13 @@
     function renderSlotMap(overview) {
       if (!guardSlotMap || !guardSlotStatus) return;
       const slots = Array.isArray(overview?.slots) ? overview.slots : [];
-      const summary = overview?.summary || { total: 0, available: 0, occupied: 0, disabled: 0 };
+      const rawSummary = overview?.summary || {};
+      const summary = {
+        total: Number.isFinite(Number(rawSummary.total)) ? Number(rawSummary.total) : slots.length,
+        available: Number.isFinite(Number(rawSummary.available)) ? Number(rawSummary.available) : 0,
+        occupied: Number.isFinite(Number(rawSummary.occupied)) ? Number(rawSummary.occupied) : 0,
+        disabled: Number.isFinite(Number(rawSummary.disabled)) ? Number(rawSummary.disabled) : 0
+      };
 
       renderQuickSlotStrip(overview);
 
@@ -980,7 +986,10 @@
               </header>
               <div class="guard-zone-grid">
                 ${zoneSlots.map((slot) => {
-                  const occupancy = slot.occupancy || "available";
+                  const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
+                  const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
+                    ? requestedOccupancy
+                    : "disabled";
                   const selectable = occupancy === "available";
                   const selected = String(selectedSlotId) === String(slot.id);
                   const cls = [
@@ -992,7 +1001,7 @@
                     <button
                       type="button"
                       class="${cls}"
-                      data-slot-id="${slot.id}"
+                      data-slot-id="${escapeHtml(slot.id)}"
                       data-slot-code="${escapeHtml(slot.slot_code || "-")}"
                       data-selectable="${selectable ? "1" : "0"}"
                       ${selectable ? "" : "disabled"}
@@ -1162,7 +1171,7 @@
             </div>
             <div class="remote-queue-actions">
               <span class="badge badge-warning">Pending</span>
-              <button type="button" class="btn-sm guard-open-entry-btn" data-entry-id="${entry.id}">Assign & Confirm</button>
+              <button type="button" class="btn-sm guard-open-entry-btn" data-entry-id="${escapeHtml(entry.id)}">Assign & Confirm</button>
             </div>
           </article>
         `).join("");

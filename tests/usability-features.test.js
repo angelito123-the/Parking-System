@@ -12,13 +12,29 @@ test('student directory uses database filters and bounded pagination', () => {
 
   assert.match(server, /allowedPageSizes\s*=\s*new Set\(\[10, 25, 50\]\)/);
   assert.match(server, /filters\.vehicle_status === "with_vehicle"/);
-  assert.match(server, /filters\.sticker_status === "active"/);
+  assert.match(server, /filters\.sticker_status !== "all"/);
+  assert.match(server, /allowedSortFields/);
+  assert.match(server, /sortColumn/);
   assert.match(server, /LIMIT \? OFFSET \?/);
   assert.match(students, /name="course"/);
   assert.match(students, /name="year_level"/);
   assert.match(students, /name="vehicle_status"/);
   assert.match(students, /name="sticker_status"/);
+  assert.match(students, /name="sort"/);
+  assert.match(students, /name="direction"/);
   assert.match(students, /class="directory-pagination"/);
+  assert.match(students, /class="student-directory-columns"/);
+});
+
+test('student CSV import requires server validation and confirmation preview', () => {
+  const server = read('server.js');
+  const students = read('views', 'students.ejs');
+
+  assert.match(server, /app\.post\("\/students\/import\/preview"/);
+  assert.match(server, /verifyStudentImportPreviewToken/);
+  assert.match(server, /await connection\.beginTransaction\(\)/);
+  assert.match(students, /id="studentImportPreviewBody"/);
+  assert.match(students, /id="studentImportConfirmButton" disabled/);
 });
 
 test('responsive navigation and account actions use accessible menus', () => {

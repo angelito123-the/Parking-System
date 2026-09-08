@@ -16,7 +16,11 @@ const {
   sendStudentQrEmail
 } = require("./lib/student-qr-email");
 const { serializeForScript } = require("./lib/serialize-for-script");
-const { parseCsv, stringifyCsv } = require("./lib/csv");
+const { parseCsv, parseCsvDocument, stringifyCsv } = require("./lib/csv");
+const {
+  STUDENT_IMPORT_COLUMNS,
+  validateStudentImportDocument
+} = require("./lib/student-import");
 const {
   SlidingWindowRateLimiter,
   decryptSecret,
@@ -42,6 +46,17 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const APP_BASE_URL = process.env.APP_BASE_URL
   || process.env.RENDER_EXTERNAL_URL
   || `http://localhost:${PORT}`;
+let APP_ORIGIN;
+try {
+  const parsedBaseUrl = new URL(APP_BASE_URL);
+  if (!['http:', 'https:'].includes(parsedBaseUrl.protocol)) throw new Error('Unsupported protocol.');
+  if (IS_PRODUCTION && parsedBaseUrl.protocol !== 'https:') {
+    throw new Error('Production URL must use HTTPS.');
+  }
+  APP_ORIGIN = parsedBaseUrl.origin;
+} catch (error) {
+  throw new Error(`APP_BASE_URL must be a valid${IS_PRODUCTION ? ' HTTPS' : ''} URL: ${error.message}`);
+}
 const SCAN_COOLDOWN_SECONDS = Number(process.env.SCAN_COOLDOWN_SECONDS || 10);
 const AUTO_PENDING_EXPIRY_MINUTES = Math.max(
   5,
@@ -79,8 +94,10 @@ if (IS_PRODUCTION && configuredSessionSecret.length < 32) {
 }
 const SESSION_SECRET = configuredSessionSecret || "naap-parking-local-development-secret";
 const loginRateLimiter = new SlidingWindowRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
+const loginAccountRateLimiter = new SlidingWindowRateLimiter({ limit: 15, windowMs: 15 * 60 * 1000 });
 const twoFactorRateLimiter = new SlidingWindowRateLimiter({ limit: 6, windowMs: 10 * 60 * 1000 });
 const accountSecurityRateLimiter = new SlidingWindowRateLimiter({ limit: 8, windowMs: 15 * 60 * 1000 });
+const qrEmailRateLimiter = new SlidingWindowRateLimiter({ limit: 10, windowMs: 10 * 60 * 1000 });
 const SNAPSHOT_DIR = path.join(__dirname, "storage", "snapshots");
 const LEGACY_PUBLIC_SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
@@ -169,15 +186,37 @@ let notificationSseClientCounter = 0;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
-app.set("trust proxy", true);
+const configuredProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS, 10);
+const trustedProxyHops = Number.isInteger(configuredProxyHops)
+  ? Math.max(0, Math.min(configuredProxyHops, 5))
+  : 1;
+app.set("trust proxy", IS_PRODUCTION ? trustedProxyHops : false);
 app.set("view cache", IS_PRODUCTION);
 app.disable("x-powered-by");
 app.use((_req, res, next) => {
+  const cspNonce = crypto.randomBytes(18).toString("base64");
+  res.locals.cspNonce = cspNonce;
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=(), usb=()");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("Content-Security-Policy", [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${cspNonce}' https://cdn.jsdelivr.net https://unpkg.com`,
+    "script-src-attr 'none'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'"
+  ].join("; "));
   if (IS_PRODUCTION) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
@@ -266,11 +305,26 @@ app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(sessionMiddleware);
 app.use((req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  const fetchSite = String(req.get("sec-fetch-site") || "").trim().toLowerCase();
+  if (fetchSite === "cross-site") {
+    if (req.path.startsWith("/api/")) {
+      return res.status(403).json({ ok: false, message: "Cross-site request rejected." });
+    }
+    return res.status(403).send("Cross-site request rejected.");
+  }
   const source = String(req.get("origin") || req.get("referer") || "").trim();
-  if (!source) return next();
+  if (!source) {
+    // Browsers can omit Origin on some same-origin navigations. Fetch Metadata
+    // is a trustworthy fallback because scripts cannot forge this header.
+    if (fetchSite === "same-origin") return next();
+    if (req.path.startsWith("/api/")) {
+      return res.status(403).json({ ok: false, message: "Request origin is required." });
+    }
+    return res.status(403).send("Request origin is required.");
+  }
   try {
     const sourceUrl = new URL(source);
-    const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+    const expectedOrigin = IS_PRODUCTION ? APP_ORIGIN : `${req.protocol}://${req.get("host")}`;
     if (sourceUrl.origin !== expectedOrigin) {
       if (req.path.startsWith("/api/")) {
         return res.status(403).json({ ok: false, message: "Cross-site request rejected." });
@@ -523,19 +577,23 @@ app.post("/login", async (req, res) => {
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "");
   const rateKey = getRateLimitKey(req, username || "blank");
+  const accountRateKey = hashIdentifier(String(username || "blank").toLowerCase(), SESSION_SECRET);
   const rateState = loginRateLimiter.check(rateKey);
+  const accountRateState = loginAccountRateLimiter.check(accountRateKey);
 
-  if (!rateState.allowed) {
-    res.setHeader("Retry-After", String(rateState.retryAfterSeconds));
+  if (!rateState.allowed || !accountRateState.allowed) {
+    const retryAfterSeconds = Math.max(rateState.retryAfterSeconds, accountRateState.retryAfterSeconds);
+    res.setHeader("Retry-After", String(retryAfterSeconds));
     await recordSecurityAudit(req, "LOGIN_RATE_LIMITED", { actorUsername: username, outcome: "blocked" });
     return res.status(429).render("login", {
-      error: `Too many sign-in attempts. Try again in ${Math.ceil(rateState.retryAfterSeconds / 60)} minute(s).`,
+      error: `Too many sign-in attempts. Try again in ${Math.ceil(retryAfterSeconds / 60)} minute(s).`,
       usernameVal: username
     });
   }
 
   if (!username || !password) {
     loginRateLimiter.recordFailure(rateKey);
+    loginAccountRateLimiter.recordFailure(accountRateKey);
     return res.render("login", { error: "Please enter your username and password.", usernameVal: username });
   }
 
@@ -550,6 +608,7 @@ app.post("/login", async (req, res) => {
 
     if (!rows.length) {
       loginRateLimiter.recordFailure(rateKey);
+      loginAccountRateLimiter.recordFailure(accountRateKey);
       await recordSecurityAudit(req, "LOGIN_FAILED", { actorUsername: username, outcome: "failed" });
       return res.render("login", { error: "Invalid username or password.", usernameVal: username });
     }
@@ -570,6 +629,7 @@ app.post("/login", async (req, res) => {
 
     if (!passwordMatched) {
       loginRateLimiter.recordFailure(rateKey);
+      loginAccountRateLimiter.recordFailure(accountRateKey);
       await recordSecurityAudit(req, "LOGIN_FAILED", {
         actor: { id: user.id, username: user.username, role },
         outcome: "failed"
@@ -578,6 +638,7 @@ app.post("/login", async (req, res) => {
     }
 
     loginRateLimiter.reset(rateKey);
+    loginAccountRateLimiter.reset(accountRateKey);
     if (user.totp_enabled && user.totp_secret_encrypted) {
       await new Promise((resolve, reject) => {
         req.session.regenerate((error) => {
@@ -4391,6 +4452,80 @@ const DATASET_DEFINITIONS = Object.freeze({
   security_audit: { label: "Security Audit", importable: false }
 });
 
+const STUDENT_IMPORT_MAX_ROWS = 2000;
+const STUDENT_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const STUDENT_IMPORT_PREVIEW_TTL_MS = 15 * 60 * 1000;
+
+function parseStudentImportCsv(csvData) {
+  const text = String(csvData || "");
+  if (Buffer.byteLength(text, "utf8") > STUDENT_IMPORT_MAX_BYTES) {
+    throw new Error("The CSV file is too large. Maximum size is 2 MB.");
+  }
+  const document = parseCsvDocument(text, { maxRows: STUDENT_IMPORT_MAX_ROWS });
+  if (!document.records.length) throw new Error("The CSV does not contain any data rows.");
+  return document;
+}
+
+async function getExistingStudentNumbers(document, db = pool) {
+  const studentNumbers = Array.from(new Set(
+    document.records
+      .map((row) => String(row.student_number || "").trim())
+      .filter(Boolean)
+  ));
+  if (!studentNumbers.length) return new Set();
+  const placeholders = studentNumbers.map(() => "?").join(", ");
+  const [rows] = await db.query(
+    `SELECT student_number FROM students WHERE student_number IN (${placeholders})`,
+    studentNumbers
+  );
+  return new Set(rows.map((row) => String(row.student_number || "").trim().toUpperCase()));
+}
+
+function getStudentImportDigest(csvData) {
+  return crypto.createHash("sha256").update(String(csvData || ""), "utf8").digest("hex");
+}
+
+function createStudentImportPreviewToken(req, csvData) {
+  const timestamp = Date.now();
+  const message = `${req.authUser.id}|${timestamp}|${getStudentImportDigest(csvData)}`;
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(message).digest("hex");
+  return `${timestamp}.${signature}`;
+}
+
+function verifyStudentImportPreviewToken(req, csvData, token) {
+  const match = String(token || "").match(/^(\d{13})\.([a-f0-9]{64})$/);
+  if (!match) return false;
+  const timestamp = Number(match[1]);
+  const age = Date.now() - timestamp;
+  if (!Number.isFinite(timestamp) || age < -30000 || age > STUDENT_IMPORT_PREVIEW_TTL_MS) return false;
+  const message = `${req.authUser.id}|${timestamp}|${getStudentImportDigest(csvData)}`;
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(message).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(match[2], "hex"), Buffer.from(expected, "hex"));
+}
+
+async function saveStudentImportRows(rows, db, options = {}) {
+  const updateEmail = options.updateEmail !== false;
+  const batchSize = 100;
+  for (let start = 0; start < rows.length; start += batchSize) {
+    const batch = rows.slice(start, start + batchSize);
+    const placeholders = batch.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const values = batch.flatMap((row) => [
+      row.studentNumber,
+      row.fullName,
+      row.program,
+      row.yearLevel,
+      row.email || null
+    ]);
+    await db.query(
+      `INSERT INTO students (student_number, full_name, program, year_level, email)
+       VALUES ${placeholders}
+       ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), program = VALUES(program),
+         year_level = VALUES(year_level), email = ${updateEmail ? "VALUES(email)" : "email"}`,
+      values
+    );
+  }
+}
+
 async function getDatasetExport(dataset) {
   switch (dataset) {
     case "students": {
@@ -5671,6 +5806,13 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     const allowedPageSizes = new Set([10, 25, 50]);
     const allowedVehicleStates = new Set(["all", "with_vehicle", "without_vehicle"]);
     const allowedStickerStates = new Set(["all", "active", "expired", "revoked", "none"]);
+    const allowedSortFields = Object.freeze({
+      name: "s.full_name",
+      course: "s.program",
+      year: "CAST(s.year_level AS UNSIGNED)",
+      registered: "s.created_at"
+    });
+    const allowedSortDirections = new Set(["asc", "desc"]);
     const requestedPage = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
     const requestedPageSize = Number.parseInt(req.query.page_size, 10) || 10;
     const pageSize = allowedPageSizes.has(requestedPageSize) ? requestedPageSize : 10;
@@ -5683,7 +5825,13 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
         : "all",
       sticker_status: allowedStickerStates.has(String(req.query.sticker_status || ""))
         ? String(req.query.sticker_status)
-        : "all"
+        : "all",
+      sort: Object.prototype.hasOwnProperty.call(allowedSortFields, String(req.query.sort || ""))
+        ? String(req.query.sort)
+        : "registered",
+      direction: allowedSortDirections.has(String(req.query.direction || "").toLowerCase())
+        ? String(req.query.direction).toLowerCase()
+        : "desc"
     };
 
     const whereParts = [];
@@ -5716,34 +5864,31 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     } else if (filters.vehicle_status === "without_vehicle") {
       whereParts.push("NOT EXISTS (SELECT 1 FROM vehicles vehicle_filter WHERE vehicle_filter.student_id = s.id)");
     }
-    if (filters.sticker_status === "active") {
-      whereParts.push(`EXISTS (
-        SELECT 1 FROM vehicles sticker_vehicle
-        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
+    if (filters.sticker_status !== "all") {
+      whereParts.push(`COALESCE((
+        SELECT CASE
+          WHEN sticker_filter.status = 'revoked' THEN 'revoked'
+          WHEN sticker_filter.expires_at IS NOT NULL AND DATE(sticker_filter.expires_at) < CURDATE() THEN 'expired'
+          ELSE 'active'
+        END
+        FROM vehicles sticker_vehicle
+        INNER JOIN stickers sticker_filter ON sticker_filter.id = (
+          SELECT latest_sticker.id
+          FROM stickers latest_sticker
+          WHERE latest_sticker.vehicle_id = sticker_vehicle.id
+          ORDER BY latest_sticker.created_at DESC, latest_sticker.id DESC
+          LIMIT 1
+        )
         WHERE sticker_vehicle.student_id = s.id
-          AND sticker_filter.status = 'active'
-          AND (sticker_filter.expires_at IS NULL OR sticker_filter.expires_at >= CURDATE())
-      )`);
-    } else if (filters.sticker_status === "expired") {
-      whereParts.push(`EXISTS (
-        SELECT 1 FROM vehicles sticker_vehicle
-        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
-        WHERE sticker_vehicle.student_id = s.id
-          AND sticker_filter.status = 'active'
-          AND sticker_filter.expires_at < CURDATE()
-      )`);
-    } else if (filters.sticker_status === "revoked") {
-      whereParts.push(`EXISTS (
-        SELECT 1 FROM vehicles sticker_vehicle
-        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
-        WHERE sticker_vehicle.student_id = s.id AND sticker_filter.status = 'revoked'
-      )`);
-    } else if (filters.sticker_status === "none") {
-      whereParts.push(`NOT EXISTS (
-        SELECT 1 FROM vehicles sticker_vehicle
-        INNER JOIN stickers sticker_filter ON sticker_filter.vehicle_id = sticker_vehicle.id
-        WHERE sticker_vehicle.student_id = s.id
-      )`);
+        ORDER BY CASE
+          WHEN sticker_filter.status = 'active'
+            AND (sticker_filter.expires_at IS NULL OR DATE(sticker_filter.expires_at) >= CURDATE()) THEN 1
+          WHEN sticker_filter.status = 'active' THEN 2
+          ELSE 3
+        END
+        LIMIT 1
+      ), 'none') = ?`);
+      whereParams.push(filters.sticker_status);
     }
 
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -5759,8 +5904,10 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(requestedPage, totalPages);
     const offset = (page - 1) * pageSize;
+    const sortColumn = allowedSortFields[filters.sort];
+    const sortDirection = filters.direction === "asc" ? "ASC" : "DESC";
     const [studentRows] = await pool.query(
-      `SELECT s.* FROM students s ${whereSql} ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`,
+      `SELECT s.* FROM students s ${whereSql} ORDER BY ${sortColumn} ${sortDirection}, s.id ${sortDirection} LIMIT ? OFFSET ?`,
       [...whereParams, pageSize, offset]
     );
 
@@ -5778,7 +5925,12 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       if (vehicleIds.length) {
         const stickerPlaceholders = vehicleIds.map(() => "?").join(", ");
         const [stickerResult] = await pool.query(
-          `SELECT id, vehicle_id, status, expires_at, created_at
+          `SELECT id, vehicle_id, status, expires_at, created_at,
+                  CASE
+                    WHEN status = 'revoked' THEN 'revoked'
+                    WHEN expires_at IS NOT NULL AND DATE(expires_at) < CURDATE() THEN 'expired'
+                    ELSE 'active'
+                  END AS display_status
            FROM stickers
            WHERE vehicle_id IN (${stickerPlaceholders})
            ORDER BY created_at DESC, id DESC`,
@@ -5791,10 +5943,9 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     const latestStickerByVehicle = new Map();
     stickerRows.forEach((sticker) => {
       if (!latestStickerByVehicle.has(sticker.vehicle_id)) {
-        const expired = sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now();
         latestStickerByVehicle.set(sticker.vehicle_id, {
           ...sticker,
-          display_status: sticker.status === "revoked" ? "revoked" : expired ? "expired" : "active"
+          display_status: sticker.display_status
         });
       }
     });
@@ -5807,16 +5958,30 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     // Attach vehicles array to each student
     const students = studentRows.map((student) => {
       const academicProgram = findAcademicProgram(student.program);
+      const vehicles = vehiclesByStudent.get(student.id) || [];
+      const stickerStates = vehicles.map((vehicle) => vehicle.latest_sticker?.display_status).filter(Boolean);
+      const stickerStatus = stickerStates.includes("active")
+        ? "active"
+        : stickerStates.includes("expired")
+          ? "expired"
+          : stickerStates.includes("revoked")
+            ? "revoked"
+            : "none";
       return {
         ...student,
         program_is_official: Boolean(academicProgram),
         program_display: academicProgram?.code || academicProgram?.name || student.program || "",
         program_name: academicProgram?.name || student.program || "",
         year_level_label: getYearLevelLabel(student.year_level),
-        vehicles: vehiclesByStudent.get(student.id) || []
+        vehicles,
+        sticker_status: stickerStatus
       };
     });
-    const flash = req.query.success
+    const flash = req.query.imported
+      ? { type: "success", message: `${Number(req.query.imported) || 0} student record(s) imported successfully.` }
+      : req.query.import_error
+      ? { type: "error", message: String(req.query.import_error).slice(0, 220) }
+      : req.query.success
       ? { type: "success", message: "Student saved successfully." }
       : req.query.vsuccess
       ? { type: "success", message: "Vehicle registered successfully." }
@@ -5856,7 +6021,7 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       makeStudentDirectoryQuery: (overrides = {}) => {
         const values = { ...filters, page, page_size: pageSize, ...overrides };
         const params = new URLSearchParams();
-        ["q", "course", "year_level", "vehicle_status", "sticker_status", "page", "page_size"].forEach((key) => {
+        ["q", "course", "year_level", "vehicle_status", "sticker_status", "sort", "direction", "page", "page_size"].forEach((key) => {
           const value = values[key];
           if (value === undefined || value === null || value === "" || value === "all") return;
           params.set(key, String(value));
@@ -5868,6 +6033,81 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   } catch (error) {
     console.error("Students error:", error);
     res.status(500).send("An error occurred loading students.");
+  }
+});
+
+app.get("/students/import/template", requireRole(USER_ROLES.ADMIN), (_req, res) => {
+  const columns = STUDENT_IMPORT_COLUMNS.map((key) => ({ key, label: key }));
+  const csv = stringifyCsv(columns, []);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=naap-student-import-template.csv");
+  return res.send(csv);
+});
+
+app.post("/students/import/preview", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const csvData = String(req.body.csv_data || "");
+  try {
+    const document = parseStudentImportCsv(csvData);
+    const existingStudentNumbers = await getExistingStudentNumbers(document);
+    const validation = validateStudentImportDocument(document, existingStudentNumbers);
+    return res.json({
+      ok: true,
+      ...validation,
+      previewToken: createStudentImportPreviewToken(req, csvData)
+    });
+  } catch (error) {
+    return res.status(400).json({
+      ok: false,
+      message: String(error.message || "Unable to validate this CSV file.").slice(0, 220)
+    });
+  }
+});
+
+app.post("/students/import", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const csvData = String(req.body.csv_data || "");
+  if (!verifyStudentImportPreviewToken(req, csvData, req.body.preview_token)) {
+    return res.redirect(`/students?import_error=${encodeURIComponent("Preview expired or the file changed. Validate the CSV again before importing.")}#directory`);
+  }
+
+  let document;
+  try {
+    document = parseStudentImportCsv(csvData);
+  } catch (error) {
+    return res.redirect(`/students?import_error=${encodeURIComponent(error.message || "Invalid CSV file.")}#directory`);
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const existingStudentNumbers = await getExistingStudentNumbers(document, connection);
+    const validation = validateStudentImportDocument(document, existingStudentNumbers);
+    if (!validation.canImport) {
+      const firstError = validation.headerErrors[0]
+        || validation.rows.find((row) => row.issues.length)?.issues[0]
+        || "The CSV contains invalid rows.";
+      await connection.rollback();
+      return res.redirect(`/students?import_error=${encodeURIComponent(firstError)}#directory`);
+    }
+    await saveStudentImportRows(validation.rows, connection, {
+      updateEmail: document.headers.includes("email")
+    });
+    await connection.commit();
+    await recordSecurityAudit(req, "DATA_IMPORTED", {
+      targetType: "dataset",
+      targetId: "students",
+      metadata: {
+        imported: validation.total,
+        created: validation.createCount,
+        updated: validation.updateCount
+      }
+    });
+    return res.redirect(`/students?imported=${validation.total}#directory`);
+  } catch (error) {
+    await connection.rollback();
+    console.error("Student CSV import error:", error);
+    return res.redirect(`/students?import_error=${encodeURIComponent("Unable to import the CSV. No records were changed.")}#directory`);
+  } finally {
+    connection.release();
   }
 });
 
@@ -6034,6 +6274,8 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       ? { type: "error", message: "The email could not be sent. Check the mail server settings and try again." }
       : req.query.email === "not_found"
       ? { type: "error", message: "Sticker not found." }
+      : req.query.email === "rate_limited"
+      ? { type: "error", message: "Too many QR emails were requested. Wait a few minutes and try again." }
       : null;
     res.render("stickers", { stickers, vehicles, APP_BASE_URL, flash });
   } catch (error) {
@@ -6086,6 +6328,18 @@ app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 });
 
 app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const emailRateKey = `admin:${req.authUser.id}`;
+  const emailRateState = qrEmailRateLimiter.check(emailRateKey);
+  if (!emailRateState.allowed) {
+    res.setHeader("Retry-After", String(emailRateState.retryAfterSeconds));
+    await recordSecurityAudit(req, "STICKER_QR_EMAIL_RATE_LIMITED", {
+      targetType: "sticker",
+      targetId: req.params.id,
+      outcome: "blocked"
+    });
+    return res.redirect("/stickers?email=rate_limited");
+  }
+  qrEmailRateLimiter.record(emailRateKey);
   try {
     const [rows] = await pool.query(
       `SELECT st.id, st.sticker_code, st.qr_token, st.status, st.expires_at,

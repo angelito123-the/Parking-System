@@ -101,7 +101,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const updatesMetricEntries = document.getElementById("updatesMetricEntries");
     const updatesMetricExits = document.getElementById("updatesMetricExits");
@@ -134,14 +134,25 @@
       return hours > 0 ? `+${hours}h ${mins}m over limit` : `+${mins}m over limit`;
     }
 
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function renderUpdateItem(scan) {
-      const result = String(scan.result || "invalid").toLowerCase();
-      const action = String(scan.action || "verify").toLowerCase();
+      const requestedResult = String(scan.result || "invalid").toLowerCase();
+      const result = ["valid", "invalid", "expired", "revoked"].includes(requestedResult) ? requestedResult : "invalid";
+      const requestedAction = String(scan.action || "verify").toLowerCase();
+      const action = ["entry", "exit", "verify"].includes(requestedAction) ? requestedAction : "verify";
       return `<div class="update-item">
         <span class="update-dot ${result} ${action}"></span>
         <div>
-          <p><strong>${scan.full_name || "Unknown Student"}</strong> <span class="update-action ${action}">${scan.action || "VERIFY"}</span></p>
-          <p class="helper-text">${scan.gate_name || scan.gate || "Main Gate"} • ${toPht(scan.scanned_at)}</p>
+          <p><strong>${escapeHtml(scan.full_name || "Unknown Student")}</strong> <span class="update-action ${action}">${escapeHtml(scan.action || "VERIFY")}</span></p>
+          <p class="helper-text">${escapeHtml(scan.gate_name || scan.gate || "Main Gate")} • ${escapeHtml(toPht(scan.scanned_at))}</p>
         </div>
       </div>`;
     }
@@ -149,12 +160,12 @@
     function renderOverstayCard(item) {
       return `<article class="updates-overstay-card">
         <div class="updates-overstay-card-top">
-          <strong>${item.full_name || "Unknown Student"}</strong>
+          <strong>${escapeHtml(item.full_name || "Unknown Student")}</strong>
           <span class="badge badge-overstay">Overstay</span>
         </div>
-        <p><strong>Plate:</strong> ${item.plate_number || "-"} • <strong>Slot:</strong> ${item.parking_slot || "-"}</p>
-        <p><strong>Entered:</strong> ${item.entered_at ? toPht(item.entered_at) : "-"}</p>
-        <p><strong>Duration:</strong> ${getDurationLabel(item)} ${item.is_overstay ? `(${getOverstayText(item)})` : ""}</p>
+        <p><strong>Plate:</strong> ${escapeHtml(item.plate_number || "-")} • <strong>Slot:</strong> ${escapeHtml(item.parking_slot || "-")}</p>
+        <p><strong>Entered:</strong> ${item.entered_at ? escapeHtml(toPht(item.entered_at)) : "-"}</p>
+        <p><strong>Duration:</strong> ${escapeHtml(getDurationLabel(item))} ${item.is_overstay ? `(${escapeHtml(getOverstayText(item))})` : ""}</p>
       </article>`;
     }
 

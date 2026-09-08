@@ -4,14 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NAAP - Gate Verification</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <script nonce="<%= cspNonce %>">
+    (() => {
+      try {
+        const savedTheme = localStorage.getItem("theme");
+        const theme = savedTheme === "dark" || savedTheme === "light"
+          ? savedTheme
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
+  <link rel="stylesheet" href="/design-system.css?v=20260902-consistency" />
   <style>
     body {
       margin: 0;
       min-height: 100vh;
-      background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+      background: var(--bg);
       font-family: "Outfit", sans-serif;
-      color: #0f172a;
+      color: var(--text);
     }
 
     .verify-shell {
@@ -21,12 +33,12 @@
     }
 
     .verify-header {
-      background: linear-gradient(135deg, #0f172a, #1e293b 60%, #334155);
-      border-radius: 16px;
+      background: #11263f;
+      border-radius: var(--ui-radius-card);
       padding: 1rem 1.2rem;
       color: #fff;
       margin-bottom: 1rem;
-      border: 1px solid rgba(148, 163, 184, 0.25);
+      border: 1px solid #213b58;
     }
 
     .verify-header h1 {
@@ -48,10 +60,10 @@
     }
 
     .verify-card {
-      background: #fff;
-      border: 1px solid #dbe3ef;
-      border-radius: 14px;
-      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--ui-radius-card);
+      box-shadow: none;
       padding: 1rem;
     }
 
@@ -68,17 +80,22 @@
     }
 
     .status-chip.valid {
-      color: #166534;
-      background: #dcfce7;
-      border-color: #86efac;
+      color: var(--status-success-text);
+      background: var(--status-success-bg);
+      border-color: var(--status-success-border);
     }
 
     .status-chip.invalid,
-    .status-chip.revoked,
+    .status-chip.revoked {
+      color: var(--status-danger-text);
+      background: var(--status-danger-bg);
+      border-color: var(--status-danger-border);
+    }
+
     .status-chip.expired {
-      color: #991b1b;
-      background: #fee2e2;
-      border-color: #fca5a5;
+      color: var(--status-warning-text);
+      background: var(--status-warning-bg);
+      border-color: var(--status-warning-border);
     }
 
     .verify-label {
@@ -86,14 +103,14 @@
       font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: #64748b;
+      color: var(--muted);
       font-weight: 700;
     }
 
     .verify-msg {
       margin: 0;
       font-size: 0.92rem;
-      color: #334155;
+      color: var(--text-secondary);
     }
 
     .verify-summary {
@@ -104,17 +121,17 @@
     }
 
     .verify-summary div {
-      border: 1px solid #dbe3ef;
+      border: 1px solid var(--line);
       border-radius: 10px;
       padding: 0.55rem;
-      background: #f8fafc;
+      background: var(--surface-soft);
       text-align: center;
     }
 
     .verify-summary span {
       display: block;
       font-size: 0.72rem;
-      color: #64748b;
+      color: var(--muted);
       margin-bottom: 0.2rem;
     }
 
@@ -131,7 +148,7 @@
       display: flex;
       justify-content: space-between;
       gap: 0.5rem;
-      border-bottom: 1px solid #eef2f7;
+      border-bottom: 1px solid var(--line);
       padding-bottom: 0.45rem;
       font-size: 0.9rem;
     }
@@ -142,14 +159,14 @@
     }
 
     .info-row .k {
-      color: #64748b;
+      color: var(--muted);
       font-weight: 600;
     }
 
     .info-row .v {
       text-align: right;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--text);
       word-break: break-word;
     }
 
@@ -167,7 +184,7 @@
       gap: 0.6rem;
       flex-wrap: wrap;
       font-size: 0.74rem;
-      color: #475569;
+      color: var(--muted);
     }
 
     .legend-item {
@@ -180,18 +197,19 @@
       width: 12px;
       height: 12px;
       border-radius: 4px;
-      border: 1px solid #cbd5e1;
+      border: 1px solid var(--status-neutral-border);
+      background: var(--status-neutral-bg);
     }
 
-    .dot.available { background: #16a34a; border-color: #15803d; }
-    .dot.occupied { background: #ef4444; border-color: #b91c1c; }
-    .dot.disabled { background: #94a3b8; border-color: #64748b; }
+    .dot.available { background: var(--status-success-text); border-color: var(--status-success-border); }
+    .dot.occupied { background: var(--status-warning-text); border-color: var(--status-warning-border); }
+    .dot.disabled { background: var(--status-neutral-text); border-color: var(--status-neutral-border); }
 
     .zone-block {
-      border: 1px solid #dbe3ef;
-      border-radius: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--ui-radius-card);
       padding: 0.7rem;
-      background: linear-gradient(180deg, #f8fafc, #f1f5f9);
+      background: var(--surface-soft);
       margin-bottom: 0.7rem;
     }
 
@@ -199,7 +217,7 @@
       margin: 0 0 0.6rem;
       font-size: 0.82rem;
       letter-spacing: 0.04em;
-      color: #334155;
+      color: var(--text-secondary);
       text-transform: uppercase;
       font-weight: 700;
     }
@@ -211,14 +229,15 @@
     }
 
     .slot-btn {
-      border: none;
+      border: 1px solid var(--status-neutral-border);
       border-radius: 10px;
       min-height: 70px;
       font-weight: 800;
       font-size: 0.8rem;
-      color: #fff;
+      color: var(--status-neutral-text);
+      background: var(--status-neutral-bg);
       cursor: pointer;
-      transition: transform 0.12s ease, box-shadow 0.12s ease;
+      transition: border-color 0.12s ease, background-color 0.12s ease;
       padding: 0.2rem;
       display: grid;
       place-items: center;
@@ -233,20 +252,35 @@
       margin-top: 0.1rem;
     }
 
-    .slot-btn.available { background: #16a34a; }
-    .slot-btn.occupied { background: #ef4444; cursor: not-allowed; }
-    .slot-btn.disabled { background: #94a3b8; cursor: not-allowed; }
+    .slot-btn.available {
+      color: var(--status-success-text);
+      border-color: var(--status-success-border);
+      background: var(--status-success-bg);
+    }
+
+    .slot-btn.occupied {
+      color: var(--status-warning-text);
+      border-color: var(--status-warning-border);
+      background: var(--status-warning-bg);
+      cursor: not-allowed;
+    }
+
+    .slot-btn.disabled { cursor: not-allowed; }
 
     .slot-btn.available:hover,
     .slot-btn.available:focus-visible {
-      transform: translateY(-1px);
-      box-shadow: 0 5px 14px rgba(22, 163, 74, 0.3);
-      outline: none;
+      border-color: var(--status-success-text);
+      outline: 2px solid color-mix(in srgb, var(--status-success-text) 28%, transparent);
+      outline-offset: 1px;
     }
 
     .slot-btn.selected {
-      box-shadow: 0 0 0 3px #bfdbfe, 0 6px 14px rgba(30, 64, 175, 0.28);
-      transform: translateY(-1px);
+      color: var(--status-info-text);
+      border-color: var(--status-info-text);
+      background: var(--status-info-bg);
+      box-shadow: none;
+      outline: 2px solid color-mix(in srgb, var(--status-info-text) 30%, transparent);
+      outline-offset: 1px;
     }
 
     .movement-form {
@@ -257,8 +291,10 @@
     .movement-form input {
       width: 100%;
       box-sizing: border-box;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
+      color: var(--text);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--ui-radius-control);
+      background: var(--surface);
       padding: 0.7rem 0.75rem;
       font-size: 0.95rem;
       font-family: inherit;
@@ -271,8 +307,9 @@
     }
 
     .movement-btn {
-      border: none;
-      border-radius: 10px;
+      min-height: 48px;
+      border: 1px solid transparent;
+      border-radius: var(--ui-radius-control);
       padding: 0.85rem;
       font-family: inherit;
       font-size: 0.92rem;
@@ -281,8 +318,8 @@
       color: #fff;
     }
 
-    .movement-btn.entry { background: linear-gradient(135deg, #16a34a, #15803d); }
-    .movement-btn.exit { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+    .movement-btn.entry { border-color: var(--ui-success); background: var(--ui-success); }
+    .movement-btn.exit { border-color: var(--ui-danger); background: var(--ui-danger); }
 
     .notice {
       border-radius: 10px;
@@ -293,15 +330,15 @@
     }
 
     .notice.ok {
-      background: #dcfce7;
-      border-color: #86efac;
-      color: #166534;
+      background: var(--status-success-bg);
+      border-color: var(--status-success-border);
+      color: var(--status-success-text);
     }
 
     .notice.warn {
-      background: #ffedd5;
-      border-color: #fdba74;
-      color: #9a3412;
+      background: var(--status-warning-bg);
+      border-color: var(--status-warning-border);
+      color: var(--status-warning-text);
     }
 
     .verify-grid.is-public {
@@ -319,10 +356,10 @@
       margin: 0 auto 0.8rem;
       display: grid;
       place-items: center;
-      color: #1d4ed8;
-      border: 1px solid #bfdbfe;
+      color: var(--status-info-text);
+      border: 1px solid var(--status-info-border);
       border-radius: 14px;
-      background: #eff6ff;
+      background: var(--status-info-bg);
     }
 
     .privacy-lock svg {
@@ -348,13 +385,29 @@
     .privacy-login-link {
       margin-top: 1rem;
       display: inline-flex;
+      min-height: var(--ui-control-height);
+      align-items: center;
+      justify-content: center;
       padding: 0.65rem 0.9rem;
       color: #fff;
-      border-radius: 10px;
-      background: #2563eb;
+      border: 1px solid var(--ui-primary);
+      border-radius: var(--ui-radius-control);
+      background: var(--ui-primary);
       font-size: 0.84rem;
       font-weight: 750;
       text-decoration: none;
+    }
+
+    .verify-count-available { color: var(--status-success-text); }
+    .verify-count-occupied { color: var(--status-warning-text); }
+
+    @media (max-width: 768px), (any-pointer: coarse) {
+      .movement-form input,
+      .movement-btn,
+      .privacy-login-link,
+      .slot-btn {
+        min-height: var(--ui-touch-target);
+      }
     }
 
     @media (min-width: 860px) {
@@ -364,7 +417,7 @@
     }
   </style>
 </head>
-<body>
+<body class="verify-page">
   <%
     const vResult = result.result || "INVALID";
     const statusClass = result.ok ? "valid" : String(vResult).toLowerCase();
@@ -439,8 +492,8 @@
 
         <div class="verify-summary">
           <div><span>Total</span><strong><%= slotOverview.summary?.total || 0 %></strong></div>
-          <div><span>Available</span><strong style="color:#15803d;"><%= slotOverview.summary?.available || 0 %></strong></div>
-          <div><span>Occupied</span><strong style="color:#b91c1c;"><%= slotOverview.summary?.occupied || 0 %></strong></div>
+          <div><span>Available</span><strong class="verify-count-available"><%= slotOverview.summary?.available || 0 %></strong></div>
+          <div><span>Occupied</span><strong class="verify-count-occupied"><%= slotOverview.summary?.occupied || 0 %></strong></div>
         </div>
 
         <% if (result.ok && !result.movement_saved && canRecordMovement) { %>
@@ -503,7 +556,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const form = document.getElementById("movementForm");
       if (!form) return;

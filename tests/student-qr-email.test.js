@@ -21,6 +21,13 @@ test("builds authenticated STARTTLS SMTP settings from environment values", () =
       host: "smtp.example.com",
       port: 587,
       secure: false,
+      requireTLS: true,
+      disableFileAccess: true,
+      disableUrlAccess: true,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 30_000,
+      tls: { minVersion: "TLSv1.2" },
       auth: { user: "parking@example.com", pass: "app-password" }
     }
   });
@@ -68,4 +75,30 @@ test("sends a branded QR attachment with student and sticker details", async () 
   assert.equal(sentMessage.attachments[0].filename, "STK-2026-01-qr.png");
   assert.equal(sentMessage.attachments[0].contentType, "image/png");
   assert.deepEqual(sentMessage.attachments[0].content, Buffer.from("png-bytes"));
+  assert.equal(sentMessage.disableFileAccess, true);
+  assert.equal(sentMessage.disableUrlAccess, true);
+});
+
+test("does not place unsafe verification links or header breaks in email output", async () => {
+  let sentMessage;
+  const transporter = {
+    async sendMail(message) {
+      sentMessage = message;
+      return { messageId: "safe-message" };
+    }
+  };
+
+  await sendStudentQrEmail({
+    to: "student@example.edu.ph",
+    stickerCode: "STK-1\r\nBcc: attacker@example.com",
+    verifyUrl: "javascript:alert(1)",
+    qrPng: Buffer.from("png-bytes")
+  }, {
+    transporter,
+    smtp: { from: "NAAP Parking <parking@example.com>" }
+  });
+
+  assert.doesNotMatch(sentMessage.subject, /[\r\n]/);
+  assert.doesNotMatch(sentMessage.html, /javascript:/i);
+  assert.doesNotMatch(sentMessage.text, /javascript:/i);
 });

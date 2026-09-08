@@ -20,7 +20,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const body = document.body;
       const mobileTrigger = document.getElementById("mobileNavTrigger");
@@ -83,7 +83,7 @@
     })();
   </script>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const dialog = document.getElementById("confirmDialog");
       const title = document.getElementById("confirmDialogTitle");
@@ -154,7 +154,7 @@
     })();
   </script>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const clock = document.getElementById("liveClock");
       if (!clock) return;
@@ -169,7 +169,7 @@
       setInterval(render, 1000);
     })();
   </script>
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const body = document.body;
       requestAnimationFrame(() => body.classList.add("is-ready"));
@@ -180,7 +180,7 @@
       }
     })();
   </script>
-  <script>
+  <script nonce="<%= cspNonce %>">
     (() => {
       const body = document.body;
       if (!body) return;

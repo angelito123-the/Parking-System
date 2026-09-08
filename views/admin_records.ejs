@@ -123,7 +123,7 @@
   </section>
 </div>
 
-<script>
+<script nonce="<%= cspNonce %>">
   (() => {
     const searchInput = document.getElementById("movementSearch");
     const countLabel = document.getElementById("movementSearchCount");
@@ -151,10 +151,12 @@
     }
 
     function renderRow(scan) {
-      const result = String(scan.result || "INVALID").toLowerCase();
-      const action = String(scan.action || "").toLowerCase();
+      const requestedResult = String(scan.result || "INVALID").toLowerCase();
+      const result = ["valid", "invalid", "expired", "revoked"].includes(requestedResult) ? requestedResult : "invalid";
+      const requestedAction = String(scan.action || "").toLowerCase();
+      const action = ["entry", "exit", "verify"].includes(requestedAction) ? requestedAction : "verify";
       return `<tr class="movement-row">
-        <td>${toPht(scan.scanned_at)}</td>
+        <td>${escapeHtml(toPht(scan.scanned_at))}</td>
         <td><strong>${escapeHtml(scan.student_number || "-")}</strong><br /><small>${escapeHtml(scan.full_name || "")}</small></td>
         <td>${escapeHtml(scan.plate_number || "-")}</td>
         <td>${escapeHtml(scan.sticker_code || "-")}</td>
@@ -166,8 +168,10 @@
     }
 
     function renderCard(scan) {
-      const result = String(scan.result || "INVALID").toLowerCase();
-      const action = String(scan.action || "").toLowerCase();
+      const requestedResult = String(scan.result || "INVALID").toLowerCase();
+      const result = ["valid", "invalid", "expired", "revoked"].includes(requestedResult) ? requestedResult : "invalid";
+      const requestedAction = String(scan.action || "").toLowerCase();
+      const action = ["entry", "exit", "verify"].includes(requestedAction) ? requestedAction : "verify";
       const searchable = [scan.full_name || "", scan.plate_number || "", scan.student_number || "", scan.sticker_code || "", scan.gate_name || scan.gate || "", scan.action || "", scan.result || ""]
         .join(" ")
         .toLowerCase();
@@ -182,7 +186,7 @@
           <div class="card-item">Sticker: <strong>${escapeHtml(scan.sticker_code || "-")}</strong></div>
           <div class="card-item">Slot/Gate: <strong>${escapeHtml(scan.parking_slot || "-")} • ${escapeHtml(scan.gate_name || scan.gate || "-")}</strong></div>
           <div class="card-item">Status: <span class="badge badge-${result}">${escapeHtml(scan.result || "-")}</span></div>
-          <div class="card-item">Time: <strong>${toPht(scan.scanned_at)}</strong></div>
+          <div class="card-item">Time: <strong>${escapeHtml(toPht(scan.scanned_at))}</strong></div>
         </div>
       </div>`;
     }
