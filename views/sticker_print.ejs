@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= sticker.sticker_code %> · Parking QR</title>
+  <link rel="stylesheet" href="/design-system.css?v=20260908-workflows" />
+  <style>
+    body { margin: 0; background: #eef3f8; color: #10233d; font-family: Inter, Arial, sans-serif; }
+    .print-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .sticker-print-card { width: min(440px, 100%); background: #fff; border: 2px solid #17365f; border-radius: 18px; padding: 28px; text-align: center; }
+    .sticker-print-card h1 { margin: 0 0 4px; font-size: 1.45rem; }
+    .sticker-print-card > p { margin: 0 0 18px; color: #53657a; }
+    .sticker-print-card img { width: 300px; max-width: 100%; height: auto; }
+    .print-details { display: grid; gap: 7px; margin: 18px 0; text-align: left; }
+    .print-details p { display: flex; justify-content: space-between; gap: 16px; margin: 0; padding-top: 7px; border-top: 1px solid #dce5ef; }
+    .print-actions { display: flex; justify-content: center; gap: 10px; }
+    @media print {
+      body { background: #fff; }
+      .print-page { min-height: 0; padding: 0; }
+      .sticker-print-card { border-radius: 0; }
+      .print-actions { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="print-page">
+    <section class="sticker-print-card">
+      <h1>NAAP Parking Access</h1>
+      <p>Present this QR code to authorized gate personnel.</p>
+      <img src="/stickers/<%= sticker.id %>/qr" alt="Parking QR code for <%= sticker.sticker_code %>" />
+      <div class="print-details">
+        <p><span>Student</span><strong><%= sticker.full_name %></strong></p>
+        <p><span>Student no.</span><strong><%= sticker.student_number %></strong></p>
+        <p><span>Plate</span><strong><%= sticker.plate_number %></strong></p>
+        <p><span>Sticker</span><strong><%= sticker.sticker_code %></strong></p>
+        <p><span>Expires</span><strong><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString('en-PH') : 'No expiry' %></strong></p>
+      </div>
+      <div class="print-actions">
+        <button type="button" id="printSticker">Print</button>
+        <a class="btn" href="/stickers">Back</a>
+      </div>
+    </section>
+  </main>
+  <script nonce="<%= cspNonce %>">
+    document.getElementById("printSticker")?.addEventListener("click", () => window.print());
+  </script>
+</body>
+</html>

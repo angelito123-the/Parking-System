@@ -844,7 +844,11 @@
                 const selectable = occupancy === "available";
                 const occupant = slot.occupied_by_name
                   ? `<small>${escapeHtml(slot.occupied_by_name)}</small>`
-                  : "<small></small>";
+                  : slot.occupancy === "disabled"
+                    ? `<small>${escapeHtml(slot.disabled_reason || "Disabled")}</small>`
+                    : slot.slot_type && slot.slot_type !== "standard"
+                      ? `<small>${escapeHtml(slot.slot_type)}${slot.reserved_for ? ` · ${escapeHtml(slot.reserved_for)}` : ""}</small>`
+                      : "<small>Available</small>";
                 return `
                   <button
                     type="button"

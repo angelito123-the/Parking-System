@@ -7,3 +7,5 @@ node_modules/
 .vscode/
 .vs/
 tools/ngrok.exe
+test-results/
+playwright-report/

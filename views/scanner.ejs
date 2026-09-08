@@ -353,7 +353,11 @@
         remoteEntryConfirmBtn.disabled = false;
         remoteEntrySlotSelect.innerHTML = [
           '<option value="">Select parking slot...</option>',
-          ...slots.map((slot) => `<option value="${escapeHtml(slot.id)}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}</option>`)
+          ...slots.map((slot) => {
+            const typeLabel = slot.slot_type && slot.slot_type !== "standard" ? ` - ${slot.slot_type}` : "";
+            const reservationLabel = slot.reserved_for ? ` (${slot.reserved_for})` : "";
+            return `<option value="${escapeHtml(slot.id)}">${escapeHtml(slot.slot_code)} - ${escapeHtml(slot.zone || "General")}${escapeHtml(typeLabel)}${escapeHtml(reservationLabel)}</option>`;
+          })
         ].join("");
         remoteEntryHint.textContent = `${slots.length} slot(s) available.`;
       } catch (error) {
@@ -514,7 +518,7 @@
           data-selectable="${isSelectable ? "1" : "0"}"
           ${isSelectable ? "" : "disabled"}>
           <span class="slot-option-code">${escapeHtml(slot.slot_code)}</span>
-          <span class="slot-option-zone">${escapeHtml(slot.zone)}</span>
+          <span class="slot-option-zone">${escapeHtml(slot.zone)}${slot.slot_type && slot.slot_type !== "standard" ? ` · ${escapeHtml(slot.slot_type)}` : ""}${slot.reserved_for ? ` · ${escapeHtml(slot.reserved_for)}` : ""}</span>
         </button>
       `;
     }
@@ -1051,7 +1055,7 @@
     <p>Last 8 movements recorded since you opened this page.</p>
   </div>
   <div id="scanHistoryEmpty" style="text-align:center;padding:1.5rem;color:var(--muted);font-size:0.875rem;">
-    <div style="font-size:1rem;margin-bottom:0.5rem;opacity:0.7;letter-spacing:0.08em;">LOG</div>
+    <div style="font-size:1rem;margin-bottom:0.5rem;color:var(--text-secondary);letter-spacing:0.08em;">LOG</div>
     No scans recorded yet this session.
   </div>
   <div id="scanHistoryList" style="display:grid;gap:0.4rem;"></div>

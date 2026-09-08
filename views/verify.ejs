@@ -16,7 +16,7 @@
     })();
   </script>
   <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
-  <link rel="stylesheet" href="/design-system.css?v=20260902-consistency" />
+  <link rel="stylesheet" href="/design-system.css?v=20260908-workflows" />
   <style>
     body {
       margin: 0;
@@ -515,7 +515,7 @@
                       data-slot-code="<%= slot.slot_code %>"
                       <%= slot.is_selectable ? "" : "disabled" %>>
                       <span><%= slot.slot_code %></span>
-                      <small><%= slot.occupancy.toUpperCase() %></small>
+                      <small><%= slot.occupancy === 'available' && slot.slot_type !== 'standard' ? `${slot.slot_type.toUpperCase()}${slot.reserved_for ? ` · ${slot.reserved_for}` : ''}` : slot.occupancy.toUpperCase() %></small>
                     </button>
                   <% }) %>
                 </div>

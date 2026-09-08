@@ -56,6 +56,7 @@ async function ensureDatabaseSchema() {
   await ensureScannerMetricMigrations();
   await ensureOfflineSyncMigrations();
   await ensureSecurityMigrations();
+  await ensureOperationalWorkflowMigrations();
   await ensurePerformanceIndexes();
 }
 
@@ -338,6 +339,10 @@ async function ensureSecurityMigrations() {
   await addUserColumnIfMissing("totp_secret_encrypted", "TEXT NULL AFTER totp_enabled");
   await addUserColumnIfMissing("password_changed_at", "TIMESTAMP NULL DEFAULT NULL AFTER totp_secret_encrypted");
   await addUserColumnIfMissing("last_login_at", "TIMESTAMP NULL DEFAULT NULL AFTER password_changed_at");
+  await addUserColumnIfMissing("is_active", "TINYINT(1) NOT NULL DEFAULT 1 AFTER last_login_at");
+  await addUserColumnIfMissing("must_change_password", "TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active");
+  await addUserColumnIfMissing("disabled_at", "TIMESTAMP NULL DEFAULT NULL AFTER must_change_password");
+  await addUserColumnIfMissing("disabled_reason", "VARCHAR(255) NULL AFTER disabled_at");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS security_audit_logs (
@@ -357,6 +362,108 @@ async function ensureSecurityMigrations() {
       INDEX idx_security_audit_actor_created (actor_user_id, created_at),
       INDEX idx_security_audit_event_created (event_type, created_at),
       CONSTRAINT fk_security_audit_user FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+}
+
+async function ensureOperationalWorkflowMigrations() {
+  async function addColumnIfMissing(tableName, columnName, definition) {
+    if (await columnExists(tableName, columnName)) return;
+    await pool.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+
+  await addColumnIfMissing("parking_slots", "slot_type", "VARCHAR(30) NOT NULL DEFAULT 'standard' AFTER zone");
+  await addColumnIfMissing("parking_slots", "reserved_for", "VARCHAR(120) NULL AFTER slot_type");
+  await addColumnIfMissing("parking_slots", "disabled_reason", "VARCHAR(255) NULL AFTER status");
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS parking_zone_settings (
+      zone VARCHAR(50) PRIMARY KEY,
+      warning_threshold_percent TINYINT UNSIGNED NOT NULL DEFAULT 85,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    INSERT IGNORE INTO parking_zone_settings (zone)
+    SELECT DISTINCT COALESCE(NULLIF(TRIM(zone), ''), 'General') FROM parking_slots
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sticker_qr_history (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      sticker_id INT NOT NULL,
+      previous_qr_token VARCHAR(120) NOT NULL,
+      rotated_by_user_id INT NULL,
+      reason VARCHAR(255) NULL,
+      rotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_sticker_qr_history_sticker (sticker_id, rotated_at),
+      CONSTRAINT fk_qr_history_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE CASCADE,
+      CONSTRAINT fk_qr_history_user FOREIGN KEY (rotated_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_delivery_jobs (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      sticker_id INT NOT NULL,
+      recipient VARCHAR(254) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'queued',
+      attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+      max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+      next_attempt_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      last_error VARCHAR(500) NULL,
+      message_id VARCHAR(255) NULL,
+      requested_by_user_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      sent_at TIMESTAMP NULL DEFAULT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_email_jobs_due (status, next_attempt_at),
+      INDEX idx_email_jobs_sticker (sticker_id, created_at),
+      CONSTRAINT fk_email_job_sticker FOREIGN KEY (sticker_id) REFERENCES stickers(id) ON DELETE CASCADE,
+      CONSTRAINT fk_email_job_user FOREIGN KEY (requested_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_delivery_attempts (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      job_id BIGINT NOT NULL,
+      attempt_number TINYINT UNSIGNED NOT NULL,
+      outcome VARCHAR(20) NOT NULL,
+      error_message VARCHAR(500) NULL,
+      provider_message_id VARCHAR(255) NULL,
+      attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_email_attempts_job (job_id, attempted_at),
+      CONSTRAINT fk_email_attempt_job FOREIGN KEY (job_id) REFERENCES email_delivery_jobs(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backup_archives (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      backup_name VARCHAR(180) NOT NULL,
+      encrypted_payload LONGTEXT NOT NULL,
+      payload_bytes INT UNSIGNED NOT NULL,
+      dataset_summary JSON NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'ready',
+      created_by_user_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP NULL DEFAULT NULL,
+      INDEX idx_backup_archives_created (created_at),
+      CONSTRAINT fk_backup_archive_user FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS backup_restore_previews (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      requested_by_user_id INT NOT NULL,
+      encrypted_payload LONGTEXT NOT NULL,
+      payload_digest CHAR(64) NOT NULL,
+      dataset_summary JSON NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      consumed_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_restore_previews_expiry (expires_at),
+      CONSTRAINT fk_restore_preview_user FOREIGN KEY (requested_by_user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
 }

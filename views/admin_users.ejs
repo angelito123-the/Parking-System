@@ -4,6 +4,8 @@
   const safeUsers = Array.isArray(users) ? users : [];
   const adminCount = safeUsers.filter((user) => user.role === "admin").length;
   const guardCount = safeUsers.filter((user) => user.role === "guard").length;
+  const activeCount = safeUsers.filter((user) => user.is_active).length;
+  const dateLabel = (value) => value ? new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "Never";
 %>
 
 <section class="dashboard-hero">
@@ -25,8 +27,8 @@
       <p><%= guardCount %></p>
     </div>
     <div class="hero-card">
-      <h3>Role Types</h3>
-      <p>2</p>
+      <h3>Active Accounts</h3>
+      <p><%= activeCount %></p>
     </div>
   </div>
   <% if (flash) { %>
@@ -40,7 +42,7 @@
   <section class="panel">
     <div class="section-head">
       <h2>Add User</h2>
-      <p>Create a new account and assign either Admin or Guard role.</p>
+      <p>Create an Admin or Guard account. New users must replace their temporary password at first sign-in.</p>
     </div>
 
     <form method="post" action="/admin/users" class="form-grid user-admin-form">
@@ -71,7 +73,7 @@
   <section class="panel">
     <div class="section-head">
       <h2>Existing Accounts</h2>
-      <p>Edit role, reset password, or remove accounts.</p>
+      <p>Reset passwords, review two-factor enrollment, and suspend access without deleting audit history.</p>
     </div>
 
     <div class="table-wrap">
@@ -80,14 +82,16 @@
           <tr>
             <th>Username</th>
             <th>Role</th>
-            <th>Created</th>
+            <th>Status</th>
+            <th>Security</th>
+            <th>Last Login</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <% if (!safeUsers.length) { %>
             <tr>
-              <td colspan="4">
+              <td colspan="6">
                 <div class="empty-state"><p>No users found.</p></div>
               </td>
             </tr>
@@ -96,7 +100,12 @@
             <tr>
               <td><strong><%= user.username %></strong></td>
               <td><span class="badge"><%= user.role %></span></td>
-              <td><%= new Date(user.created_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) %></td>
+              <td><span class="badge badge-<%= user.is_active ? 'valid' : 'invalid' %>"><%= user.is_active ? 'Active' : 'Suspended' %></span></td>
+              <td>
+                <span class="badge badge-<%= user.totp_enabled ? 'valid' : 'soft' %>"><%= user.totp_enabled ? '2FA enabled' : 'No 2FA' %></span>
+                <% if (user.must_change_password) { %><span class="badge badge-warning">Password change required</span><% } %>
+              </td>
+              <td><%= dateLabel(user.last_login_at) %></td>
               <td>
                 <div class="table-action-group">
                   <button
@@ -106,20 +115,32 @@
                     id="editUserBtn_<%= user.id %>">
                     Edit
                   </button>
+                  <% if (Number(currentUser?.id) !== Number(user.id)) { %>
                   <div class="action-menu">
                     <button type="button" class="action-menu-trigger action-menu-trigger-compact" data-action-menu-trigger aria-label="More actions for <%= user.username %>" aria-haspopup="menu" aria-expanded="false">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
                     </button>
                     <div class="action-menu-popover action-menu-popover-end" role="menu">
+                      <% if (user.is_active) { %>
+                        <button type="button" role="menuitem" data-destructive-trigger data-form-id="suspendUserForm_<%= user.id %>" data-confirm-title="Suspend this account?" data-confirm-message="Sign out <%= user.username %> and block future logins until an administrator reactivates the account?" data-confirm-label="Suspend account">Suspend account</button>
+                      <% } else { %>
+                        <form method="post" action="/admin/users/<%= user.id %>/status"><input type="hidden" name="is_active" value="1" /><button type="submit" role="menuitem">Reactivate account</button></form>
+                      <% } %>
+                      <% if (user.totp_enabled) { %>
+                        <button type="button" role="menuitem" data-destructive-trigger data-form-id="resetTwoFactorForm_<%= user.id %>" data-confirm-title="Reset two-factor authentication?" data-confirm-message="Sign out <%= user.username %> and remove the current authenticator enrollment?" data-confirm-label="Reset 2FA">Reset 2FA</button>
+                      <% } %>
                       <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteUserForm_<%= user.id %>" data-confirm-title="Delete user account?" data-confirm-message="Delete the account for <%= user.username %>? They will immediately lose access and this cannot be undone." data-confirm-label="Delete account">Delete user</button>
                     </div>
                   </div>
+                  <% } %>
+                  <form id="suspendUserForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/status" hidden><input type="hidden" name="is_active" value="0" /></form>
+                  <form id="resetTwoFactorForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/reset-2fa" hidden></form>
                   <form id="deleteUserForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/delete" hidden></form>
                 </div>
               </td>
             </tr>
             <tr id="userEditor_<%= user.id %>" hidden>
-              <td colspan="4">
+              <td colspan="6">
                 <form method="post" action="/admin/users/<%= user.id %>/edit" class="inline-edit-form is-visible">
                   <div class="form-row-3">
                     <div>
@@ -134,8 +155,8 @@
                       </select>
                     </div>
                     <div>
-                      <label>New Password (Optional)</label>
-                      <input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="Leave blank to keep current" />
+                      <label>Temporary Password (Optional)</label>
+                      <input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="Forces a change at next sign-in" />
                     </div>
                   </div>
                   <div class="edit-form-actions">

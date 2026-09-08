@@ -34,6 +34,24 @@ services:
         sync: false
       - key: GUARD_PASSWORD
         sync: false
+      - key: REQUIRE_ADMIN_2FA
+        value: "true"
+      - key: GUARD_INACTIVITY_DAYS
+        value: "120"
+      - key: SNAPSHOT_RETENTION_DAYS
+        value: "30"
+      - key: SCAN_LOG_RETENTION_DAYS
+        value: "365"
+      - key: SECURITY_AUDIT_RETENTION_DAYS
+        value: "730"
+      - key: SCANNER_METRIC_RETENTION_DAYS
+        value: "90"
+      - key: BACKUP_RETENTION_DAYS
+        value: "14"
+      - key: BACKUP_ENCRYPTION_KEY
+        sync: false
+      - key: BACKUP_EMAIL_TO
+        sync: false
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const QRCode = require("qrcode");
 const compression = require("compression");
+const multer = require("multer");
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
@@ -13,8 +14,15 @@ const { generateBrandedQrPng } = require("./lib/branded-qr");
 const {
   MailConfigurationError,
   normalizeEmailAddress,
+  sendBackupArchiveEmail,
   sendStudentQrEmail
 } = require("./lib/student-qr-email");
+const {
+  BackupValidationError,
+  decryptBackup,
+  encryptBackup,
+  summarizeBackupPayload
+} = require("./lib/encrypted-backup");
 const { serializeForScript } = require("./lib/serialize-for-script");
 const { parseCsv, parseCsvDocument, stringifyCsv } = require("./lib/csv");
 const {
@@ -88,6 +96,26 @@ const OVERSTAY_LIMIT_HOURS = Number.isFinite(rawOverstayLimitHours)
   ? Math.max(0.5, rawOverstayLimitHours)
   : 4;
 const OVERSTAY_LIMIT_MINUTES = Math.max(1, Math.round(OVERSTAY_LIMIT_HOURS * 60));
+function readBoundedIntegerEnv(name, fallback, min, max) {
+  const parsed = Number.parseInt(String(process.env[name] || ""), 10);
+  const value = Number.isInteger(parsed) ? parsed : fallback;
+  return Math.max(min, Math.min(max, value));
+}
+const REQUIRE_ADMIN_2FA = IS_PRODUCTION
+  ? !/^(0|false|no|off)$/i.test(String(process.env.REQUIRE_ADMIN_2FA || "true"))
+  : /^(1|true|yes|on)$/i.test(String(process.env.REQUIRE_ADMIN_2FA || "false"));
+const GUARD_INACTIVITY_DAYS = readBoundedIntegerEnv("GUARD_INACTIVITY_DAYS", IS_PRODUCTION ? 120 : 0, 0, 3650);
+const SNAPSHOT_RETENTION_DAYS = readBoundedIntegerEnv("SNAPSHOT_RETENTION_DAYS", 30, 1, 3650);
+const SCAN_LOG_RETENTION_DAYS = readBoundedIntegerEnv("SCAN_LOG_RETENTION_DAYS", 365, 30, 3650);
+const SECURITY_AUDIT_RETENTION_DAYS = readBoundedIntegerEnv("SECURITY_AUDIT_RETENTION_DAYS", 730, 90, 3650);
+const SCANNER_METRIC_RETENTION_DAYS = readBoundedIntegerEnv("SCANNER_METRIC_RETENTION_DAYS", 90, 7, 3650);
+const BACKUP_RETENTION_DAYS = readBoundedIntegerEnv("BACKUP_RETENTION_DAYS", 14, 1, 365);
+const BACKUP_ENCRYPTION_KEY = String(process.env.BACKUP_ENCRYPTION_KEY || "");
+const BACKUP_EMAIL_TO = normalizeEmailAddress(process.env.BACKUP_EMAIL_TO) || null;
+const backupUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 4 }
+});
 const configuredSessionSecret = String(process.env.SESSION_SECRET || "").trim();
 if (IS_PRODUCTION && configuredSessionSecret.length < 32) {
   throw new Error("SESSION_SECRET must contain at least 32 characters in production.");
@@ -98,6 +126,8 @@ const loginAccountRateLimiter = new SlidingWindowRateLimiter({ limit: 15, window
 const twoFactorRateLimiter = new SlidingWindowRateLimiter({ limit: 6, windowMs: 10 * 60 * 1000 });
 const accountSecurityRateLimiter = new SlidingWindowRateLimiter({ limit: 8, windowMs: 15 * 60 * 1000 });
 const qrEmailRateLimiter = new SlidingWindowRateLimiter({ limit: 10, windowMs: 10 * 60 * 1000 });
+const EMAIL_WORKER_INTERVAL_MS = Math.max(5000, Number(process.env.EMAIL_WORKER_INTERVAL_MS || 15000) || 15000);
+let emailWorkerRunning = false;
 const SNAPSHOT_DIR = path.join(__dirname, "storage", "snapshots");
 const LEGACY_PUBLIC_SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
@@ -364,7 +394,9 @@ function getSessionUser(req) {
   return {
     id: Number(user.id) || null,
     username: String(user.username || "").trim(),
-    role
+    role,
+    totpEnabled: Boolean(user.totpEnabled),
+    mustChangePassword: Boolean(user.mustChangePassword)
   };
 }
 
@@ -468,7 +500,9 @@ function regenerateAuthenticatedSession(req, user) {
       req.session.user = {
         id: Number(user.id) || null,
         username: String(user.username || "").trim(),
-        role: normalizeRole(user.role)
+        role: normalizeRole(user.role),
+        totpEnabled: Boolean(user.totp_enabled),
+        mustChangePassword: Boolean(user.must_change_password)
       };
       req.session.save((saveError) => saveError ? reject(saveError) : resolve());
     });
@@ -525,6 +559,28 @@ app.use("/verify", (_req, res, next) => {
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   next();
+});
+app.use((req, res, next) => {
+  const user = getSessionUser(req);
+  if (!user) return next();
+  const accountPath = req.path === "/account/security"
+    || req.path.startsWith("/account/password")
+    || req.path.startsWith("/account/2fa/")
+    || req.path === "/logout";
+
+  if (user.mustChangePassword && !accountPath) {
+    if (isApiRequest(req)) {
+      return res.status(403).json({ ok: false, message: "Change your temporary password before continuing." });
+    }
+    return res.redirect("/account/security?password_required=1#password");
+  }
+  if (REQUIRE_ADMIN_2FA && user.role === USER_ROLES.ADMIN && !user.totpEnabled && !accountPath) {
+    if (isApiRequest(req)) {
+      return res.status(403).json({ ok: false, message: "Administrator two-factor enrollment is required." });
+    }
+    return res.redirect("/account/security?setup_2fa=required#two-factor");
+  }
+  return next();
 });
 
 // Auth middleware for all protected routes
@@ -599,7 +655,8 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT id, username, password, role, totp_enabled, totp_secret_encrypted
+      `SELECT id, username, password, role, totp_enabled, totp_secret_encrypted,
+              is_active, must_change_password
        FROM users
        WHERE username = ?
        LIMIT 1`,
@@ -637,6 +694,17 @@ app.post("/login", async (req, res) => {
       return res.render("login", { error: "Invalid username or password.", usernameVal: username });
     }
 
+    if (!user.is_active) {
+      await recordSecurityAudit(req, "LOGIN_DISABLED_ACCOUNT", {
+        actor: { id: user.id, username: user.username, role },
+        outcome: "blocked"
+      });
+      return res.render("login", {
+        error: "This account is suspended. Contact an administrator.",
+        usernameVal: username
+      });
+    }
+
     loginRateLimiter.reset(rateKey);
     loginAccountRateLimiter.reset(accountRateKey);
     if (user.totp_enabled && user.totp_secret_encrypted) {
@@ -647,6 +715,7 @@ app.post("/login", async (req, res) => {
             id: Number(user.id),
             username: String(user.username || "").trim(),
             role,
+            mustChangePassword: Boolean(user.must_change_password),
             createdAt: Date.now()
           };
           req.session.save((saveError) => saveError ? reject(saveError) : resolve());
@@ -692,11 +761,13 @@ app.post("/login/2fa", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      "SELECT id, username, role, totp_enabled, totp_secret_encrypted FROM users WHERE id = ? LIMIT 1",
+      `SELECT id, username, role, totp_enabled, totp_secret_encrypted,
+              is_active, must_change_password
+       FROM users WHERE id = ? LIMIT 1`,
       [pending.id]
     );
     const user = rows[0];
-    if (!user || !user.totp_enabled || !user.totp_secret_encrypted) throw new Error("Two-factor setup is unavailable.");
+    if (!user || !user.is_active || !user.totp_enabled || !user.totp_secret_encrypted) throw new Error("Two-factor setup is unavailable.");
     const secret = decryptSecret(user.totp_secret_encrypted, SESSION_SECRET);
     if (!verifyTotpToken(secret, req.body.code)) {
       twoFactorRateLimiter.recordFailure(rateKey);
@@ -737,6 +808,151 @@ function createQrToken() {
   return crypto.randomBytes(24).toString("hex");
 }
 
+async function getStickerEmailDetails(stickerId, db = pool) {
+  const [rows] = await db.query(
+    `SELECT st.id, st.sticker_code, st.qr_token, st.status, st.expires_at,
+            v.plate_number, s.id AS student_id, s.student_number, s.full_name, s.email
+     FROM stickers st
+     JOIN vehicles v ON v.id = st.vehicle_id
+     JOIN students s ON s.id = v.student_id
+     WHERE st.id = ?
+     LIMIT 1`,
+    [stickerId]
+  );
+  return rows[0] || null;
+}
+
+function isStickerEmailEligible(sticker) {
+  if (!sticker || sticker.status !== "active") return false;
+  return !isExpired(sticker.expires_at);
+}
+
+async function recordBackgroundAudit(eventType, options = {}) {
+  try {
+    await pool.query(
+      `INSERT INTO security_audit_logs (
+         event_type, actor_user_id, actor_username, actor_role,
+         target_type, target_id, outcome, metadata_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        String(eventType).slice(0, 80),
+        Number(options.actorUserId) || null,
+        options.actorUsername || "background-worker",
+        options.actorRole || "system",
+        options.targetType || null,
+        options.targetId ? String(options.targetId).slice(0, 120) : null,
+        options.outcome || "success",
+        JSON.stringify(options.metadata || {})
+      ]
+    );
+  } catch (error) {
+    console.warn("Background audit warning (non-fatal):", error.message);
+  }
+}
+
+async function processEmailDeliveryJobs() {
+  if (emailWorkerRunning) return;
+  emailWorkerRunning = true;
+  try {
+    await pool.query(
+      `UPDATE email_delivery_jobs
+       SET status = 'queued', last_error = 'Recovered after interrupted delivery.'
+       WHERE status = 'sending' AND updated_at < NOW() - INTERVAL 10 MINUTE`
+    );
+    const [jobs] = await pool.query(
+      `SELECT id, sticker_id, recipient, attempts, max_attempts, requested_by_user_id
+       FROM email_delivery_jobs
+       WHERE status IN ('queued', 'retrying')
+         AND attempts < max_attempts
+         AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+       ORDER BY created_at ASC
+       LIMIT 5`
+    );
+
+    for (const job of jobs) {
+      const [claim] = await pool.query(
+        `UPDATE email_delivery_jobs
+         SET status = 'sending', attempts = attempts + 1
+         WHERE id = ? AND status IN ('queued', 'retrying')`,
+        [job.id]
+      );
+      if (!claim.affectedRows) continue;
+      const attemptNumber = Number(job.attempts || 0) + 1;
+      try {
+        const sticker = await getStickerEmailDetails(job.sticker_id);
+        if (!isStickerEmailEligible(sticker)) throw new Error("Sticker is no longer active or has expired.");
+        const currentRecipient = normalizeEmailAddress(sticker.email);
+        if (!currentRecipient || currentRecipient !== normalizeEmailAddress(job.recipient)) {
+          throw new Error("Student email changed or is no longer valid. Queue a new delivery.");
+        }
+        const verifyUrl = `${APP_BASE_URL.replace(/\/+$/, "")}/verify/${sticker.qr_token}`;
+        const qrPng = await generateBrandedQrPng(verifyUrl);
+        const result = await sendStudentQrEmail({
+          to: currentRecipient,
+          studentName: sticker.full_name,
+          studentNumber: sticker.student_number,
+          stickerCode: sticker.sticker_code,
+          plateNumber: sticker.plate_number,
+          verifyUrl,
+          qrPng
+        });
+        const messageId = String(result?.messageId || "").slice(0, 255) || null;
+        const [sentUpdate] = await pool.query(
+          `UPDATE email_delivery_jobs
+           SET status = 'sent', sent_at = NOW(), next_attempt_at = NULL,
+               last_error = NULL, message_id = ?
+           WHERE id = ? AND status = 'sending'`,
+          [messageId, job.id]
+        );
+        if (!sentUpdate.affectedRows) continue;
+        await pool.query(
+          `INSERT INTO email_delivery_attempts
+             (job_id, attempt_number, outcome, provider_message_id)
+           VALUES (?, ?, 'sent', ?)`,
+          [job.id, attemptNumber, messageId]
+        );
+        await recordBackgroundAudit("STICKER_QR_EMAILED", {
+          actorUserId: job.requested_by_user_id,
+          targetType: "sticker",
+          targetId: sticker.id,
+          metadata: { job_id: job.id, student_id: sticker.student_id }
+        });
+      } catch (error) {
+        const cleanError = String(error?.message || "Email delivery failed.").replace(/[\r\n]+/g, " ").slice(0, 500);
+        const terminal = attemptNumber >= Number(job.max_attempts || 3)
+          || error instanceof MailConfigurationError
+          || error?.code === "MAIL_NOT_CONFIGURED";
+        const retryMinutes = Math.min(30, 2 ** attemptNumber);
+        const nextAttemptAt = terminal ? null : new Date(Date.now() + retryMinutes * 60 * 1000);
+        const [failedUpdate] = await pool.query(
+          `UPDATE email_delivery_jobs
+           SET status = ?, last_error = ?, next_attempt_at = ?
+           WHERE id = ? AND status = 'sending'`,
+          [terminal ? "failed" : "retrying", cleanError, nextAttemptAt, job.id]
+        );
+        if (!failedUpdate.affectedRows) continue;
+        await pool.query(
+          `INSERT INTO email_delivery_attempts
+             (job_id, attempt_number, outcome, error_message)
+           VALUES (?, ?, 'failed', ?)`,
+          [job.id, attemptNumber, cleanError]
+        );
+        await recordBackgroundAudit("STICKER_QR_EMAIL_FAILED", {
+          actorUserId: job.requested_by_user_id,
+          targetType: "sticker",
+          targetId: job.sticker_id,
+          outcome: "failed",
+          metadata: { job_id: job.id, attempt: attemptNumber, terminal }
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Email delivery worker error:", error.message);
+  } finally {
+    emailWorkerRunning = false;
+  }
+}
+
 function normalizeVisitorType(rawType) {
   const type = String(rawType || "").trim().toLowerCase();
   return VALID_VISITOR_TYPES.has(type) ? type : VISITOR_TYPES.VISITOR;
@@ -757,6 +973,9 @@ function parseDateTimeInput(rawValue) {
 
 function isExpired(expiresAt) {
   if (!expiresAt) return false;
+  const expirationDate = normalizeDateOnlyInput(expiresAt);
+  const today = toDateOnly(new Date());
+  if (expirationDate && today) return expirationDate < today;
   return new Date(expiresAt).getTime() < Date.now();
 }
 
@@ -1743,13 +1962,15 @@ async function evaluateVisitorOverstayAlerts(db = pool, actorName = "system") {
 async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
   const [rows] = await db.query(
     `SELECT
-       COALESCE(zone, 'General') AS zone,
+       COALESCE(ps.zone, 'General') AS zone,
        COUNT(*) AS total_slots,
-       SUM(CASE WHEN status = 'available' AND current_sticker_id IS NULL THEN 1 ELSE 0 END) AS available_slots,
-       SUM(CASE WHEN status = 'available' AND current_sticker_id IS NOT NULL THEN 1 ELSE 0 END) AS occupied_slots,
-       SUM(CASE WHEN status <> 'available' THEN 1 ELSE 0 END) AS disabled_slots
-     FROM parking_slots
-     GROUP BY COALESCE(zone, 'General')`
+       SUM(CASE WHEN ps.status = 'available' AND ps.current_sticker_id IS NULL AND ps.current_visitor_pass_id IS NULL THEN 1 ELSE 0 END) AS available_slots,
+       SUM(CASE WHEN ps.status = 'available' AND (ps.current_sticker_id IS NOT NULL OR ps.current_visitor_pass_id IS NOT NULL) THEN 1 ELSE 0 END) AS occupied_slots,
+       SUM(CASE WHEN ps.status <> 'available' THEN 1 ELSE 0 END) AS disabled_slots,
+       COALESCE(MAX(pzs.warning_threshold_percent), 85) AS warning_threshold_percent
+     FROM parking_slots ps
+     LEFT JOIN parking_zone_settings pzs ON pzs.zone = COALESCE(ps.zone, 'General')
+     GROUP BY COALESCE(ps.zone, 'General')`
   );
 
   const zoneStates = rows.map((row) => ({
@@ -1757,8 +1978,14 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
     total_slots: Number(row.total_slots || 0),
     available_slots: Number(row.available_slots || 0),
     occupied_slots: Number(row.occupied_slots || 0),
-    disabled_slots: Number(row.disabled_slots || 0)
+    disabled_slots: Number(row.disabled_slots || 0),
+    warning_threshold_percent: Math.max(50, Math.min(100, Number(row.warning_threshold_percent || 85)))
   }));
+
+  zoneStates.forEach((zone) => {
+    const enabledSlots = Math.max(0, zone.total_slots - zone.disabled_slots);
+    zone.occupancy_percent = enabledSlots > 0 ? Math.round((zone.occupied_slots / enabledSlots) * 100) : 0;
+  });
 
   for (const zone of zoneStates) {
     const fullDedupeKey = `ZONE_FULL:${zone.zone}`;
@@ -1780,7 +2007,7 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
           occupied_slots: zone.occupied_slots,
           disabled_slots: zone.disabled_slots,
           total_slots: zone.total_slots,
-          threshold: ZONE_LOW_SLOT_WARNING_THRESHOLD,
+          threshold_percent: zone.warning_threshold_percent,
           actor: actorName
         }
       });
@@ -1788,11 +2015,11 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
       await resolveAlertsByDedupeKey(db, fullDedupeKey, actorName);
     }
 
-    if (zone.total_slots > 0 && zone.available_slots > 0 && zone.available_slots <= ZONE_LOW_SLOT_WARNING_THRESHOLD) {
+    if (zone.total_slots > 0 && zone.available_slots > 0 && zone.occupancy_percent >= zone.warning_threshold_percent) {
       await createOrRefreshAlertWithDb(db, {
         type: ALERT_TYPES.LOW_SLOT_WARNING,
         title: `Low slot warning: ${zone.zone}`,
-        message: `${zone.zone} is running low with ${zone.available_slots} slot(s) remaining.`,
+        message: `${zone.zone} is ${zone.occupancy_percent}% occupied with ${zone.available_slots} slot(s) remaining.`,
         severity: zone.available_slots === 1 ? ALERT_SEVERITIES.HIGH : ALERT_SEVERITIES.MEDIUM,
         audienceRole: "staff",
         relatedZoneId: zone.zone,
@@ -1804,7 +2031,8 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
           occupied_slots: zone.occupied_slots,
           disabled_slots: zone.disabled_slots,
           total_slots: zone.total_slots,
-          threshold: ZONE_LOW_SLOT_WARNING_THRESHOLD,
+          threshold_percent: zone.warning_threshold_percent,
+          occupancy_percent: zone.occupancy_percent,
           actor: actorName
         }
       });
@@ -1817,7 +2045,7 @@ async function evaluateZoneCapacityAlerts(db = pool, actorName = "system") {
   const lowCount = zoneStates.filter((zone) =>
     zone.total_slots > 0 &&
     zone.available_slots > 0 &&
-    zone.available_slots <= ZONE_LOW_SLOT_WARNING_THRESHOLD
+    zone.occupancy_percent >= zone.warning_threshold_percent
   ).length;
   return {
     zones: zoneStates,
@@ -2576,7 +2804,7 @@ async function getVisitorPassVerificationState(token, db = pool) {
 
 async function getCurrentParkingSlotByVisitorPass(visitorPassId, db = pool) {
   const [rows] = await db.query(
-    `SELECT id, slot_code, zone
+    `SELECT id, slot_code, zone, slot_type, reserved_for
      FROM parking_slots
      WHERE current_visitor_pass_id = ?
      LIMIT 1`,
@@ -2691,7 +2919,7 @@ async function assignVisitorParkingSlot(db, visitorPassId, slotId) {
 
 async function releaseVisitorParkingSlot(db, visitorPassId) {
   const [rows] = await db.query(
-    `SELECT id, slot_code, zone
+    `SELECT id, slot_code, zone, slot_type, reserved_for
      FROM parking_slots
      WHERE current_visitor_pass_id = ?
      FOR UPDATE`,
@@ -3845,7 +4073,7 @@ async function getAvailableParkingSlots(db = pool, options = {}) {
   }
 
   const [rows] = await db.query(
-    `SELECT id, slot_code, zone
+    `SELECT id, slot_code, zone, slot_type, reserved_for
      FROM parking_slots
      WHERE ${where.join(" AND ")}
      ORDER BY zone ASC, slot_code ASC`,
@@ -3865,7 +4093,10 @@ async function getParkingSlotOverview(db = pool, options = {}) {
        ps.id,
        ps.slot_code,
        ps.zone,
+       ps.slot_type,
+       ps.reserved_for,
        ps.status,
+       ps.disabled_reason,
        ps.current_sticker_id,
        ps.current_visitor_pass_id,
        st.full_name AS occupied_by_name,
@@ -3892,7 +4123,10 @@ async function getParkingSlotOverview(db = pool, options = {}) {
       id: row.id,
       slot_code: row.slot_code,
       zone: row.zone,
+      slot_type: row.slot_type || "standard",
+      reserved_for: row.reserved_for || null,
       status: row.status,
+      disabled_reason: row.disabled_reason || null,
       occupancy,
       is_selectable: occupancy === "available",
       occupied_by_name: row.occupied_by_name || row.occupied_by_visitor_name || null,
@@ -4439,7 +4673,13 @@ const DATASET_DEFINITIONS = Object.freeze({
   parking_slots: {
     label: "Parking Slots",
     importable: true,
-    columns: ["slot_code", "zone", "status"]
+    columns: ["slot_code", "zone", "slot_type", "reserved_for", "status", "disabled_reason"]
+  },
+  stickers: {
+    label: "Parking Stickers",
+    importable: true,
+    encryptedOnly: true,
+    columns: ["sticker_code", "qr_token", "plate_number", "status", "expires_at"]
   },
   visitor_passes: {
     label: "Visitor Passes",
@@ -4451,6 +4691,16 @@ const DATASET_DEFINITIONS = Object.freeze({
   scanner_metrics: { label: "Scanner Performance", importable: false },
   security_audit: { label: "Security Audit", importable: false }
 });
+const RECOVERY_DATASET_ORDER = Object.freeze([
+  "students",
+  "vehicles",
+  "parking_slots",
+  "stickers",
+  "visitor_passes",
+  "scan_logs",
+  "visitor_scan_logs",
+  "security_audit"
+]);
 
 const STUDENT_IMPORT_MAX_ROWS = 2000;
 const STUDENT_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
@@ -4526,25 +4776,37 @@ async function saveStudentImportRows(rows, db, options = {}) {
   }
 }
 
-async function getDatasetExport(dataset) {
+async function getDatasetExport(dataset, db = pool) {
   switch (dataset) {
     case "students": {
-      const [rows] = await pool.query("SELECT student_number, full_name, program, year_level, email FROM students ORDER BY student_number");
+      const [rows] = await db.query("SELECT student_number, full_name, program, year_level, email FROM students ORDER BY student_number");
       return { columns: DATASET_DEFINITIONS.students.columns, rows };
     }
     case "vehicles": {
-      const [rows] = await pool.query(
+      const [rows] = await db.query(
         `SELECT v.plate_number, s.student_number, v.model, v.color
          FROM vehicles v JOIN students s ON s.id = v.student_id ORDER BY v.plate_number`
       );
       return { columns: DATASET_DEFINITIONS.vehicles.columns, rows };
     }
     case "parking_slots": {
-      const [rows] = await pool.query("SELECT slot_code, zone, status FROM parking_slots ORDER BY zone, slot_code");
+      const [rows] = await db.query(
+        `SELECT slot_code, zone, slot_type, reserved_for, status, disabled_reason
+         FROM parking_slots ORDER BY zone, slot_code`
+      );
       return { columns: DATASET_DEFINITIONS.parking_slots.columns, rows };
     }
+    case "stickers": {
+      const [rows] = await db.query(
+        `SELECT st.sticker_code, st.qr_token, v.plate_number, st.status, st.expires_at
+         FROM stickers st
+         JOIN vehicles v ON v.id = st.vehicle_id
+         ORDER BY st.created_at DESC, st.id DESC`
+      );
+      return { columns: DATASET_DEFINITIONS.stickers.columns, rows };
+    }
     case "visitor_passes": {
-      const [rows] = await pool.query(
+      const [rows] = await db.query(
         `SELECT pass_code, qr_token, visitor_type, visitor_name, organization, contact_number,
                 plate_number, vehicle_type, purpose, approval_status, pass_state,
                 valid_from, valid_until, assigned_zone
@@ -4554,7 +4816,7 @@ async function getDatasetExport(dataset) {
     }
     case "scan_logs": {
       const columns = ["scanned_at", "result", "action", "gate_id", "student_number", "plate_number", "slot_code", "scan_source", "status", "notes"];
-      const [rows] = await pool.query(
+      const [rows] = await db.query(
         `SELECT sl.scanned_at, sl.result, sl.action, sl.gate_id, st.student_number,
                 v.plate_number, ps.slot_code, sl.scan_source, sl.status, sl.notes
          FROM scan_logs sl
@@ -4567,7 +4829,7 @@ async function getDatasetExport(dataset) {
     }
     case "visitor_scan_logs": {
       const columns = ["scanned_at", "pass_code", "visitor_name", "plate_number", "result", "action", "gate_id", "slot_code", "scan_source", "status", "reason"];
-      const [rows] = await pool.query(
+      const [rows] = await db.query(
         `SELECT vsl.scanned_at, vp.pass_code, vp.visitor_name, vp.plate_number,
                 vsl.result, vsl.action, vsl.gate_id, ps.slot_code, vsl.scan_source, vsl.status, vsl.reason
          FROM visitor_scan_logs vsl
@@ -4579,12 +4841,12 @@ async function getDatasetExport(dataset) {
     }
     case "scanner_metrics": {
       const columns = ["created_at", "gate_id", "outcome", "movement_action", "detection_model", "detection_confidence", "readiness_score", "process_ms", "time_to_read_ms", "unreadable_frames", "guidance_key", "failure_reason", "network_mode", "device_class", "browser_family"];
-      const [rows] = await pool.query(`SELECT ${columns.join(", ")} FROM scanner_metrics ORDER BY created_at DESC, id DESC`);
+      const [rows] = await db.query(`SELECT ${columns.join(", ")} FROM scanner_metrics ORDER BY created_at DESC, id DESC`);
       return { columns, rows };
     }
     case "security_audit": {
       const columns = ["created_at", "event_type", "actor_username", "actor_role", "target_type", "target_id", "outcome", "ip_hash"];
-      const [rows] = await pool.query(`SELECT ${columns.join(", ")} FROM security_audit_logs ORDER BY created_at DESC, id DESC`);
+      const [rows] = await db.query(`SELECT ${columns.join(", ")} FROM security_audit_logs ORDER BY created_at DESC, id DESC`);
       return { columns, rows };
     }
     default:
@@ -4621,10 +4883,40 @@ async function importDataset(dataset, records, db) {
       } else if (dataset === "parking_slots") {
         if (!row.slot_code) throw new Error("slot_code is required");
         const status = row.status === "disabled" ? "disabled" : "available";
+        const slotType = ["standard", "accessibility", "reserved"].includes(String(row.slot_type || "").toLowerCase())
+          ? String(row.slot_type).toLowerCase()
+          : "standard";
         await db.query(
-          `INSERT INTO parking_slots (slot_code, zone, status) VALUES (?, ?, ?)
-           ON DUPLICATE KEY UPDATE zone = VALUES(zone), status = VALUES(status)`,
-          [row.slot_code.slice(0, 30).toUpperCase(), row.zone?.slice(0, 50) || "General", status]
+          `INSERT INTO parking_slots (slot_code, zone, slot_type, reserved_for, status, disabled_reason)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE zone = VALUES(zone), slot_type = VALUES(slot_type),
+             reserved_for = VALUES(reserved_for), status = VALUES(status), disabled_reason = VALUES(disabled_reason)`,
+          [
+            row.slot_code.slice(0, 30).toUpperCase(),
+            row.zone?.slice(0, 50) || "General",
+            slotType,
+            row.reserved_for?.slice(0, 120) || null,
+            status,
+            row.disabled_reason?.slice(0, 255) || null
+          ]
+        );
+      } else if (dataset === "stickers") {
+        if (!row.sticker_code || !row.qr_token || !row.plate_number) {
+          throw new Error("sticker_code, qr_token, and plate_number are required");
+        }
+        const [vehicles] = await db.query("SELECT id FROM vehicles WHERE plate_number = ? LIMIT 1", [row.plate_number]);
+        if (!vehicles.length) throw new Error(`vehicle ${row.plate_number} does not exist`);
+        const status = ["active", "revoked"].includes(String(row.status || "").toLowerCase())
+          ? String(row.status).toLowerCase()
+          : "revoked";
+        const expiresAt = row.expires_at ? normalizeDateOnlyInput(row.expires_at) : null;
+        if (row.expires_at && !expiresAt) throw new Error("expires_at is invalid");
+        await db.query(
+          `INSERT INTO stickers (vehicle_id, sticker_code, qr_token, status, expires_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE vehicle_id = VALUES(vehicle_id), qr_token = VALUES(qr_token),
+             status = VALUES(status), expires_at = VALUES(expires_at)`,
+          [vehicles[0].id, row.sticker_code.slice(0, 40), row.qr_token.slice(0, 120), status, expiresAt]
         );
       } else if (dataset === "visitor_passes") {
         if (!row.visitor_name || !row.valid_from || !row.valid_until) throw new Error("visitor_name, valid_from, and valid_until are required");
@@ -4662,6 +4954,214 @@ async function importDataset(dataset, records, db) {
   return { imported, errors };
 }
 
+function validateRecoveryPayload(payload) {
+  if (payload?.format !== "naap-recovery-bundle" || Number(payload?.version) !== 1) {
+    throw new BackupValidationError("Recovery bundle format or version is not supported.");
+  }
+  if (!payload.datasets || typeof payload.datasets !== "object" || Array.isArray(payload.datasets)) {
+    throw new BackupValidationError("Recovery bundle does not contain valid datasets.");
+  }
+  let totalRows = 0;
+  for (const [dataset, exported] of Object.entries(payload.datasets)) {
+    if (!RECOVERY_DATASET_ORDER.includes(dataset)) continue;
+    if (!exported || !Array.isArray(exported.columns) || !Array.isArray(exported.rows)) {
+      throw new BackupValidationError(`Recovery dataset ${dataset} is malformed.`);
+    }
+    totalRows += exported.rows.length;
+  }
+  if (totalRows > 100000) throw new BackupValidationError("Recovery bundle contains too many rows.");
+  return payload;
+}
+
+async function buildRecoveryPayload(db = pool) {
+  const datasets = {};
+  for (const dataset of RECOVERY_DATASET_ORDER) {
+    datasets[dataset] = await getDatasetExport(dataset, db);
+  }
+  return {
+    format: "naap-recovery-bundle",
+    version: 1,
+    created_at: new Date().toISOString(),
+    datasets
+  };
+}
+
+function getBackupDigest(encryptedPayload) {
+  return crypto.createHash("sha256").update(String(encryptedPayload || ""), "utf8").digest("hex");
+}
+
+function createRestorePreviewToken(userId, previewId, digest, expiresAt) {
+  const expiry = new Date(expiresAt).getTime();
+  const message = `${Number(userId)}|${Number(previewId)}|${digest}|${expiry}`;
+  return crypto.createHmac("sha256", SESSION_SECRET).update(message).digest("hex");
+}
+
+function verifyRestorePreviewToken(userId, preview, token) {
+  if (!preview || !/^[a-f0-9]{64}$/i.test(String(token || ""))) return false;
+  if (Number(preview.requested_by_user_id) !== Number(userId)) return false;
+  if (preview.consumed_at || new Date(preview.expires_at).getTime() <= Date.now()) return false;
+  const expected = createRestorePreviewToken(userId, preview.id, preview.payload_digest, preview.expires_at);
+  return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(String(token), "hex"));
+}
+
+async function createStoredRecoveryBackup(passphrase, options = {}) {
+  let connection;
+  let payload;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    payload = await buildRecoveryPayload(connection);
+    await connection.commit();
+  } catch (error) {
+    if (connection) {
+      try { await connection.rollback(); } catch (_rollbackError) {}
+    }
+    throw error;
+  } finally {
+    connection?.release();
+  }
+  const encryptedPayload = encryptBackup(payload, passphrase);
+  const summary = summarizeBackupPayload(payload);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const prefix = options.automated ? "automated" : "manual";
+  const filename = `naap-${prefix}-backup-${timestamp}.naapbackup`;
+  const expiresAt = new Date(Date.now() + BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const [result] = await pool.query(
+    `INSERT INTO backup_archives (
+       backup_name, encrypted_payload, payload_bytes, dataset_summary,
+       status, created_by_user_id, expires_at
+     ) VALUES (?, ?, ?, ?, 'ready', ?, ?)`,
+    [
+      filename,
+      encryptedPayload,
+      Buffer.byteLength(encryptedPayload, "utf8"),
+      JSON.stringify(summary),
+      Number(options.userId) || null,
+      expiresAt
+    ]
+  );
+  if (options.automated && BACKUP_EMAIL_TO) {
+    try {
+      await sendBackupArchiveEmail({
+        to: BACKUP_EMAIL_TO,
+        filename,
+        content: Buffer.from(encryptedPayload, "utf8")
+      });
+      await pool.query("UPDATE backup_archives SET status = 'emailed' WHERE id = ?", [result.insertId]);
+    } catch (error) {
+      await pool.query("UPDATE backup_archives SET status = 'email_failed' WHERE id = ?", [result.insertId]);
+      console.warn("Automated backup email warning:", error.message);
+    }
+  }
+  return { id: result.insertId, filename, encryptedPayload, summary };
+}
+
+async function getBackupArchives(limit = 12) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 12, 30));
+  const [rows] = await pool.query(
+    `SELECT id, backup_name, payload_bytes, dataset_summary, status, created_at, expires_at
+     FROM backup_archives
+     WHERE expires_at IS NULL OR expires_at > NOW()
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    [safeLimit]
+  );
+  return rows;
+}
+
+async function suspendInactiveGuards() {
+  if (!GUARD_INACTIVITY_DAYS) return 0;
+  const inactiveBefore = new Date(Date.now() - GUARD_INACTIVITY_DAYS * 24 * 60 * 60 * 1000);
+  const [rows] = await pool.query(
+    `SELECT id, username
+     FROM users
+     WHERE role = 'guard' AND is_active = 1
+       AND COALESCE(last_login_at, created_at) < ?`,
+    [inactiveBefore]
+  );
+  for (const guard of rows) {
+    await pool.query(
+      `UPDATE users
+       SET is_active = 0, disabled_at = NOW(), disabled_reason = ?
+       WHERE id = ? AND is_active = 1`,
+      [`Automatically suspended after ${GUARD_INACTIVITY_DAYS} days without a login`, guard.id]
+    );
+    await revokeUserSessions(guard.id);
+    await recordBackgroundAudit("GUARD_INACTIVITY_SUSPENDED", {
+      targetType: "user",
+      targetId: guard.id,
+      metadata: { username: guard.username, inactivity_days: GUARD_INACTIVITY_DAYS }
+    });
+  }
+  return rows.length;
+}
+
+async function runDataRetentionCleanup() {
+  const results = {};
+  try {
+    await pool.query(
+      `UPDATE scan_logs sl
+       JOIN scan_snapshots ss ON sl.snapshot_path = CONCAT('/snapshots/', ss.storage_key)
+       SET sl.snapshot_path = NULL
+       WHERE ss.created_at < NOW() - INTERVAL ${SNAPSHOT_RETENTION_DAYS} DAY`
+    );
+    await pool.query(
+      `UPDATE auto_scan_queue q
+       JOIN scan_snapshots ss ON q.snapshot_path = CONCAT('/snapshots/', ss.storage_key)
+       SET q.snapshot_path = NULL
+       WHERE ss.created_at < NOW() - INTERVAL ${SNAPSHOT_RETENTION_DAYS} DAY`
+    );
+    [results.snapshots] = await pool.query(
+      `DELETE FROM scan_snapshots WHERE created_at < NOW() - INTERVAL ${SNAPSHOT_RETENTION_DAYS} DAY`
+    );
+    [results.studentLogs] = await pool.query(
+      `DELETE FROM scan_logs WHERE scanned_at < NOW() - INTERVAL ${SCAN_LOG_RETENTION_DAYS} DAY`
+    );
+    [results.visitorLogs] = await pool.query(
+      `DELETE FROM visitor_scan_logs WHERE scanned_at < NOW() - INTERVAL ${SCAN_LOG_RETENTION_DAYS} DAY`
+    );
+    [results.scannerMetrics] = await pool.query(
+      `DELETE FROM scanner_metrics WHERE created_at < NOW() - INTERVAL ${SCANNER_METRIC_RETENTION_DAYS} DAY`
+    );
+    [results.emailJobs] = await pool.query(
+      "DELETE FROM email_delivery_jobs WHERE created_at < NOW() - INTERVAL 180 DAY"
+    );
+    [results.restorePreviews] = await pool.query(
+      "DELETE FROM backup_restore_previews WHERE expires_at < NOW() OR consumed_at IS NOT NULL"
+    );
+    [results.backups] = await pool.query(
+      "DELETE FROM backup_archives WHERE expires_at IS NOT NULL AND expires_at < NOW()"
+    );
+    [results.securityAudit] = await pool.query(
+      `DELETE FROM security_audit_logs WHERE created_at < NOW() - INTERVAL ${SECURITY_AUDIT_RETENTION_DAYS} DAY`
+    );
+    const deleted = Object.values(results).reduce((total, result) => total + Number(result?.affectedRows || 0), 0);
+    if (deleted) await recordBackgroundAudit("DATA_RETENTION_CLEANUP", { metadata: { deleted } });
+    return deleted;
+  } catch (error) {
+    console.error("Data retention cleanup error:", error.message);
+    return 0;
+  }
+}
+
+async function ensureAutomatedRecoveryBackup() {
+  if (BACKUP_ENCRYPTION_KEY.length < 12) return null;
+  const [[latest]] = await pool.query(
+    `SELECT id FROM backup_archives
+     WHERE backup_name LIKE 'naap-automated-backup-%'
+       AND created_at >= NOW() - INTERVAL 20 HOUR
+     ORDER BY created_at DESC LIMIT 1`
+  );
+  if (latest?.id) return null;
+  const backup = await createStoredRecoveryBackup(BACKUP_ENCRYPTION_KEY, { automated: true });
+  await recordBackgroundAudit("AUTOMATED_BACKUP_CREATED", {
+    targetType: "backup",
+    targetId: backup.id,
+    metadata: { summary: backup.summary, emailed: Boolean(BACKUP_EMAIL_TO) }
+  });
+  return backup;
+}
+
 app.get("/", requireAuth, (req, res) => {
   res.redirect(getRoleHomePath(req.authUser?.role));
 });
@@ -4673,7 +5173,8 @@ app.get("/forbidden", requireAuth, (req, res) => {
 app.get("/account/security", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, username, role, totp_enabled, password_changed_at, last_login_at, created_at
+      `SELECT id, username, role, totp_enabled, must_change_password,
+              password_changed_at, last_login_at, created_at
        FROM users WHERE id = ? LIMIT 1`,
       [req.authUser.id]
     );
@@ -4693,6 +5194,10 @@ app.get("/account/security", requireAuth, async (req, res) => {
       ? { type: "success", message: "Security settings updated successfully." }
       : req.query.revoked
         ? { type: "success", message: "Session access was revoked." }
+        : req.query.password_required
+          ? { type: "error", message: "Change your temporary password before continuing." }
+          : req.query.setup_2fa === "required"
+            ? { type: "error", message: "Administrators must enable two-factor authentication before continuing." }
         : req.query.error
           ? { type: "error", message: String(req.query.error).slice(0, 180) }
           : null;
@@ -4701,6 +5206,7 @@ app.get("/account/security", requireAuth, async (req, res) => {
       sessions,
       auditRows: auditResult[0],
       setupSecret: String(req.session.pendingTotpSecret || ""),
+      adminTwoFactorRequired: REQUIRE_ADMIN_2FA && rows[0].role === USER_ROLES.ADMIN,
       flash
     });
   } catch (error) {
@@ -4731,7 +5237,11 @@ app.post("/account/password", requireAuth, async (req, res) => {
       return res.redirect("/account/security?error=Current+password+is+incorrect.");
     }
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await pool.query("UPDATE users SET password = ?, password_changed_at = NOW() WHERE id = ?", [passwordHash, req.authUser.id]);
+    await pool.query(
+      "UPDATE users SET password = ?, password_changed_at = NOW(), must_change_password = 0 WHERE id = ?",
+      [passwordHash, req.authUser.id]
+    );
+    if (req.session?.user) req.session.user.mustChangePassword = false;
     await revokeUserSessions(req.authUser.id, { keepSessionId: req.sessionID });
     accountSecurityRateLimiter.reset(rateKey);
     await recordSecurityAudit(req, "PASSWORD_CHANGED");
@@ -4743,14 +5253,20 @@ app.post("/account/password", requireAuth, async (req, res) => {
 });
 
 app.post("/account/2fa/setup", requireAuth, async (req, res) => {
+  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
+  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
+    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
+  }
   try {
     const [rows] = await pool.query("SELECT password, totp_enabled FROM users WHERE id = ? LIMIT 1", [req.authUser.id]);
     if (!rows.length || rows[0].totp_enabled) return res.redirect("/account/security");
     if (!(await bcrypt.compare(String(req.body.current_password || ""), String(rows[0].password || "")))) {
+      accountSecurityRateLimiter.recordFailure(rateKey);
       await recordSecurityAudit(req, "TWO_FACTOR_SETUP_FAILED", { outcome: "failed" });
       return res.redirect("/account/security?error=Current+password+is+incorrect.");
     }
     req.session.pendingTotpSecret = generateTotpSecret();
+    accountSecurityRateLimiter.reset(rateKey);
     await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
     await recordSecurityAudit(req, "TWO_FACTOR_SETUP_STARTED");
     return res.redirect("/account/security#two-factor");
@@ -4776,8 +5292,13 @@ app.get("/account/2fa/setup-qr", requireAuth, async (req, res) => {
 });
 
 app.post("/account/2fa/enable", requireAuth, async (req, res) => {
+  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
+  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
+    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
+  }
   const secret = String(req.session.pendingTotpSecret || "");
   if (!secret || !verifyTotpToken(secret, req.body.code)) {
+    accountSecurityRateLimiter.recordFailure(rateKey);
     await recordSecurityAudit(req, "TWO_FACTOR_ENABLE_FAILED", { outcome: "failed" });
     return res.redirect("/account/security?error=The+verification+code+is+invalid+or+expired.#two-factor");
   }
@@ -4786,6 +5307,8 @@ app.post("/account/2fa/enable", requireAuth, async (req, res) => {
       "UPDATE users SET totp_enabled = 1, totp_secret_encrypted = ? WHERE id = ?",
       [encryptSecret(secret, SESSION_SECRET), req.authUser.id]
     );
+    if (req.session?.user) req.session.user.totpEnabled = true;
+    accountSecurityRateLimiter.reset(rateKey);
     delete req.session.pendingTotpSecret;
     await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
     await recordSecurityAudit(req, "TWO_FACTOR_ENABLED");
@@ -4797,6 +5320,13 @@ app.post("/account/2fa/enable", requireAuth, async (req, res) => {
 });
 
 app.post("/account/2fa/disable", requireAuth, async (req, res) => {
+  if (REQUIRE_ADMIN_2FA && req.authUser.role === USER_ROLES.ADMIN) {
+    return res.redirect("/account/security?error=Administrator+two-factor+authentication+is+required.#two-factor");
+  }
+  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
+  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
+    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
+  }
   try {
     const [rows] = await pool.query(
       "SELECT password, totp_enabled, totp_secret_encrypted FROM users WHERE id = ? LIMIT 1",
@@ -4808,10 +5338,13 @@ app.post("/account/2fa/disable", requireAuth, async (req, res) => {
       ? verifyTotpToken(decryptSecret(user.totp_secret_encrypted, SESSION_SECRET), req.body.code)
       : false;
     if (!passwordMatches || !tokenMatches) {
+      accountSecurityRateLimiter.recordFailure(rateKey);
       await recordSecurityAudit(req, "TWO_FACTOR_DISABLE_FAILED", { outcome: "failed" });
       return res.redirect("/account/security?error=Password+or+verification+code+is+incorrect.#two-factor");
     }
     await pool.query("UPDATE users SET totp_enabled = 0, totp_secret_encrypted = NULL WHERE id = ?", [req.authUser.id]);
+    if (req.session?.user) req.session.user.totpEnabled = false;
+    accountSecurityRateLimiter.reset(rateKey);
     await recordSecurityAudit(req, "TWO_FACTOR_DISABLED");
     return res.redirect("/account/security?saved=1#two-factor");
   } catch (error) {
@@ -4846,14 +5379,120 @@ app.get("/admin", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 
 app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const overview = await getParkingSlotOverview();
+    const [overview, zoneSettingsResult] = await Promise.all([
+      getParkingSlotOverview(),
+      pool.query(
+        `SELECT pzs.zone, pzs.warning_threshold_percent,
+                COUNT(ps.id) AS total_slots
+         FROM parking_zone_settings pzs
+         LEFT JOIN parking_slots ps ON ps.zone = pzs.zone
+         GROUP BY pzs.zone, pzs.warning_threshold_percent
+         ORDER BY pzs.zone`
+      )
+    ]);
+    const flash = req.query.saved
+      ? { type: "success", message: "Parking slot settings saved." }
+      : req.query.created
+        ? { type: "success", message: "Parking slot created." }
+        : req.query.threshold
+          ? { type: "success", message: "Zone capacity warning threshold updated." }
+          : req.query.error
+            ? { type: "error", message: String(req.query.error).slice(0, 180) }
+            : null;
     res.render("admin_slots", {
       parkingSlots: overview.slots,
-      parkingSlotSummary: overview.summary
+      parkingSlotSummary: overview.summary,
+      zoneSettings: zoneSettingsResult[0],
+      flash
     });
   } catch (error) {
     console.error("Admin slots page error:", error);
     res.status(500).send("An error occurred loading available slots.");
+  }
+});
+
+function normalizeParkingSlotInput(body) {
+  const slotCode = String(body.slot_code || "").trim().toUpperCase().slice(0, 30);
+  const zone = String(body.zone || "General").trim().slice(0, 50) || "General";
+  const requestedType = String(body.slot_type || "standard").trim().toLowerCase();
+  const slotType = ["standard", "accessibility", "reserved"].includes(requestedType) ? requestedType : "standard";
+  const status = String(body.status || "available") === "disabled" ? "disabled" : "available";
+  const reservedFor = slotType === "standard" ? null : String(body.reserved_for || "").trim().slice(0, 120) || null;
+  const disabledReason = status === "disabled" ? String(body.disabled_reason || "").trim().slice(0, 255) || null : null;
+  if (!/^[A-Z0-9][A-Z0-9 _-]{0,29}$/.test(slotCode)) throw new Error("Enter a valid slot code.");
+  if (status === "disabled" && !disabledReason) throw new Error("Provide a maintenance reason when disabling a slot.");
+  if (slotType === "reserved" && !reservedFor) throw new Error("Describe who may use this reserved slot.");
+  return { slotCode, zone, slotType, status, reservedFor, disabledReason };
+}
+
+app.post("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const slot = normalizeParkingSlotInput(req.body);
+    const [result] = await pool.query(
+      `INSERT INTO parking_slots (slot_code, zone, slot_type, reserved_for, status, disabled_reason)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [slot.slotCode, slot.zone, slot.slotType, slot.reservedFor, slot.status, slot.disabledReason]
+    );
+    await pool.query("INSERT IGNORE INTO parking_zone_settings (zone) VALUES (?)", [slot.zone]);
+    await recordSecurityAudit(req, "PARKING_SLOT_CREATED", { targetType: "parking_slot", targetId: result.insertId, metadata: slot });
+    return res.redirect("/admin/slots?created=1");
+  } catch (error) {
+    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : error.message || "Unable to create parking slot.";
+    return res.redirect(`/admin/slots?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.post("/admin/slots/:id(\\d+)", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const slotId = Number(req.params.id);
+  if (!Number.isInteger(slotId) || slotId <= 0) return res.redirect("/admin/slots?error=Invalid+parking+slot.");
+  try {
+    const slot = normalizeParkingSlotInput(req.body);
+    const [rows] = await pool.query(
+      "SELECT current_sticker_id, current_visitor_pass_id FROM parking_slots WHERE id = ? LIMIT 1",
+      [slotId]
+    );
+    if (!rows.length) return res.redirect("/admin/slots?error=Parking+slot+not+found.");
+    if (slot.status === "disabled" && (rows[0].current_sticker_id || rows[0].current_visitor_pass_id)) {
+      return res.redirect("/admin/slots?error=An+occupied+slot+cannot+be+disabled.");
+    }
+    await pool.query(
+      `UPDATE parking_slots
+       SET slot_code = ?, zone = ?, slot_type = ?, reserved_for = ?, status = ?, disabled_reason = ?
+       WHERE id = ?`,
+      [slot.slotCode, slot.zone, slot.slotType, slot.reservedFor, slot.status, slot.disabledReason, slotId]
+    );
+    await pool.query("INSERT IGNORE INTO parking_zone_settings (zone) VALUES (?)", [slot.zone]);
+    await recordSecurityAudit(req, "PARKING_SLOT_UPDATED", { targetType: "parking_slot", targetId: slotId, metadata: slot });
+    return res.redirect("/admin/slots?saved=1");
+  } catch (error) {
+    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : error.message || "Unable to update parking slot.";
+    return res.redirect(`/admin/slots?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.post("/admin/slots/zone-threshold", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const zone = String(req.body.zone || "").trim().slice(0, 50);
+  const threshold = Number(req.body.warning_threshold_percent);
+  if (!zone || !Number.isInteger(threshold) || threshold < 50 || threshold > 100) {
+    return res.redirect("/admin/slots?error=Capacity+threshold+must+be+between+50+and+100+percent.");
+  }
+  try {
+    await pool.query(
+      `INSERT INTO parking_zone_settings (zone, warning_threshold_percent)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE warning_threshold_percent = VALUES(warning_threshold_percent)`,
+      [zone, threshold]
+    );
+    await recordSecurityAudit(req, "PARKING_ZONE_THRESHOLD_UPDATED", {
+      targetType: "parking_zone",
+      targetId: zone,
+      metadata: { warning_threshold_percent: threshold }
+    });
+    await evaluateZoneCapacityAlerts(pool, getAuthActorName(req));
+    return res.redirect("/admin/slots?threshold=1");
+  } catch (error) {
+    console.error("Zone threshold update error:", error);
+    return res.redirect("/admin/slots?error=Unable+to+update+the+zone+threshold.");
   }
 });
 
@@ -4903,16 +5542,36 @@ app.get("/admin/scanner-analytics", requireRole(USER_ROLES.ADMIN), async (req, r
   }
 });
 
-app.get("/admin/data", requireRole(USER_ROLES.ADMIN), (req, res) => {
+async function getAdminDataPageModel(req, extra = {}) {
   const flash = req.query.imported
     ? { type: "success", message: `${Number(req.query.imported) || 0} row(s) imported successfully.` }
+    : req.query.restored
+      ? { type: "success", message: `${Number(req.query.restored) || 0} recovery row(s) restored successfully.` }
+      : req.query.backup
+        ? { type: "success", message: "Encrypted recovery archive created successfully." }
     : req.query.error
       ? { type: "error", message: String(req.query.error).slice(0, 220) }
       : null;
-  return res.render("admin_data", {
-    datasets: Object.entries(DATASET_DEFINITIONS).map(([key, value]) => ({ key, ...value })),
-    flash
-  });
+  return {
+    datasets: Object.entries(DATASET_DEFINITIONS)
+      .filter(([, value]) => !value.encryptedOnly)
+      .map(([key, value]) => ({ key, ...value })),
+    archives: await getBackupArchives(),
+    backupAutomationEnabled: BACKUP_ENCRYPTION_KEY.length >= 12,
+    backupEmailEnabled: Boolean(BACKUP_EMAIL_TO),
+    restorePreview: null,
+    flash,
+    ...extra
+  };
+}
+
+app.get("/admin/data", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    return res.render("admin_data", await getAdminDataPageModel(req));
+  } catch (error) {
+    console.error("Admin data page error:", error);
+    return res.status(500).send("Unable to load backup and recovery tools.");
+  }
 });
 
 app.get("/admin/data/export/:dataset", requireRole(USER_ROLES.ADMIN), async (req, res) => {
@@ -4945,8 +5604,9 @@ app.post("/admin/data/import", requireRole(USER_ROLES.ADMIN), async (req, res) =
     return res.redirect(`/admin/data?error=${encodeURIComponent(error.message || "Invalid CSV file.")}`);
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const result = await importDataset(dataset, records, connection);
     await connection.commit();
@@ -4962,11 +5622,140 @@ app.post("/admin/data/import", requireRole(USER_ROLES.ADMIN), async (req, res) =
     }
     return res.redirect(`/admin/data?imported=${result.imported}`);
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback();
     console.error("Data import error:", error);
     return res.redirect("/admin/data?error=Unable+to+import+this+CSV.");
   } finally {
-    connection.release();
+    connection?.release();
+  }
+});
+
+app.post("/admin/data/backup", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const passphrase = String(req.body.backup_passphrase || "");
+  const confirmation = String(req.body.backup_passphrase_confirmation || "");
+  if (passphrase !== confirmation) return res.redirect("/admin/data?error=Backup+passphrases+do+not+match.");
+  try {
+    const backup = await createStoredRecoveryBackup(passphrase, { userId: req.authUser.id });
+    await recordSecurityAudit(req, "ENCRYPTED_BACKUP_CREATED", {
+      targetType: "backup",
+      targetId: backup.id,
+      metadata: { summary: backup.summary }
+    });
+    res.setHeader("Content-Type", "application/vnd.naap.encrypted-backup+json");
+    res.setHeader("Content-Disposition", `attachment; filename="${backup.filename}"`);
+    return res.send(backup.encryptedPayload);
+  } catch (error) {
+    const message = error instanceof BackupValidationError ? error.message : "Unable to create the encrypted backup.";
+    console.error("Encrypted backup error:", error.message);
+    return res.redirect(`/admin/data?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.get("/admin/data/backups/:id/download", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const backupId = Number(req.params.id);
+  if (!Number.isInteger(backupId) || backupId <= 0) return res.status(404).send("Backup not found.");
+  try {
+    const [rows] = await pool.query(
+      `SELECT backup_name, encrypted_payload
+       FROM backup_archives
+       WHERE id = ? AND (expires_at IS NULL OR expires_at > NOW())
+       LIMIT 1`,
+      [backupId]
+    );
+    if (!rows.length) return res.status(404).send("Backup not found or expired.");
+    res.setHeader("Content-Type", "application/vnd.naap.encrypted-backup+json");
+    res.setHeader("Content-Disposition", `attachment; filename="${String(rows[0].backup_name).replace(/[^a-z0-9._-]/gi, "-")}"`);
+    await recordSecurityAudit(req, "ENCRYPTED_BACKUP_DOWNLOADED", { targetType: "backup", targetId: backupId });
+    return res.send(rows[0].encrypted_payload);
+  } catch (error) {
+    console.error("Backup download error:", error);
+    return res.status(500).send("Unable to download this backup.");
+  }
+});
+
+app.post(
+  "/admin/data/restore-preview",
+  requireRole(USER_ROLES.ADMIN),
+  backupUpload.single("backup_file"),
+  async (req, res) => {
+    try {
+      if (!req.file?.buffer?.length) throw new BackupValidationError("Choose an encrypted .naapbackup file.");
+      const encryptedPayload = req.file.buffer.toString("utf8");
+      const payload = validateRecoveryPayload(decryptBackup(encryptedPayload, req.body.backup_passphrase));
+      const summary = summarizeBackupPayload(payload);
+      const digest = getBackupDigest(encryptedPayload);
+      // MySQL TIMESTAMP values have second precision by default. Round before
+      // signing so the stored expiry recreates the same confirmation token.
+      const expiresAt = new Date(Math.floor((Date.now() + 15 * 60 * 1000) / 1000) * 1000);
+      const [result] = await pool.query(
+        `INSERT INTO backup_restore_previews
+           (requested_by_user_id, encrypted_payload, payload_digest, dataset_summary, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [req.authUser.id, encryptedPayload, digest, JSON.stringify(summary), expiresAt]
+      );
+      const restorePreview = {
+        id: result.insertId,
+        token: createRestorePreviewToken(req.authUser.id, result.insertId, digest, expiresAt),
+        summary,
+        createdAt: payload.created_at || null
+      };
+      await recordSecurityAudit(req, "BACKUP_RESTORE_PREVIEWED", {
+        targetType: "backup_restore_preview",
+        targetId: result.insertId,
+        metadata: { summary }
+      });
+      return res.render("admin_data", await getAdminDataPageModel(req, { restorePreview }));
+    } catch (error) {
+      const message = error instanceof BackupValidationError ? error.message : "Unable to validate this recovery archive.";
+      console.error("Backup restore preview error:", error.message);
+      return res.redirect(`/admin/data?error=${encodeURIComponent(message)}`);
+    }
+  }
+);
+
+app.post("/admin/data/restore-confirm", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const previewId = Number(req.body.preview_id);
+  const token = String(req.body.preview_token || "");
+  const passphrase = String(req.body.backup_passphrase || "");
+  if (!Number.isInteger(previewId) || previewId <= 0) return res.redirect("/admin/data?error=Invalid+restore+confirmation.");
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT id, requested_by_user_id, encrypted_payload, payload_digest, expires_at, consumed_at
+       FROM backup_restore_previews WHERE id = ? FOR UPDATE`,
+      [previewId]
+    );
+    const preview = rows[0];
+    if (!verifyRestorePreviewToken(req.authUser.id, preview, token)) {
+      throw new BackupValidationError("Restore preview expired or could not be verified.");
+    }
+    const payload = validateRecoveryPayload(decryptBackup(preview.encrypted_payload, passphrase));
+    let imported = 0;
+    for (const dataset of RECOVERY_DATASET_ORDER) {
+      if (!DATASET_DEFINITIONS[dataset]?.importable) continue;
+      const records = payload.datasets[dataset]?.rows;
+      if (!Array.isArray(records) || !records.length) continue;
+      const result = await importDataset(dataset, records, connection);
+      if (result.errors.length) throw new BackupValidationError(result.errors[0]);
+      imported += result.imported;
+    }
+    await connection.query("UPDATE backup_restore_previews SET consumed_at = NOW() WHERE id = ?", [previewId]);
+    await connection.commit();
+    await recordSecurityAudit(req, "BACKUP_RESTORED", {
+      targetType: "backup_restore_preview",
+      targetId: previewId,
+      metadata: { imported }
+    });
+    return res.redirect(`/admin/data?restored=${imported}`);
+  } catch (error) {
+    try { await connection.rollback(); } catch (_rollbackError) {}
+    const message = error instanceof BackupValidationError ? error.message : "Unable to restore this recovery archive.";
+    console.error("Backup restore error:", error.message);
+    return res.redirect(`/admin/data?error=${encodeURIComponent(message)}`);
+  } finally {
+    connection?.release();
   }
 });
 
@@ -5005,6 +5794,12 @@ app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          u.id,
          u.username,
          u.role,
+         u.is_active,
+         u.must_change_password,
+         u.totp_enabled,
+         u.last_login_at,
+         u.disabled_at,
+         u.disabled_reason,
          u.created_at
        FROM users u
        ORDER BY
@@ -5020,6 +5815,10 @@ app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       ? { type: "success", message: "User saved successfully." }
       : req.query.updated
         ? { type: "success", message: "User updated successfully." }
+        : req.query.status
+          ? { type: "success", message: "Account status updated successfully." }
+          : req.query.reset2fa
+            ? { type: "success", message: "Two-factor enrollment was reset. The user can enroll a new device." }
         : req.query.deleted
           ? { type: "success", message: "User deleted successfully." }
           : req.query.error === "duplicate"
@@ -5032,6 +5831,10 @@ app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
                   ? { type: "error", message: "Invalid user details provided." }
                 : req.query.error === "notfound"
                     ? { type: "error", message: "User was not found." }
+                    : req.query.error === "last-admin"
+                      ? { type: "error", message: "The last active administrator cannot be suspended." }
+                      : req.query.error === "self-status"
+                        ? { type: "error", message: "You cannot suspend your own account." }
                     : null;
 
     res.render("admin_users", { users, flash });
@@ -5053,9 +5856,10 @@ app.post("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     const passwordHash = await bcrypt.hash(password, 12);
     await pool.query(
-      "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+      "INSERT INTO users (username, password, role, must_change_password) VALUES (?, ?, ?, 1)",
       [username, passwordHash, role]
     );
+    await recordSecurityAudit(req, "USER_CREATED", { targetType: "user", targetId: username, metadata: { role } });
     return res.redirect("/admin/users?success=1");
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
@@ -5100,9 +5904,9 @@ app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res
       const passwordHash = await bcrypt.hash(password, 12);
       await pool.query(
         `UPDATE users
-         SET username = ?, role = ?, password = ?
+         SET username = ?, role = ?, password = ?, password_changed_at = NOW(), must_change_password = ?
          WHERE id = ?`,
-        [username, role, passwordHash, userId]
+        [username, role, passwordHash, Number(req.authUser?.id) === userId ? 0 : 1, userId]
       );
       await revokeUserSessions(userId, {
         keepSessionId: Number(req.authUser?.id) === userId ? req.sessionID : null
@@ -5123,6 +5927,11 @@ app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res
         role
       };
     }
+    await recordSecurityAudit(req, password ? "USER_PASSWORD_RESET" : "USER_UPDATED", {
+      targetType: "user",
+      targetId: userId,
+      metadata: { username, role, password_reset: Boolean(password) }
+    });
     return res.redirect("/admin/users?updated=1");
   } catch (error) {
     if (error.code === "ER_DUP_ENTRY") {
@@ -5143,10 +5952,73 @@ app.post("/admin/users/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, r
   }
 
   try {
+    const [targetRows] = await pool.query("SELECT role, is_active, username FROM users WHERE id = ? LIMIT 1", [userId]);
+    if (!targetRows.length) return res.redirect("/admin/users?error=notfound");
+    if (targetRows[0].role === USER_ROLES.ADMIN && targetRows[0].is_active) {
+      const [[countRow]] = await pool.query("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1");
+      if (Number(countRow?.total || 0) <= 1) return res.redirect("/admin/users?error=last-admin");
+    }
     await pool.query("DELETE FROM users WHERE id = ?", [userId]);
+    await recordSecurityAudit(req, "USER_DELETED", {
+      targetType: "user",
+      targetId: userId,
+      metadata: { username: targetRows[0].username, role: targetRows[0].role }
+    });
     return res.redirect("/admin/users?deleted=1");
   } catch (error) {
     console.error("Delete user error:", error);
+    return res.redirect("/admin/users?error=invalid");
+  }
+});
+
+app.post("/admin/users/:id/status", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const userId = Number(req.params.id);
+  const nextActive = String(req.body.is_active || "") === "1";
+  if (!Number.isInteger(userId) || userId <= 0) return res.redirect("/admin/users?error=invalid");
+  if (Number(req.authUser.id) === userId) return res.redirect("/admin/users?error=self-status");
+  try {
+    const [rows] = await pool.query("SELECT id, username, role, is_active FROM users WHERE id = ? LIMIT 1", [userId]);
+    if (!rows.length) return res.redirect("/admin/users?error=notfound");
+    const target = rows[0];
+    if (!nextActive && target.role === USER_ROLES.ADMIN && target.is_active) {
+      const [[countRow]] = await pool.query("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1");
+      if (Number(countRow?.total || 0) <= 1) return res.redirect("/admin/users?error=last-admin");
+    }
+    await pool.query(
+      `UPDATE users
+       SET is_active = ?, disabled_at = ?, disabled_reason = ?
+       WHERE id = ?`,
+      [nextActive ? 1 : 0, nextActive ? null : new Date(), nextActive ? null : "Suspended by administrator", userId]
+    );
+    if (!nextActive) await revokeUserSessions(userId);
+    await recordSecurityAudit(req, nextActive ? "USER_REACTIVATED" : "USER_SUSPENDED", {
+      targetType: "user",
+      targetId: userId,
+      metadata: { username: target.username, role: target.role }
+    });
+    return res.redirect("/admin/users?status=1");
+  } catch (error) {
+    console.error("Account status update error:", error);
+    return res.redirect("/admin/users?error=invalid");
+  }
+});
+
+app.post("/admin/users/:id/reset-2fa", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId <= 0 || Number(req.authUser.id) === userId) {
+    return res.redirect("/admin/users?error=invalid");
+  }
+  try {
+    const [result] = await pool.query(
+      "UPDATE users SET totp_enabled = 0, totp_secret_encrypted = NULL WHERE id = ?",
+      [userId]
+    );
+    if (!result.affectedRows) return res.redirect("/admin/users?error=notfound");
+    await revokeUserSessions(userId);
+    await recordSecurityAudit(req, "USER_TWO_FACTOR_RESET", { targetType: "user", targetId: userId });
+    return res.redirect("/admin/users?reset2fa=1");
+  } catch (error) {
+    console.error("Two-factor reset error:", error);
     return res.redirect("/admin/users?error=invalid");
   }
 });
@@ -6241,7 +7113,7 @@ app.post("/vehicles/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, res)
 
 app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const [vehicleResult, stickerResult] = await Promise.all([
+    const [vehicleResult, stickerResult, deliveryResult] = await Promise.all([
       pool.query(
         `SELECT v.id, v.plate_number, v.model, s.full_name, s.student_number
          FROM vehicles v
@@ -6249,27 +7121,62 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          ORDER BY v.id DESC`
       ),
       pool.query(
-        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number, s.email
+        `SELECT st.*, v.plate_number, v.model, s.full_name, s.student_number, s.email,
+                email_job.id AS email_job_id,
+                email_job.status AS email_status,
+                email_job.attempts AS email_attempts,
+                email_job.last_error AS email_last_error,
+                email_job.sent_at AS email_sent_at,
+                (SELECT MAX(sl.scanned_at) FROM scan_logs sl WHERE sl.sticker_id = st.id) AS last_scanned_at,
+                (SELECT COUNT(*) FROM scan_logs sl WHERE sl.sticker_id = st.id AND sl.result <> 'VALID') AS rejected_scan_count,
+                (SELECT COUNT(*) FROM sticker_qr_history qh WHERE qh.sticker_id = st.id) AS qr_rotation_count
          FROM stickers st
          JOIN vehicles v ON v.id = st.vehicle_id
          JOIN students s ON s.id = v.student_id
+         LEFT JOIN email_delivery_jobs email_job ON email_job.id = (
+           SELECT ej.id FROM email_delivery_jobs ej
+           WHERE ej.sticker_id = st.id
+           ORDER BY ej.created_at DESC, ej.id DESC LIMIT 1
+         )
          ORDER BY st.created_at DESC, st.id DESC`
+      ),
+      pool.query(
+        `SELECT ej.id, ej.sticker_id, ej.recipient, ej.status, ej.attempts,
+                ej.max_attempts, ej.last_error, ej.created_at, ej.sent_at,
+                st.sticker_code, s.full_name
+         FROM email_delivery_jobs ej
+         JOIN stickers st ON st.id = ej.sticker_id
+         JOIN vehicles v ON v.id = st.vehicle_id
+         JOIN students s ON s.id = v.student_id
+         ORDER BY ej.created_at DESC, ej.id DESC
+         LIMIT 30`
       )
     ]);
     const vehicles = vehicleResult[0];
     const stickers = stickerResult[0];
+    const emailDeliveries = deliveryResult[0];
     const flash = req.query.success
       ? { type: "success", message: "Sticker issued successfully." }
       : req.query.revoked
       ? { type: "success", message: "Sticker has been revoked." }
-      : req.query.email === "sent"
-      ? { type: "success", message: "QR code emailed to the student successfully." }
+      : req.query.rotate === "success"
+      ? { type: "success", message: "QR code replaced. The previous QR no longer grants access." }
+      : req.query.rotate === "inactive"
+      ? { type: "error", message: "Only an active, unexpired sticker can receive a replacement QR." }
+      : req.query.rotate
+      ? { type: "error", message: "The QR code could not be replaced." }
+      : req.query.email === "queued"
+      ? { type: "success", message: "QR email queued. Delivery continues safely in the background." }
+      : req.query.email === "already_queued"
+      ? { type: "success", message: "A QR email for this sticker is already queued." }
+      : req.query.email === "retry_queued"
+      ? { type: "success", message: "Email delivery was queued for another attempt." }
       : req.query.email === "no_email"
       ? { type: "error", message: "This student does not have a valid email address. Add one in Student Management first." }
       : req.query.email === "inactive"
       ? { type: "error", message: "Only an active, unexpired sticker QR code can be emailed." }
       : req.query.email === "not_configured"
-      ? { type: "error", message: "Email delivery is not configured. Add the SMTP settings shown in .env.example." }
+      ? { type: "error", message: "Email delivery is not ready yet. Ask the system administrator to connect a mail service." }
       : req.query.email === "failed"
       ? { type: "error", message: "The email could not be sent. Check the mail server settings and try again." }
       : req.query.email === "not_found"
@@ -6277,7 +7184,7 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       : req.query.email === "rate_limited"
       ? { type: "error", message: "Too many QR emails were requested. Wait a few minutes and try again." }
       : null;
-    res.render("stickers", { stickers, vehicles, APP_BASE_URL, flash });
+    res.render("stickers", { stickers, vehicles, emailDeliveries, APP_BASE_URL, flash });
   } catch (error) {
     console.error("Stickers error:", error);
     res.status(500).send("An error occurred loading stickers.");
@@ -6304,6 +7211,7 @@ app.post("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
 app.post("/stickers/:id/revoke", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
     await pool.query("UPDATE stickers SET status = 'revoked' WHERE id = ?", [req.params.id]);
+    await recordSecurityAudit(req, "STICKER_REVOKED", { targetType: "sticker", targetId: req.params.id });
     res.redirect("/stickers?revoked=1");
   } catch (error) {
     console.error("Revoke sticker error:", error);
@@ -6327,6 +7235,62 @@ app.get("/stickers/:id/qr", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   }
 });
 
+app.get("/stickers/:id/print", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  try {
+    const sticker = await getStickerEmailDetails(req.params.id);
+    if (!sticker) return res.status(404).send("Sticker not found.");
+    return res.render("sticker_print", { sticker, verifyUrl: `${APP_BASE_URL.replace(/\/+$/, "")}/verify/${sticker.qr_token}` });
+  } catch (error) {
+    console.error("Sticker print page error:", error);
+    return res.status(500).send("Unable to prepare this sticker for printing.");
+  }
+});
+
+app.post("/stickers/:id/rotate", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const stickerId = Number(req.params.id);
+  const reason = String(req.body.reason || "Replaced by administrator").trim().slice(0, 255);
+  if (!Number.isInteger(stickerId) || stickerId <= 0) return res.redirect("/stickers?rotate=not_found");
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      "SELECT id, qr_token, status, expires_at FROM stickers WHERE id = ? FOR UPDATE",
+      [stickerId]
+    );
+    const sticker = rows[0];
+    if (!isStickerEmailEligible(sticker)) {
+      await connection.rollback();
+      return res.redirect("/stickers?rotate=inactive");
+    }
+    await connection.query(
+      `INSERT INTO sticker_qr_history (sticker_id, previous_qr_token, rotated_by_user_id, reason)
+       VALUES (?, ?, ?, ?)`,
+      [stickerId, sticker.qr_token, req.authUser.id, reason || null]
+    );
+    await connection.query("UPDATE stickers SET qr_token = ? WHERE id = ?", [createQrToken(), stickerId]);
+    await connection.query(
+      `UPDATE email_delivery_jobs
+       SET status = 'failed', last_error = 'QR was replaced before delivery.', next_attempt_at = NULL
+       WHERE sticker_id = ? AND status IN ('queued', 'retrying', 'sending')`,
+      [stickerId]
+    );
+    await connection.commit();
+    await recordSecurityAudit(req, "STICKER_QR_ROTATED", {
+      targetType: "sticker",
+      targetId: stickerId,
+      metadata: { reason: reason || null }
+    });
+    return res.redirect("/stickers?rotate=success");
+  } catch (error) {
+    if (connection) await connection.rollback();
+    console.error("QR rotation error:", error);
+    return res.redirect("/stickers?rotate=failed");
+  } finally {
+    connection?.release();
+  }
+});
+
 app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   const emailRateKey = `admin:${req.authUser.id}`;
   const emailRateState = qrEmailRateLimiter.check(emailRateKey);
@@ -6340,52 +7304,78 @@ app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) 
     return res.redirect("/stickers?email=rate_limited");
   }
   qrEmailRateLimiter.record(emailRateKey);
+  let connection;
   try {
-    const [rows] = await pool.query(
-      `SELECT st.id, st.sticker_code, st.qr_token, st.status, st.expires_at,
-              v.plate_number, s.id AS student_id, s.student_number, s.full_name, s.email
-       FROM stickers st
-       JOIN vehicles v ON v.id = st.vehicle_id
-       JOIN students s ON s.id = v.student_id
-       WHERE st.id = ?
-       LIMIT 1`,
-      [req.params.id]
-    );
-    if (rows.length === 0) return res.redirect("/stickers?email=not_found");
-
-    const sticker = rows[0];
-    const isExpired = sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now();
-    if (sticker.status !== "active" || isExpired) {
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    const [lockedRows] = await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [req.params.id]);
+    if (!lockedRows.length) {
+      await connection.rollback();
+      return res.redirect("/stickers?email=not_found");
+    }
+    const sticker = await getStickerEmailDetails(req.params.id, connection);
+    if (!isStickerEmailEligible(sticker)) {
+      await connection.rollback();
       return res.redirect("/stickers?email=inactive");
     }
 
     const recipient = normalizeEmailAddress(sticker.email);
-    if (!recipient) return res.redirect("/stickers?email=no_email");
-
-    const verifyUrl = `${APP_BASE_URL.replace(/\/+$/, "")}/verify/${sticker.qr_token}`;
-    const qrPng = await generateBrandedQrPng(verifyUrl);
-    await sendStudentQrEmail({
-      to: recipient,
-      studentName: sticker.full_name,
-      studentNumber: sticker.student_number,
-      stickerCode: sticker.sticker_code,
-      plateNumber: sticker.plate_number,
-      verifyUrl,
-      qrPng
-    });
-    await recordSecurityAudit(req, "STICKER_QR_EMAILED", {
+    if (!recipient) {
+      await connection.rollback();
+      return res.redirect("/stickers?email=no_email");
+    }
+    const [existingRows] = await connection.query(
+      `SELECT id FROM email_delivery_jobs
+       WHERE sticker_id = ? AND status IN ('queued', 'retrying', 'sending')
+       LIMIT 1`,
+      [sticker.id]
+    );
+    if (existingRows.length) {
+      await connection.rollback();
+      return res.redirect("/stickers?email=already_queued");
+    }
+    const [jobResult] = await connection.query(
+      `INSERT INTO email_delivery_jobs (sticker_id, recipient, requested_by_user_id)
+       VALUES (?, ?, ?)`,
+      [sticker.id, recipient, req.authUser.id]
+    );
+    await connection.commit();
+    await recordSecurityAudit(req, "STICKER_QR_EMAIL_QUEUED", {
       targetType: "sticker",
       targetId: sticker.id,
-      metadata: { student_id: sticker.student_id }
+      metadata: { student_id: sticker.student_id, job_id: jobResult.insertId }
     });
-    return res.redirect("/stickers?email=sent");
+    setImmediate(() => processEmailDeliveryJobs());
+    return res.redirect("/stickers?email=queued");
   } catch (error) {
-    if (error instanceof MailConfigurationError || error?.code === "MAIL_NOT_CONFIGURED") {
-      console.error("QR email configuration error:", error.message);
-      return res.redirect("/stickers?email=not_configured");
-    }
-    console.error("QR email delivery error:", error);
+    try { await connection.rollback(); } catch (_rollbackError) {}
+    console.error("QR email queue error:", error);
     return res.redirect("/stickers?email=failed");
+  } finally {
+    connection?.release();
+  }
+});
+
+app.post("/admin/email-deliveries/:id/retry", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  const jobId = Number(req.params.id);
+  if (!Number.isInteger(jobId) || jobId <= 0) return res.redirect("/stickers?email=not_found");
+  try {
+    const [result] = await pool.query(
+      `UPDATE email_delivery_jobs
+       SET status = 'queued', attempts = 0, next_attempt_at = NOW(), last_error = NULL, sent_at = NULL
+       WHERE id = ? AND status = 'failed'`,
+      [jobId]
+    );
+    if (!result.affectedRows) return res.redirect("/stickers?email=not_found");
+    await recordSecurityAudit(req, "STICKER_QR_EMAIL_RETRY_QUEUED", {
+      targetType: "email_delivery",
+      targetId: jobId
+    });
+    setImmediate(() => processEmailDeliveryJobs());
+    return res.redirect("/stickers?email=retry_queued#email-deliveries");
+  } catch (error) {
+    console.error("Email retry error:", error);
+    return res.redirect("/stickers?email=failed#email-deliveries");
   }
 });
 
@@ -8224,7 +9214,7 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
       JOIN vehicles v ON v.id = s.vehicle_id
       JOIN students st ON st.id = v.student_id
       WHERE s.status = 'active'
-        AND (s.expires_at IS NULL OR s.expires_at >= NOW())
+        AND (s.expires_at IS NULL OR s.expires_at >= CURDATE())
     `);
     res.json({ ok: true, roster });
   } catch (error) {
@@ -8262,7 +9252,7 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
         [token]
       ) : [[]];
       const sticker = stickerRows[0];
-      if (!sticker || sticker.status !== "active" || (sticker.expires_at && new Date(sticker.expires_at) < new Date())) {
+      if (!sticker || sticker.status !== "active" || isExpired(sticker.expires_at)) {
         await connection.query(
           "INSERT INTO offline_sync_receipts (event_id, action, synced_by_user_id, occurred_at) VALUES (?, 'REJECTED', ?, NOW())",
           [eventId, req.authUser.id]
@@ -8361,6 +9351,17 @@ app.use((err, req, res, next) => {
 
   const isApi = req.path.startsWith("/api/");
 
+  if (err instanceof multer.MulterError) {
+    const message = err.code === "LIMIT_FILE_SIZE"
+      ? "The backup file is too large. Maximum size is 20 MB."
+      : "The backup upload could not be accepted.";
+    if (isApi) return res.status(400).json({ ok: false, message });
+    if (req.path === "/admin/data/restore-preview") {
+      return res.redirect(`/admin/data?error=${encodeURIComponent(message)}`);
+    }
+    return res.status(400).send(message);
+  }
+
   if (err.type === "entity.too.large") {
     if (isApi) {
       return res.status(413).json({
@@ -8396,6 +9397,23 @@ async function startServer() {
     }
     await ensureDatabaseSchema();
     await sessionStore.onReady();
+    setImmediate(() => {
+      processEmailDeliveryJobs();
+      suspendInactiveGuards().catch((error) => console.error("Inactive guard cleanup error:", error.message));
+      runDataRetentionCleanup();
+      ensureAutomatedRecoveryBackup().catch((error) => console.error("Automated backup error:", error.message));
+    });
+    const emailTimer = setInterval(processEmailDeliveryJobs, EMAIL_WORKER_INTERVAL_MS);
+    const maintenanceTimer = setInterval(() => {
+      suspendInactiveGuards().catch((error) => console.error("Inactive guard cleanup error:", error.message));
+      runDataRetentionCleanup();
+    }, 6 * 60 * 60 * 1000);
+    const backupTimer = setInterval(() => {
+      ensureAutomatedRecoveryBackup().catch((error) => console.error("Automated backup error:", error.message));
+    }, 60 * 60 * 1000);
+    emailTimer.unref();
+    maintenanceTimer.unref();
+    backupTimer.unref();
     app.listen(PORT, () => {
       console.log(`NAAP Parking app running at ${APP_BASE_URL}`);
     });

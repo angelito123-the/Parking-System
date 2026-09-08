@@ -11,6 +11,7 @@
     };
   const initialSelectedSlot = safeParkingSlots.find((slot) => slot.occupancy === "available") || safeParkingSlots[0] || null;
   const initialSelectedSlotCode = initialSelectedSlot?.slot_code ? String(initialSelectedSlot.slot_code) : "";
+  const safeZoneSettings = Array.isArray(zoneSettings) ? zoneSettings : [];
 %>
 
 <section class="dashboard-hero">
@@ -36,9 +37,39 @@
       <p id="slotMetricDisabled"><%= safeParkingSlotSummary.disabled %></p>
     </div>
   </div>
+  <% if (flash) { %><div class="flash flash-spaced flash-<%= flash.type === 'success' ? 'success' : 'error' %>"><%= flash.message %></div><% } %>
 </section>
 
 <div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
+  <section class="panel slot-configuration-panel">
+    <div class="section-head"><h2>Configure Parking Spaces</h2><p>Add normal, accessibility, or reserved spaces and set clear maintenance reasons.</p></div>
+    <form method="post" action="/admin/slots" class="form-grid">
+      <div class="form-row-3">
+        <div><label for="newSlotCode">Slot code</label><input id="newSlotCode" name="slot_code" maxlength="30" placeholder="C-01" required /></div>
+        <div><label for="newSlotZone">Zone</label><input id="newSlotZone" name="zone" maxlength="50" placeholder="Zone C" required /></div>
+        <div><label for="newSlotType">Space type</label><select id="newSlotType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
+      </div>
+      <div class="form-row-3">
+        <div><label for="newSlotReserved">Reserved for</label><input id="newSlotReserved" name="reserved_for" maxlength="120" placeholder="Required for reserved spaces" /></div>
+        <div><label for="newSlotStatus">Status</label><select id="newSlotStatus" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
+        <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Required when disabled" /></div>
+      </div>
+      <div class="form-actions"><button type="submit">Add Parking Space</button></div>
+    </form>
+    <% if (safeZoneSettings.length) { %>
+      <div class="zone-threshold-grid">
+        <% safeZoneSettings.forEach((setting) => { %>
+          <form method="post" action="/admin/slots/zone-threshold" class="zone-threshold-card">
+            <input type="hidden" name="zone" value="<%= setting.zone %>" />
+            <div><strong><%= setting.zone %></strong><span><%= setting.total_slots %> space(s)</span></div>
+            <label>Warn at <input type="number" name="warning_threshold_percent" min="50" max="100" value="<%= setting.warning_threshold_percent %>" required />% occupied</label>
+            <button type="submit" class="btn-sm">Save threshold</button>
+          </form>
+        <% }) %>
+      </div>
+    <% } %>
+  </section>
+
   <section class="panel">
     <div class="section-head">
       <h2>Parking Slot Monitoring</h2>
@@ -107,6 +138,18 @@
           Select a slot to review assignment details and recent parking activity.
         </p>
         <div id="slotInspectorDetails" class="parking-inspector-details"></div>
+        <details class="slot-editor-disclosure">
+          <summary>Edit selected space</summary>
+          <form method="post" id="slotEditorForm" class="form-grid security-form-compact">
+            <div><label for="slotEditorCode">Slot code</label><input id="slotEditorCode" name="slot_code" maxlength="30" required /></div>
+            <div><label for="slotEditorZone">Zone</label><input id="slotEditorZone" name="zone" maxlength="50" required /></div>
+            <div><label for="slotEditorType">Space type</label><select id="slotEditorType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
+            <div><label for="slotEditorReserved">Reserved for</label><input id="slotEditorReserved" name="reserved_for" maxlength="120" /></div>
+            <div><label for="slotEditorState">Status</label><select id="slotEditorState" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
+            <div><label for="slotEditorReason">Maintenance reason</label><input id="slotEditorReason" name="disabled_reason" maxlength="255" /></div>
+            <button type="submit" class="btn-sm">Save Space</button>
+          </form>
+        </details>
 
         <div class="parking-inspector-history-head">
           <strong>Recent Activity</strong>
@@ -168,6 +211,13 @@
     const slotInspectorSubtitleEl = document.getElementById("slotInspectorSubtitle");
     const slotInspectorDetailsEl = document.getElementById("slotInspectorDetails");
     const slotInspectorHistoryEl = document.getElementById("slotInspectorHistory");
+    const slotEditorForm = document.getElementById("slotEditorForm");
+    const slotEditorCode = document.getElementById("slotEditorCode");
+    const slotEditorZone = document.getElementById("slotEditorZone");
+    const slotEditorType = document.getElementById("slotEditorType");
+    const slotEditorReserved = document.getElementById("slotEditorReserved");
+    const slotEditorState = document.getElementById("slotEditorState");
+    const slotEditorReason = document.getElementById("slotEditorReason");
     const openSlotHistoryBtnEl = document.getElementById("openSlotHistoryBtn");
     const slotHistoryModal = document.getElementById("slotHistoryModal");
     const slotHistoryTitle = document.getElementById("slotHistoryTitle");
@@ -237,8 +287,8 @@
       const tileMeta = occupancy === "occupied"
         ? (slot.occupied_by_plate || "Occupied")
         : occupancy === "available"
-          ? "Available"
-          : "Unavailable";
+          ? (slot.slot_type === "standard" ? "Available" : `${slot.slot_type || "special"} space`)
+          : (slot.disabled_reason || "Unavailable");
 
       return `<button
         type="button"
@@ -316,7 +366,7 @@
         const occupancy = slot.occupancy || "available";
         if (activeSlotFilter !== "all" && occupancy !== activeSlotFilter) return false;
         if (!query) return true;
-        const searchable = [slot.slot_code || "", slot.zone || "", slot.occupied_by_plate || "", slot.occupied_by_name || ""].join(" ").toLowerCase();
+        const searchable = [slot.slot_code || "", slot.zone || "", slot.slot_type || "", slot.reserved_for || "", slot.disabled_reason || "", slot.occupied_by_plate || "", slot.occupied_by_name || ""].join(" ").toLowerCase();
         return searchable.includes(query);
       });
     }
@@ -355,6 +405,7 @@
         slotInspectorDetailsEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>No slot selected.</p></div>';
         slotInspectorHistoryEl.innerHTML = '<div class="empty-state" style="padding:0.8rem;"><p>Select a slot to load recent history.</p></div>';
         if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = true;
+        if (slotEditorForm) slotEditorForm.hidden = true;
         return;
       }
 
@@ -375,9 +426,22 @@
       slotInspectorDetailsEl.innerHTML = `
         <div class="parking-inspector-detail"><span>Zone</span><strong>${escapeHtml(slot.zone || "General")}</strong></div>
         <div class="parking-inspector-detail"><span>Status</span><strong>${statusText}</strong></div>
+        <div class="parking-inspector-detail"><span>Type</span><strong>${escapeHtml(slot.slot_type || "standard")}</strong></div>
+        <div class="parking-inspector-detail"><span>Reserved for</span><strong>${escapeHtml(slot.reserved_for || "-")}</strong></div>
+        <div class="parking-inspector-detail"><span>Maintenance</span><strong>${escapeHtml(slot.disabled_reason || "-")}</strong></div>
         <div class="parking-inspector-detail"><span>Plate</span><strong>${escapeHtml(slot.occupied_by_plate || "-")}</strong></div>
         <div class="parking-inspector-detail"><span>Student</span><strong>${escapeHtml(slot.occupied_by_name || "-")}</strong></div>
       `;
+      if (slotEditorForm) {
+        slotEditorForm.hidden = false;
+        slotEditorForm.action = `/admin/slots/${Number(slot.id)}`;
+        slotEditorCode.value = slot.slot_code || "";
+        slotEditorZone.value = slot.zone || "General";
+        slotEditorType.value = ["standard", "accessibility", "reserved"].includes(slot.slot_type) ? slot.slot_type : "standard";
+        slotEditorReserved.value = slot.reserved_for || "";
+        slotEditorState.value = slot.status === "disabled" ? "disabled" : "available";
+        slotEditorReason.value = slot.disabled_reason || "";
+      }
 
       if (openSlotHistoryBtnEl) openSlotHistoryBtnEl.disabled = false;
       if (slotInspectorLoading) {

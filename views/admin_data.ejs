@@ -2,31 +2,145 @@
 <%
   const safeDatasets = Array.isArray(datasets) ? datasets : [];
   const importable = safeDatasets.filter((item) => item.importable);
+  const safeArchives = Array.isArray(archives) ? archives : [];
+  const preview = restorePreview && typeof restorePreview === "object" ? restorePreview : null;
+
+  function readSummary(value) {
+    if (value && typeof value === "object") return value;
+    try { return JSON.parse(String(value || "{}")); } catch (_error) { return {}; }
+  }
+
+  function formatBytes(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function countRows(summary) {
+    return Object.values(readSummary(summary)).reduce((total, count) => total + (Number(count) || 0), 0);
+  }
+
+  const automationText = backupAutomationEnabled
+    ? (backupEmailEnabled ? "Daily encrypted copy saved and emailed" : "Daily encrypted copy saved")
+    : "Optional daily copy is not enabled";
 %>
 
 <section class="dashboard-hero data-tools-hero">
-  <div class="hero-greeting"><h2>Administration</h2><h1>Data Backup &amp; Import</h1><p>Download operational backups and safely update master records from CSV files.</p></div>
+  <div class="hero-greeting">
+    <h2>Administration</h2>
+    <h1>Backup &amp; Recovery</h1>
+    <p>Protect parking records with encrypted backups or move selected records using CSV.</p>
+  </div>
   <div class="hero-cards">
-    <div class="hero-card"><h3>Backup Sets</h3><p><%= safeDatasets.length %></p></div>
-    <div class="hero-card"><h3>Import Types</h3><p><%= importable.length %></p></div>
-    <div class="hero-card"><h3>Import Limit</h3><p class="security-text-value">2,000 rows</p></div>
-    <div class="hero-card"><h3>Format</h3><p class="security-text-value">CSV</p></div>
+    <div class="hero-card"><h3>Saved Backups</h3><p><%= safeArchives.length %></p></div>
+    <div class="hero-card"><h3>CSV Types</h3><p><%= safeDatasets.length %></p></div>
+    <div class="hero-card"><h3>Automatic Copy</h3><p class="security-text-value"><%= backupAutomationEnabled ? "On" : "Off" %></p></div>
   </div>
   <% if (flash) { %><div class="flash flash-<%= flash.type === 'success' ? 'success' : 'error' %>"><%= flash.message %></div><% } %>
 </section>
 
 <div class="overlap-wrapper data-tools-grid">
+  <section class="panel backup-primary-panel">
+    <div class="section-head">
+      <h2>Create a Full Encrypted Backup</h2>
+      <p>Includes students, vehicles, stickers, parking spaces, visitor passes, gate records, and the security audit.</p>
+    </div>
+    <form method="post" action="/admin/data/backup" class="form-grid backup-create-form">
+      <div class="form-row-2">
+        <div>
+          <label for="backupPassphrase">Backup passphrase</label>
+          <input id="backupPassphrase" name="backup_passphrase" type="password" minlength="12" maxlength="256" autocomplete="new-password" required />
+          <p class="helper-text">Use at least 12 characters. You will need this exact passphrase to restore the file.</p>
+        </div>
+        <div>
+          <label for="backupPassphraseConfirmation">Confirm passphrase</label>
+          <input id="backupPassphraseConfirmation" name="backup_passphrase_confirmation" type="password" minlength="12" maxlength="256" autocomplete="new-password" required />
+        </div>
+      </div>
+      <div class="important-note"><strong>Keep the passphrase somewhere safe.</strong> It cannot be recovered from the backup file.</div>
+      <div class="form-actions"><button type="submit">Create and Download Backup</button></div>
+    </form>
+  </section>
+
   <section class="panel">
-    <div class="section-head"><h2>Download Backups</h2><p>Exports are UTF-8 CSV files compatible with Excel and Google Sheets.</p></div>
+    <div class="section-head">
+      <h2>Saved Encrypted Backups</h2>
+      <p><%= automationText %>. Saved copies are removed after their retention period.</p>
+    </div>
+    <div class="backup-archive-list">
+      <% safeArchives.forEach((archive) => { %>
+        <article class="backup-archive-item">
+          <div>
+            <strong><%= archive.backup_name %></strong>
+            <span><%= new Date(archive.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) %> · <%= formatBytes(archive.payload_bytes) %> · <%= countRows(archive.dataset_summary) %> record(s)</span>
+            <span>Available until <%= archive.expires_at ? new Date(archive.expires_at).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila' }) : 'manually removed' %></span>
+          </div>
+          <div class="backup-archive-actions">
+            <span class="badge badge-<%= archive.status === 'email_failed' ? 'invalid' : 'valid' %>"><%= archive.status === 'emailed' ? 'Saved & emailed' : archive.status === 'email_failed' ? 'Saved; email failed' : 'Saved' %></span>
+            <a class="btn-sm" href="/admin/data/backups/<%= archive.id %>/download" download>Download</a>
+          </div>
+        </article>
+      <% }) %>
+      <% if (!safeArchives.length) { %><div class="empty-state"><p>No encrypted backups are currently saved.</p></div><% } %>
+    </div>
+  </section>
+
+  <section class="panel restore-panel">
+    <div class="section-head">
+      <h2>Restore an Encrypted Backup</h2>
+      <p>The file is checked first. Nothing is changed until you review the contents and confirm.</p>
+    </div>
+    <% if (!preview) { %>
+      <form method="post" action="/admin/data/restore-preview" enctype="multipart/form-data" class="form-grid">
+        <div class="form-row-2">
+          <div>
+            <label for="backupFile">Encrypted backup file</label>
+            <input id="backupFile" name="backup_file" type="file" accept=".naapbackup,application/json" required />
+          </div>
+          <div>
+            <label for="restorePassphrase">Backup passphrase</label>
+            <input id="restorePassphrase" name="backup_passphrase" type="password" minlength="12" maxlength="256" autocomplete="off" required />
+          </div>
+        </div>
+        <div class="form-actions"><button type="submit">Check Backup Contents</button></div>
+      </form>
+    <% } else { %>
+      <div class="restore-preview" aria-live="polite">
+        <div class="restore-preview-head">
+          <div><strong>Backup is ready to restore</strong><span>Created <%= preview.createdAt ? new Date(preview.createdAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'on an unknown date' %></span></div>
+          <span class="badge badge-valid">Checked</span>
+        </div>
+        <div class="restore-summary-grid">
+          <% Object.entries(preview.summary || {}).forEach(([key, value]) => { %>
+            <div><span><%= safeDatasets.find((item) => item.key === key)?.label || key.replace(/_/g, ' ') %></span><strong><%= Number(value) || 0 %></strong></div>
+          <% }) %>
+        </div>
+        <form method="post" action="/admin/data/restore-confirm" class="form-grid">
+          <input type="hidden" name="preview_id" value="<%= preview.id %>" />
+          <input type="hidden" name="preview_token" value="<%= preview.token %>" />
+          <div>
+            <label for="confirmRestorePassphrase">Enter the passphrase again to confirm</label>
+            <input id="confirmRestorePassphrase" name="backup_passphrase" type="password" minlength="12" maxlength="256" autocomplete="off" required />
+          </div>
+          <div class="important-note important-note--danger"><strong>This replaces matching master records.</strong> Existing gate and security history is kept intact.</div>
+          <div class="form-actions"><a class="btn-cancel-sm" href="/admin/data">Cancel</a><button type="submit" class="danger">Restore Records</button></div>
+        </form>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="panel">
+    <div class="section-head"><h2>Download CSV Copies</h2><p>Use these for quick review in Excel or Google Sheets.</p></div>
     <div class="backup-card-grid">
       <% safeDatasets.forEach((dataset) => { %>
-        <article class="backup-card"><div><strong><%= dataset.label %></strong><span><%= dataset.importable ? 'Export and restore supported' : 'Export-only historical record' %></span></div><a class="btn-sm" href="/admin/data/export/<%= dataset.key %>" download>Download CSV</a></article>
+        <article class="backup-card"><div><strong><%= dataset.label %></strong><span><%= dataset.importable ? 'Can also be imported' : 'Download only' %></span></div><a class="btn-sm" href="/admin/data/export/<%= dataset.key %>" download>Download CSV</a></article>
       <% }) %>
     </div>
   </section>
 
   <section class="panel">
-    <div class="section-head"><h2>Import Master Records</h2><p>Existing records are updated by their unique ID field; missing records are created. Historical logs remain export-only to protect audit integrity.</p></div>
+    <div class="section-head"><h2>Import Master Records from CSV</h2><p>Students, vehicles, spaces, and visitor passes can be updated. Gate and security history cannot be overwritten here.</p></div>
     <form method="post" action="/admin/data/import" class="form-grid data-import-form" id="dataImportForm">
       <div>
         <label for="importDataset">Data type</label>
@@ -44,27 +158,28 @@
   </section>
 
   <section class="panel data-safety-note">
-    <div class="section-head"><h2>Safe Backup Routine</h2><p>Recommended before large roster changes.</p></div>
-    <ol><li>Download Students and Vehicles backups.</li><li>Open the CSV and confirm headers have not changed.</li><li>Import Students before Vehicles so references exist.</li><li>Review the Student Directory after import.</li></ol>
+    <div class="section-head"><h2>Simple Backup Routine</h2><p>Recommended before a large roster or parking-space update.</p></div>
+    <ol><li>Create a full encrypted backup.</li><li>Store the downloaded file and its passphrase in separate safe locations.</li><li>Make the planned changes.</li><li>Check student, vehicle, sticker, and parking-space records before closing the task.</li></ol>
   </section>
 </div>
 
 <script nonce="<%= cspNonce %>">
   (() => {
-    const dataset = document.getElementById('importDataset');
-    const file = document.getElementById('csvFile');
-    const csvData = document.getElementById('csvData');
-    const preview = document.getElementById('csvPreview');
-    const button = document.getElementById('csvImportButton');
-    const header = document.getElementById('csvHeaderExample');
-    const updateHeader = () => { header.textContent = dataset.selectedOptions[0]?.dataset.columns || ''; };
-    dataset.addEventListener('change', updateHeader);
-    file.addEventListener('change', async () => {
+    const dataset = document.getElementById("importDataset");
+    const file = document.getElementById("csvFile");
+    const csvData = document.getElementById("csvData");
+    const preview = document.getElementById("csvPreview");
+    const button = document.getElementById("csvImportButton");
+    const header = document.getElementById("csvHeaderExample");
+    if (!dataset || !file || !csvData || !preview || !button || !header) return;
+    const updateHeader = () => { header.textContent = dataset.selectedOptions[0]?.dataset.columns || ""; };
+    dataset.addEventListener("change", updateHeader);
+    file.addEventListener("change", async () => {
       button.disabled = true;
-      csvData.value = '';
+      csvData.value = "";
       const selected = file.files?.[0];
-      if (!selected) { preview.textContent = 'Choose a CSV file to preview its row count.'; return; }
-      if (selected.size > 7 * 1024 * 1024) { preview.textContent = 'This file is too large. Maximum size is 7 MB.'; return; }
+      if (!selected) { preview.textContent = "Choose a CSV file to preview its row count."; return; }
+      if (selected.size > 2 * 1024 * 1024) { preview.textContent = "This file is too large. Maximum size is 2 MB."; return; }
       try {
         const text = await selected.text();
         const lineCount = text.split(/\r?\n/).filter((line) => line.trim()).length;
@@ -72,7 +187,7 @@
         preview.textContent = `${selected.name} · approximately ${Math.max(0, lineCount - 1)} data row(s)`;
         button.disabled = lineCount < 2;
       } catch (_error) {
-        preview.textContent = 'Unable to read this file.';
+        preview.textContent = "Unable to read this file.";
       }
     });
     updateHeader();

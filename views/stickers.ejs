@@ -4,10 +4,22 @@
     ? requestBaseUrl
     : APP_BASE_URL;
   const pageFlash = typeof flash !== 'undefined' ? flash : null;
+  const safeEmailDeliveries = Array.isArray(emailDeliveries) ? emailDeliveries : [];
+
+  function calendarDateKey(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(date).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
 
   function stickerDisplayStatus(sticker) {
     if (sticker.status !== 'active') return sticker.status;
-    if (sticker.expires_at && new Date(sticker.expires_at).getTime() < Date.now()) return 'expired';
+    const expirationDate = sticker.expires_at ? calendarDateKey(sticker.expires_at) : null;
+    const today = calendarDateKey(new Date());
+    if (expirationDate && expirationDate < today) return 'expired';
     return 'active';
   }
 %>
@@ -24,7 +36,7 @@
     </div>
     <div class="hero-card hero-card--primary">
       <h3>Active Stickers</h3>
-      <p><%= stickers.filter(s => s.status === 'active').length %></p>
+      <p><%= stickers.filter((sticker) => stickerDisplayStatus(sticker) === 'active').length %></p>
     </div>
   </div>
   <% if (pageFlash) { %>
@@ -105,18 +117,27 @@
               <div class="action-row table-action-row">
                 <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a>
                 <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">Download</a>
+                <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn">Print card</a>
                 <button type="button" class="link-btn copy-sticker-link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>">Copy link</button>
                 <% if (displayStatus === "active" && sticker.email) { %>
-                  <form method="post" action="/stickers/<%= sticker.id %>/email" class="inline-form">
-                    <button type="submit" class="link-btn" title="Send QR code to <%= sticker.email %>">Email QR</button>
-                  </form>
+                  <button type="button" class="link-btn email-preview-btn"
+                    data-email-preview data-sticker-id="<%= sticker.id %>"
+                    data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
+                    data-plate-number="<%= sticker.plate_number %>" data-sticker-code="<%= sticker.sticker_code %>"
+                    data-recipient="<%= sticker.email %>">Email QR</button>
                 <% } else if (displayStatus === "active") { %>
                   <span class="helper-text" title="Add an email address in Student Management first">No email</span>
                 <% } %>
+                <% if (sticker.email_status) { %>
+                  <span class="badge badge-<%= ['sent', 'queued', 'retrying', 'sending'].includes(sticker.email_status) ? 'soft' : 'invalid' %>"><%= sticker.email_status %></span>
+                <% } %>
               </div>
+              <div class="helper-text">Last used: <%= sticker.last_scanned_at ? new Date(sticker.last_scanned_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Never' %> · QR replacements: <%= Number(sticker.qr_rotation_count || 0) %><% if (Number(sticker.rejected_scan_count || 0) > 0) { %> · Rejected scans: <%= sticker.rejected_scan_count %><% } %></div>
             </td>
             <td class="table-actions-cell">
               <% if (sticker.status === "active") { %>
+                <button type="button" class="btn-sm" data-destructive-trigger data-form-id="rotateStickerDesktop_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR for <%= sticker.sticker_code %> will stop working immediately. Use this for a lost or exposed QR." data-confirm-label="Replace QR">Replace QR</button>
+                <form id="rotateStickerDesktop_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
                 <button type="button" class="danger btn-sm" data-destructive-trigger data-form-id="revokeStickerDesktop_<%= sticker.id %>" data-confirm-title="Revoke sticker?" data-confirm-message="Revoke sticker <%= sticker.sticker_code %>? It will no longer grant parking access." data-confirm-label="Revoke sticker">Revoke</button>
                 <form id="revokeStickerDesktop_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/revoke" hidden></form>
               <% } else { %>
@@ -155,16 +176,21 @@
           <div class="mobile-button-grid">
             <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="btn btn-mobile-touch">View QR</a>
             <a href="/stickers/<%= sticker.id %>/qr" download class="btn btn-mobile-touch">Download</a>
+            <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="btn btn-mobile-touch">Print card</a>
             <% if (displayStatus === "active" && sticker.email) { %>
-              <form method="post" action="/stickers/<%= sticker.id %>/email" class="inline-form">
-                <button type="submit" class="btn btn-mobile-touch" title="Send QR code to <%= sticker.email %>">Email QR</button>
-              </form>
+              <button type="button" class="btn btn-mobile-touch email-preview-btn"
+                data-email-preview data-sticker-id="<%= sticker.id %>"
+                data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
+                data-plate-number="<%= sticker.plate_number %>" data-sticker-code="<%= sticker.sticker_code %>"
+                data-recipient="<%= sticker.email %>">Email QR</button>
             <% } %>
           </div>
           <% if (displayStatus === "active" && !sticker.email) { %>
             <span class="helper-text">Add the student's email address to enable email delivery.</span>
           <% } %>
           <% if (sticker.status === "active") { %>
+            <button type="button" class="btn-mobile-touch" data-destructive-trigger data-form-id="rotateStickerMobile_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR will stop working immediately." data-confirm-label="Replace QR">Replace QR</button>
+            <form id="rotateStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
             <button type="button" class="danger btn-mobile-touch" data-destructive-trigger data-form-id="revokeStickerMobile_<%= sticker.id %>" data-confirm-title="Revoke sticker?" data-confirm-message="Revoke sticker <%= sticker.sticker_code %>? It will no longer grant parking access." data-confirm-label="Revoke sticker">Revoke Sticker</button>
             <form id="revokeStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/revoke" hidden></form>
           <% } %>
@@ -172,6 +198,53 @@
       </div>
     <% }) %>
   </div>
+  </section>
+
+  <section class="panel" id="email-deliveries">
+    <div class="section-head">
+      <h2>QR Email Delivery</h2>
+      <p>Messages are sent in the background. Failed deliveries can be safely retried.</p>
+    </div>
+    <div class="email-delivery-list">
+      <% safeEmailDeliveries.forEach((delivery) => { %>
+        <article class="email-delivery-item">
+          <div>
+            <strong><%= delivery.sticker_code %> · <%= delivery.full_name %></strong>
+            <span><%= delivery.recipient %> · Requested <%= new Date(delivery.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) %></span>
+            <% if (delivery.last_error) { %><span class="email-delivery-error"><%= delivery.last_error %></span><% } %>
+          </div>
+          <div class="email-delivery-actions">
+            <span class="badge badge-<%= delivery.status === 'sent' ? 'valid' : delivery.status === 'failed' ? 'invalid' : 'soft' %>"><%= delivery.status %></span>
+            <span class="helper-text"><%= delivery.attempts %>/<%= delivery.max_attempts %> attempt(s)</span>
+            <% if (delivery.status === 'failed') { %>
+              <form method="post" action="/admin/email-deliveries/<%= delivery.id %>/retry" class="inline-form"><button type="submit" class="btn-sm">Retry</button></form>
+            <% } %>
+          </div>
+        </article>
+      <% }) %>
+      <% if (!safeEmailDeliveries.length) { %><div class="empty-state"><p>No QR email deliveries have been requested.</p></div><% } %>
+    </div>
+  </section>
+</div>
+
+<div class="modal-shell" id="emailPreviewModal" hidden aria-hidden="true">
+  <button type="button" class="modal-backdrop" data-email-preview-close aria-label="Close email preview"></button>
+  <section class="modal-card email-preview-card" role="dialog" aria-modal="true" aria-labelledby="emailPreviewTitle">
+    <div class="section-head"><h2 id="emailPreviewTitle">Confirm QR email</h2><p>Review the recipient and QR before adding it to the delivery queue.</p></div>
+    <div class="email-preview-layout">
+      <img id="emailPreviewQr" width="180" height="180" alt="QR code that will be emailed" />
+      <div class="email-preview-details">
+        <p><span>Student</span><strong id="emailPreviewStudent">-</strong></p>
+        <p><span>Student number</span><strong id="emailPreviewNumber">-</strong></p>
+        <p><span>Vehicle</span><strong id="emailPreviewPlate">-</strong></p>
+        <p><span>Sticker</span><strong id="emailPreviewCode">-</strong></p>
+        <p><span>Recipient</span><strong id="emailPreviewRecipient">-</strong></p>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-cancel-sm" data-email-preview-close>Cancel</button>
+      <form method="post" id="emailPreviewForm"><button type="submit">Queue Email</button></form>
+    </div>
   </section>
 </div>
 
@@ -190,6 +263,51 @@
       window.prompt("Copy verification link:", url);
     }
   });
+
+  (() => {
+    const modal = document.getElementById("emailPreviewModal");
+    const qr = document.getElementById("emailPreviewQr");
+    const form = document.getElementById("emailPreviewForm");
+    let lastTrigger = null;
+    const fields = {
+      student: document.getElementById("emailPreviewStudent"),
+      number: document.getElementById("emailPreviewNumber"),
+      plate: document.getElementById("emailPreviewPlate"),
+      code: document.getElementById("emailPreviewCode"),
+      recipient: document.getElementById("emailPreviewRecipient")
+    };
+    const close = () => {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      lastTrigger?.focus();
+      lastTrigger = null;
+    };
+    document.addEventListener("click", (event) => {
+      const openButton = event.target instanceof Element ? event.target.closest("[data-email-preview]") : null;
+      if (openButton) {
+        const stickerId = Number(openButton.dataset.stickerId);
+        if (!Number.isInteger(stickerId) || stickerId <= 0) return;
+        lastTrigger = openButton;
+        fields.student.textContent = openButton.dataset.studentName || "-";
+        fields.number.textContent = openButton.dataset.studentNumber || "-";
+        fields.plate.textContent = openButton.dataset.plateNumber || "-";
+        fields.code.textContent = openButton.dataset.stickerCode || "-";
+        fields.recipient.textContent = openButton.dataset.recipient || "-";
+        qr.src = `/stickers/${stickerId}/qr`;
+        form.action = `/stickers/${stickerId}/email`;
+        modal.hidden = false;
+        modal.setAttribute("aria-hidden", "false");
+        document.body.classList.add("modal-open");
+        form.querySelector("button")?.focus();
+        return;
+      }
+      if (event.target instanceof Element && event.target.closest("[data-email-preview-close]")) close();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal.hidden) close();
+    });
+  })();
 </script>
 
 <%- include("partials/footer") %>

@@ -4,6 +4,7 @@ const {
   MailConfigurationError,
   getSmtpConfig,
   normalizeEmailAddress,
+  sendBackupArchiveEmail,
   sendStudentQrEmail
 } = require("../lib/student-qr-email");
 
@@ -101,4 +102,25 @@ test("does not place unsafe verification links or header breaks in email output"
   assert.doesNotMatch(sentMessage.subject, /[\r\n]/);
   assert.doesNotMatch(sentMessage.html, /javascript:/i);
   assert.doesNotMatch(sentMessage.text, /javascript:/i);
+});
+
+test("sends encrypted recovery archives as bounded attachments", async () => {
+  let sentMessage;
+  const transporter = {
+    async sendMail(message) {
+      sentMessage = message;
+      return { messageId: "backup-message" };
+    }
+  };
+  await sendBackupArchiveEmail({
+    to: "admin@example.edu.ph",
+    filename: "naap-backup-2026-09-08.naapbackup",
+    content: Buffer.from("encrypted-payload")
+  }, {
+    transporter,
+    smtp: { from: "NAAP Parking <parking@example.com>" }
+  });
+  assert.equal(sentMessage.to, "admin@example.edu.ph");
+  assert.equal(sentMessage.attachments[0].contentType, "application/vnd.naap.encrypted-backup+json");
+  assert.equal(sentMessage.disableFileAccess, true);
 });

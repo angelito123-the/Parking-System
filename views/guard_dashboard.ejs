@@ -8,6 +8,11 @@
   const summary = typeof parkingSlotSummary === "object" && parkingSlotSummary
     ? parkingSlotSummary
     : { total: 0, available: 0, occupied: 0, disabled: 0 };
+  const maskStudentNumber = (value) => {
+    const text = String(value || "");
+    if (text.length <= 4) return text || "-";
+    return `${"•".repeat(Math.min(6, text.length - 4))}${text.slice(-4)}`;
+  };
 %>
 
 <section class="dashboard-hero">
@@ -210,7 +215,7 @@
             <tr>
               <td>
                 <strong><%= item.full_name || "-" %></strong><br />
-                <small><%= item.student_number || "-" %></small>
+                <small><%= maskStudentNumber(item.student_number) %></small>
               </td>
               <td><%= item.plate_number || "-" %></td>
               <td><%= item.parking_slot || "-" %></td>
@@ -408,6 +413,13 @@
         .replace(/'/g, "&#39;");
     }
 
+    function maskStudentNumber(value) {
+      const text = String(value || "");
+      if (!text) return "-";
+      if (text.length <= 4) return text;
+      return `${"•".repeat(Math.min(6, text.length - 4))}${text.slice(-4)}`;
+    }
+
     function formatQueuedAt(value) {
       const dt = new Date(value);
       if (Number.isNaN(dt.getTime())) return "-";
@@ -464,7 +476,7 @@
         <tr>
           <td>
             <strong>${escapeHtml(item.full_name || "-")}</strong><br />
-            <small>${escapeHtml(item.student_number || "-")}</small>
+            <small>${escapeHtml(maskStudentNumber(item.student_number))}</small>
           </td>
           <td>${escapeHtml(item.plate_number || "-")}</td>
           <td>${escapeHtml(item.parking_slot || "-")}</td>
@@ -932,7 +944,7 @@
 
       guardSlotQuickStrip.innerHTML = `
         <span class="guard-slot-strip-label">Available now (${available.length}):</span>
-        ${available.map((slot) => `<span class="guard-slot-chip">${escapeHtml(slot.slot_code)}</span>`).join("")}
+        ${available.map((slot) => `<span class="guard-slot-chip">${escapeHtml(slot.slot_code)}${slot.slot_type && slot.slot_type !== "standard" ? ` · ${escapeHtml(slot.slot_type)}` : ""}</span>`).join("")}
       `;
     }
 
@@ -941,8 +953,10 @@
         return slot.occupied_by_plate || "Occupied";
       }
       if (slot.occupancy === "disabled") {
-        return "Disabled";
+        return slot.disabled_reason || "Disabled";
       }
+      if (slot.slot_type === "accessibility") return "Accessibility";
+      if (slot.slot_type === "reserved") return slot.reserved_for ? `Reserved · ${slot.reserved_for}` : "Reserved";
       return "Available";
     }
 
