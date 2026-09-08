@@ -81,10 +81,7 @@
           <span class="scanner-guidance-text">Start the camera to scan a QR code.</span>
         </p>
         <button id="autoScannerTorchBtn" class="scanner-torch-btn" type="button" aria-pressed="false" aria-label="Turn flashlight on" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 2h6l1 4-2 3v11a2 2 0 0 1-4 0V9L8 6l1-4Z"></path>
-            <path d="M10 6h4"></path>
-          </svg>
+          <i class="ph ph-flashlight" aria-hidden="true"></i>
           <span class="scanner-torch-label">Flashlight</span>
         </button>
       </div>
@@ -172,10 +169,7 @@
   <div class="slot-history-backdrop" data-scan-popup-close></div>
   <article id="scanInfoPopupCard" class="slot-history-dialog scan-info-popup-card tone-info" role="dialog" aria-modal="true" aria-labelledby="scanInfoPopupTitle">
     <button type="button" id="scanInfoPopupClose" class="slot-history-close scan-info-popup-close" aria-label="Close">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M6 6l12 12"></path>
-        <path d="M18 6 6 18"></path>
-      </svg>
+      <i class="ph ph-x" aria-hidden="true"></i>
     </button>
     <p id="scanInfoPopupKicker" class="scan-info-popup-kicker">Scan detected</p>
     <h3 id="scanInfoPopupTitle">Vehicle Scan Result</h3>
@@ -1560,7 +1554,7 @@
       scannerDeviceCheckResults.innerHTML = `
         <strong>${result.ready ? "Device is ready for scanning" : "Device needs attention"}</strong>
         <span>${escapeHtml(result.deviceClass)} · ${escapeHtml(grade.replace("-", " "))}</span>
-        <ul>${result.checks.map((check) => `<li class="${check.passed ? "passed" : "failed"}">${check.passed ? "✓" : "!"} ${escapeHtml(check.label)}${!check.passed && !check.required ? " (optional)" : ""}</li>`).join("")}</ul>
+        <ul>${result.checks.map((check) => `<li class="${check.passed ? "passed" : "failed"}"><i class="ph ${check.passed ? "ph-check-circle" : "ph-warning-circle"}" aria-hidden="true"></i> ${escapeHtml(check.label)}${!check.passed && !check.required ? " (optional)" : ""}</li>`).join("")}</ul>
       `;
     });
 

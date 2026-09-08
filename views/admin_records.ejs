@@ -71,7 +71,7 @@
             <tr id="movementEmptyRow" style="box-shadow: none;">
               <td colspan="8" style="background: transparent; border: none;">
                 <div class="empty-state">
-                  <div class="empty-state-icon">📋</div>
+                  <div class="empty-state-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></div>
                   <p>No scan records yet.</p>
                 </div>
               </td>
@@ -99,7 +99,7 @@
     <div class="mobile-data-list" id="movementCards">
       <% if (!safeMovementLogs.length) { %>
         <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
+          <div class="empty-state-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></div>
           <p>No scan records yet.</p>
         </div>
       <% } %>
@@ -191,8 +191,8 @@
       </div>`;
     }
 
-    function renderEmptyState(icon, message) {
-      return `<div class="empty-state"><div class="empty-state-icon">${icon}</div><p>${message}</p></div>`;
+    function renderEmptyState(message) {
+      return `<div class="empty-state"><div class="empty-state-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></div><p>${message}</p></div>`;
     }
 
     function renderTable(logs) {
@@ -200,7 +200,7 @@
       const tbody = table.querySelector("tbody");
       if (!tbody) return;
       if (!logs.length) {
-        tbody.innerHTML = `<tr id="movementEmptyRow"><td colspan="8">${renderEmptyState("📋", "No scan records yet.")}</td></tr>`;
+        tbody.innerHTML = `<tr id="movementEmptyRow"><td colspan="8">${renderEmptyState("No scan records yet.")}</td></tr>`;
         return;
       }
       tbody.innerHTML = logs.map(renderRow).join("");
@@ -209,7 +209,7 @@
     function renderCards(logs) {
       if (!movementCards) return;
       if (!logs.length) {
-        movementCards.innerHTML = renderEmptyState("📋", "No scan records yet.");
+        movementCards.innerHTML = renderEmptyState("No scan records yet.");
         return;
       }
       movementCards.innerHTML = logs.map(renderCard).join("");

@@ -32,9 +32,15 @@
     const message = options.message === false ? "" : escapeHtml(options.message || defaults[1]);
     const compactClass = options.compact ? " is-compact" : "";
     const role = safeType === "error" ? "alert" : "status";
+    const iconByType = {
+      empty: "ph-tray",
+      error: "ph-warning-circle",
+      success: "ph-check-circle",
+      offline: "ph-wifi-slash"
+    };
     const visual = safeType === "loading"
       ? '<span class="ui-state-spinner"></span>'
-      : '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>';
+      : `<i class="ph ${iconByType[safeType] || iconByType.empty}"></i>`;
 
     return `<div class="ui-state ui-state-${safeType}${compactClass}" role="${role}" aria-live="polite">
       <span class="ui-state-visual" aria-hidden="true">${visual}</span>

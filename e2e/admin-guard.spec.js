@@ -23,6 +23,19 @@ async function signIn(page, credentials) {
   await expect(page).not.toHaveURL(/\/login(?:\/2fa)?$/);
 }
 
+async function expectPhosphorIconFont(page) {
+  await page.evaluate(() => document.fonts.ready);
+  const icon = page.locator('.top-nav .ph:visible').first();
+  await expect(icon).toBeVisible();
+  const rendered = await icon.evaluate((element) => ({
+    fontFamily: getComputedStyle(element).fontFamily,
+    glyph: getComputedStyle(element, '::before').content
+  }));
+  expect(rendered.fontFamily).toContain('Phosphor');
+  expect(rendered.glyph).not.toBe('none');
+  expect(rendered.glyph).not.toBe('normal');
+}
+
 function collectPageErrors(page) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -34,6 +47,7 @@ test.describe("administrator workflows", () => {
     test.skip(testInfo.project.name.includes("mobile"), "Admin desktop workflow is covered in desktop Chromium.");
     const pageErrors = collectPageErrors(page);
     await signIn(page, adminCredentials);
+    await expectPhosphorIconFont(page);
 
     const pages = [
       ["/admin/users", "User Management"],
@@ -69,6 +83,7 @@ test.describe("guard mobile workflow", () => {
     test.skip(testInfo.project.name.includes("desktop"), "Guard phone workflow is covered in mobile Chromium.");
     const pageErrors = collectPageErrors(page);
     await signIn(page, guardCredentials);
+    await expectPhosphorIconFont(page);
     await expect(page.getByRole("heading", { name: "Guard Dashboard", level: 1 })).toBeVisible();
     const dashboardAccessibility = await new AxeBuilder({ page })
       .include("main")

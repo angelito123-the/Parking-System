@@ -39,10 +39,7 @@
           <span class="scanner-guidance-text">Start the camera to scan a QR code.</span>
         </p>
         <button id="scannerTorchBtn" class="scanner-torch-btn" type="button" aria-pressed="false" aria-label="Turn flashlight on" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 2h6l1 4-2 3v11a2 2 0 0 1-4 0V9L8 6l1-4Z"></path>
-            <path d="M10 6h4"></path>
-          </svg>
+          <i class="ph ph-flashlight" aria-hidden="true"></i>
           <span class="scanner-torch-label">Flashlight</span>
         </button>
       </div>
@@ -125,10 +122,7 @@
       <div class="slot-history-head">
         <h3 id="remoteEntryModalTitle">Confirm Phone Camera Entry</h3>
         <button type="button" id="remoteEntryCloseBtn" class="slot-history-close" aria-label="Close">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 6l12 12"></path>
-            <path d="M18 6 6 18"></path>
-          </svg>
+          <i class="ph ph-x" aria-hidden="true"></i>
         </button>
       </div>
       <p id="remoteEntryMeta" class="helper-text" style="margin-bottom:0.65rem;"></p>
@@ -1016,10 +1010,10 @@
       historyEmpty.style.display = "none";
       historyList.innerHTML = scanHistory.map(entry => {
         const actionClass = entry.action === "ENTRY" ? "entry" : "exit";
-        const statusIcon  = entry.isSuccess ? "OK" : "WARN";
+        const statusIcon  = entry.isSuccess ? "ph-check-circle" : "ph-warning-circle";
         const offlineTag  = entry.isOffline ? `<span class="badge badge-warning scanner-history-offline">Offline</span>` : "";
         return `<div class="scanner-history-item action-${actionClass}">
-          <span class="scanner-history-icon" aria-hidden="true">${statusIcon}</span>
+          <span class="scanner-history-icon" aria-hidden="true"><i class="ph ${statusIcon}"></i></span>
           <div class="scanner-history-copy">
             <p class="scanner-history-label">${escapeHtml(entry.label)}</p>
             <p class="scanner-history-meta">${escapeHtml(entry.time)} ${offlineTag}</p>

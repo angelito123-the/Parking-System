@@ -264,9 +264,13 @@ textarea {
 }
 
 .side-nav .nav-link-icon,
-.side-nav .nav-link-icon svg {
+.side-nav .nav-link-icon .ph {
   width: 18px;
   height: 18px;
+}
+
+.side-nav .nav-link-icon .ph {
+  font-size: 18px;
 }
 
 .content-area > .top-nav {
@@ -421,19 +425,15 @@ button.account-menu-item:hover,
   transform: none;
 }
 
-.account-menu-icon,
-.account-menu-icon svg {
+.account-menu-icon {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
 }
 
-.account-menu-icon svg {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
+.account-menu-icon .ph,
+.account-menu-icon.ph {
+  font-size: 18px;
 }
 
 .account-menu-signout,
@@ -462,7 +462,7 @@ button.account-menu-item:hover,
   background: var(--surface);
 }
 
-.directory-filter-search > svg {
+.directory-filter-search > .ph {
   z-index: 1;
 }
 
@@ -680,10 +680,8 @@ button.account-menu-item:hover,
   height: 30px;
 }
 
-.action-menu-trigger svg {
-  width: 17px;
-  height: 17px;
-  fill: currentColor;
+.action-menu-trigger .ph {
+  font-size: 18px;
 }
 
 .action-menu-trigger:hover,
@@ -789,14 +787,8 @@ button.account-menu-item:hover,
   background: var(--red-soft);
 }
 
-.confirm-dialog-icon svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
+.confirm-dialog-icon .ph {
+  font-size: 20px;
 }
 
 .confirm-dialog-copy h2 {
@@ -2127,14 +2119,9 @@ body.is-ready .container > *,
     box-shadow: none;
   }
 
-  .mobile-nav-close svg,
-  .mobile-nav-trigger svg {
-    width: 19px;
-    height: 19px;
-    fill: none;
-    stroke: currentColor;
-    stroke-linecap: round;
-    stroke-width: 2;
+  .mobile-nav-close .ph,
+  .mobile-nav-trigger .ph {
+    font-size: 19px;
   }
 
   .mobile-nav-backdrop {

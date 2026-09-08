@@ -14,6 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/vendor/phosphor/style.css?v=2.1.2" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -422,14 +423,8 @@
       background: #e5efff;
     }
 
-    .access-note-icon svg {
-      width: 18px;
-      height: 18px;
-      fill: none;
-      stroke: currentColor;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      stroke-width: 1.9;
+    .access-note-icon .ph {
+      font-size: 18px;
     }
 
     .access-note-copy {
@@ -466,16 +461,10 @@
       animation-delay: 350ms;
     }
 
-    .login-error svg {
-      width: 17px;
-      height: 17px;
+    .login-error .ph {
+      font-size: 17px;
       flex: 0 0 auto;
       margin-top: 1px;
-      fill: none;
-      stroke: currentColor;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      stroke-width: 2;
     }
 
     .login-form {
@@ -533,17 +522,11 @@
       background: #f6f9ff;
     }
 
-    .input-icon svg,
-    .password-toggle svg,
-    .login-btn svg,
-    .login-note svg {
-      width: 18px;
-      height: 18px;
-      fill: none;
-      stroke: currentColor;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      stroke-width: 1.9;
+    .input-icon .ph,
+    .password-toggle .ph,
+    .login-btn .ph,
+    .login-note .ph {
+      font-size: 18px;
     }
 
     input[type="text"],
@@ -661,9 +644,8 @@
       animation-delay: 440ms;
     }
 
-    .login-note svg {
-      width: 14px;
-      height: 14px;
+    .login-note .ph {
+      font-size: 14px;
       flex: 0 0 auto;
     }
 
@@ -786,9 +768,9 @@
           Manage vehicles, visitor passes, parking assignments, and gate activity from one authorized workspace.
         </p>
         <ul class="brand-features">
-          <li><span class="feature-check" aria-hidden="true">✓</span>Fast QR vehicle verification</li>
-          <li><span class="feature-check" aria-hidden="true">✓</span>Live parking and gate visibility</li>
-          <li><span class="feature-check" aria-hidden="true">✓</span>Reliable activity and audit records</li>
+          <li><i class="ph ph-check feature-check" aria-hidden="true"></i>Fast QR vehicle verification</li>
+          <li><i class="ph ph-check feature-check" aria-hidden="true"></i>Live parking and gate visibility</li>
+          <li><i class="ph ph-check feature-check" aria-hidden="true"></i>Reliable activity and audit records</li>
         </ul>
       </div>
 
@@ -813,10 +795,7 @@
 
       <div class="access-note">
         <span class="access-note-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Z"></path>
-            <path d="m9 12 2 2 4-4"></path>
-          </svg>
+          <i class="ph ph-shield-check"></i>
         </span>
         <span class="access-note-copy">
           <strong>Automatic role routing</strong>
@@ -826,11 +805,7 @@
 
       <% if (locals.error) { %>
         <div class="login-error" role="alert">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M10.3 3.6 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z"></path>
-            <path d="M12 9v4"></path>
-            <path d="M12 17h.01"></path>
-          </svg>
+          <i class="ph ph-warning" aria-hidden="true"></i>
           <span><%= error %></span>
         </div>
       <% } %>
@@ -840,10 +815,7 @@
           <label for="username">Username</label>
           <div class="input-wrap">
             <span class="input-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <path d="M20 21a8 8 0 0 0-16 0"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-              </svg>
+              <i class="ph ph-user"></i>
             </span>
             <input
               type="text"
@@ -862,10 +834,7 @@
           <label for="password">Password</label>
           <div class="input-wrap has-action">
             <span class="input-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <rect x="4" y="11" width="16" height="9" rx="2"></rect>
-                <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
-              </svg>
+              <i class="ph ph-lock-key"></i>
             </span>
             <input
               type="password"
@@ -876,29 +845,20 @@
               placeholder="Enter your password"
             />
             <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"></path>
-                <circle cx="12" cy="12" r="2.5"></circle>
-              </svg>
+              <i class="ph ph-eye" aria-hidden="true"></i>
             </button>
           </div>
         </div>
 
         <button type="submit" class="login-btn">
           <span class="button-label">Sign in securely</span>
-          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 12h14"></path>
-            <path d="m13 6 6 6-6 6"></path>
-          </svg>
+          <i class="ph ph-arrow-right button-icon" aria-hidden="true"></i>
           <span class="button-spinner" aria-hidden="true"></span>
         </button>
       </form>
 
       <p class="login-note">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="5" y="10" width="14" height="11" rx="2"></rect>
-          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
-        </svg>
+        <i class="ph ph-lock-key" aria-hidden="true"></i>
         Your session is protected and role restricted.
       </p>
 
@@ -928,7 +888,10 @@
       if (passwordInput && passwordToggle) {
         passwordToggle.addEventListener('click', () => {
           const willShow = passwordInput.type === 'password';
+          const passwordIcon = passwordToggle.querySelector('.ph');
           passwordInput.type = willShow ? 'text' : 'password';
+          passwordIcon?.classList.toggle('ph-eye', !willShow);
+          passwordIcon?.classList.toggle('ph-eye-slash', willShow);
           passwordToggle.setAttribute('aria-pressed', String(willShow));
           passwordToggle.setAttribute('aria-label', willShow ? 'Hide password' : 'Show password');
           passwordInput.focus({ preventScroll: true });

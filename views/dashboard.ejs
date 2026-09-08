@@ -56,7 +56,7 @@
           </span>
           <h3>Register a student and vehicle</h3>
           <p>Add or update the student profile and vehicle details.</p>
-          <span class="workflow-action">Manage students <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">Manage students <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
       <li>
@@ -67,7 +67,7 @@
           </span>
           <h3>Issue a QR sticker</h3>
           <p>Link an active sticker to the registered vehicle.</p>
-          <span class="workflow-action">Manage stickers <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">Manage stickers <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
       <li>
@@ -78,7 +78,7 @@
           </span>
           <h3>Prepare visitor passes</h3>
           <p>Approve temporary parking access and track each visit.</p>
-          <span class="workflow-action">Manage visitors <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">Manage visitors <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
       <li>
@@ -89,7 +89,7 @@
           </span>
           <h3>Assign and monitor slots</h3>
           <p>Check occupancy, available spaces, and slot history.</p>
-          <span class="workflow-action">View parking slots <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">View parking slots <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
       <li>
@@ -100,7 +100,7 @@
           </span>
           <h3>Check live gate updates</h3>
           <p>Respond to overstay alerts and recent gate activity.</p>
-          <span class="workflow-action">Open live updates <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">Open live updates <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
       <li>
@@ -111,7 +111,7 @@
           </span>
           <h3>Review gate records</h3>
           <p>Search activity logs for reports, audits, or incidents.</p>
-          <span class="workflow-action">Review records <span aria-hidden="true">→</span></span>
+          <span class="workflow-action">Review records <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
         </a>
       </li>
     </ol>
@@ -234,7 +234,7 @@
             <tr id="insideEmptyRow" style="box-shadow: none;">
               <td colspan="9" style="background: transparent; border: none;">
                 <div class="empty-state">
-                  <div class="empty-state-icon">🚗</div>
+                  <div class="empty-state-icon"><i class="ph ph-car" aria-hidden="true"></i></div>
                   <p>No vehicles currently inside campus.</p>
                 </div>
               </td>
@@ -268,7 +268,7 @@
     <div class="mobile-data-list" id="insideVehiclesCards">
       <% if (!safeInsideVehicles.length) { %>
         <div class="empty-state">
-          <div class="empty-state-icon">🚗</div>
+          <div class="empty-state-icon"><i class="ph ph-car" aria-hidden="true"></i></div>
           <p>No vehicles inside campus.</p>
         </div>
       <% } %>
@@ -458,7 +458,7 @@
     }
 
     function renderEmptyInside() {
-      return `<div class="empty-state"><div class="empty-state-icon">🚗</div><p>No vehicles currently inside campus.</p></div>`;
+      return `<div class="empty-state"><div class="empty-state-icon"><i class="ph ph-car" aria-hidden="true"></i></div><p>No vehicles currently inside campus.</p></div>`;
     }
 
     function showOverstayNotice(message) {

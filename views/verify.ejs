@@ -15,6 +15,7 @@
       } catch (_) {}
     })();
   </script>
+  <link rel="stylesheet" href="/vendor/phosphor/style.css?v=2.1.2" />
   <link rel="stylesheet" href="/styles.css?v=20260828-ops1" />
   <link rel="stylesheet" href="/design-system.css?v=20260908-workflows" />
   <style>
@@ -362,14 +363,8 @@
       background: var(--status-info-bg);
     }
 
-    .privacy-lock svg {
-      width: 23px;
-      height: 23px;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .privacy-lock .ph {
+      font-size: 23px;
     }
 
     .privacy-card h2 {
@@ -543,10 +538,7 @@
       <% } else { %>
       <section class="verify-card privacy-card">
         <div class="privacy-lock" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <rect x="5" y="10" width="14" height="10" rx="2"></rect>
-            <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
-          </svg>
+          <i class="ph ph-lock-key"></i>
         </div>
         <h2>Personal details are protected</h2>
         <p class="verify-msg">Student identity, vehicle information, current location, and parking availability are visible only to authorized staff.</p>

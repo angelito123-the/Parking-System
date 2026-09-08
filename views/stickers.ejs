@@ -42,7 +42,7 @@
   </div>
   <% if (pageFlash) { %>
     <div class="flash flash-<%= pageFlash.type === 'success' ? 'success' : 'error' %> flash-spaced">
-      <%= pageFlash.type === 'success' ? '✅' : '⚠️' %> <%= pageFlash.message %>
+      <i class="ph <%= pageFlash.type === 'success' ? 'ph-check-circle' : 'ph-warning-circle' %>" aria-hidden="true"></i> <%= pageFlash.message %>
     </div>
   <% } %>
 </section>
@@ -94,7 +94,7 @@
           <tr class="table-empty-row">
             <td colspan="7" class="table-empty-cell">
               <div class="empty-state">
-                <div class="empty-state-icon">🪪</div>
+                <div class="empty-state-icon"><i class="ph ph-sticker" aria-hidden="true"></i></div>
                 <p>No stickers issued yet. Use the form above to issue one.</p>
               </div>
             </td>
@@ -157,7 +157,7 @@
   <div class="mobile-data-list">
     <% if (stickers.length === 0) { %>
       <div class="empty-state">
-        <div class="empty-state-icon">🪪</div>
+        <div class="empty-state-icon"><i class="ph ph-sticker" aria-hidden="true"></i></div>
         <p>No stickers issued yet.</p>
       </div>
     <% } %>
@@ -171,9 +171,9 @@
           <span class="badge badge-<%= badgeClass %>"><%= displayStatus %></span>
         </div>
         <div class="card-body">
-          <div class="card-item">👤 <strong>Owner:</strong> <%= sticker.full_name %></div>
-          <div class="card-item">🚗 <strong>Plate:</strong> <%= sticker.plate_number %></div>
-          <div class="card-item">📅 <strong>Expires:</strong> <%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "Never" %></div>
+          <div class="card-item"><i class="ph ph-user" aria-hidden="true"></i> <strong>Owner:</strong> <%= sticker.full_name %></div>
+          <div class="card-item"><i class="ph ph-car" aria-hidden="true"></i> <strong>Plate:</strong> <%= sticker.plate_number %></div>
+          <div class="card-item"><i class="ph ph-calendar-blank" aria-hidden="true"></i> <strong>Expires:</strong> <%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "Never" %></div>
         </div>
         <div class="card-actions">
           <div class="mobile-button-grid">

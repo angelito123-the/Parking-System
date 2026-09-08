@@ -282,14 +282,8 @@
   flex-shrink: 0;
 }
 
-.icon-btn svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.icon-btn .ph {
+  font-size: 17px;
 }
 
 .icon-btn:hover {
@@ -1083,14 +1077,8 @@ a:hover {
   line-height: 1;
 }
 
-.empty-state-icon svg {
-  width: 25px;
-  height: 25px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.empty-state-icon .ph {
+  font-size: 25px;
 }
 
 [data-theme="dark"] .empty-state-icon {
@@ -1926,14 +1914,8 @@ body.modal-open {
   box-shadow: none;
 }
 
-.slot-history-close svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.slot-history-close .ph {
+  font-size: 16px;
 }
 
 .slot-history-close:hover {
@@ -4480,14 +4462,8 @@ body {
   transform: translateY(-0.3px);
 }
 
-.nav-link-icon svg {
-  width: 14px;
-  height: 14px;
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.nav-link-icon .ph {
+  font-size: 14px;
 }
 
 .top-nav-links a:hover .nav-link-icon,
@@ -6507,14 +6483,8 @@ body {
   box-shadow: 0 5px 12px rgba(37, 99, 235, 0.2);
 }
 
-.sidebar-brand-mark svg {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.sidebar-brand-mark .ph {
+  font-size: 22px;
 }
 
 .sidebar-brand-copy {
@@ -6598,9 +6568,8 @@ body {
   opacity: 0.8;
 }
 
-.side-nav .nav-link-icon svg {
-  width: 16px;
-  height: 16px;
+.side-nav .nav-link-icon .ph {
+  font-size: 16px;
 }
 
 .content-area > .top-nav {
@@ -7030,14 +6999,14 @@ body[class] .overlap-wrapper > .panel[style] {
   text-transform: none;
 }
 
-.workflow-action span {
+.workflow-action .ph {
   font-size: 0.9rem;
   line-height: 0.75;
   transition: transform 0.16s ease;
 }
 
-.workflow-card:hover .workflow-action span,
-.workflow-card:focus-visible .workflow-action span {
+.workflow-card:hover .workflow-action .ph,
+.workflow-card:focus-visible .workflow-action .ph {
   transform: translateX(3px);
 }
 
@@ -7261,14 +7230,8 @@ body[class] .overlap-wrapper > .panel[style] {
   color: #fef3c7;
 }
 
-.scanner-torch-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.scanner-torch-btn .ph {
+  font-size: 16px;
 }
 
 .scanner-torch-btn[hidden] { display: none !important; }
@@ -7407,14 +7370,8 @@ body[class] .overlap-wrapper > .panel[style] {
   background: var(--surface-soft);
 }
 
-.ui-state-visual svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.ui-state-visual .ph {
+  font-size: 18px;
 }
 
 .ui-state-copy strong {
@@ -8763,15 +8720,9 @@ body.page-visitor-passes .visitor-stat-card p {
   box-shadow: inset 0 0 0 1px #cbdcf8;
 }
 
-.notification-btn-icon svg,
-.notification-panel-icon svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.notification-btn-icon .ph,
+.notification-panel-icon .ph {
+  font-size: 16px;
 }
 
 .notification-btn-copy {

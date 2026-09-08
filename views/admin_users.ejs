@@ -118,7 +118,7 @@
                   <% if (Number(currentUser?.id) !== Number(user.id)) { %>
                   <div class="action-menu">
                     <button type="button" class="action-menu-trigger action-menu-trigger-compact" data-action-menu-trigger aria-label="More actions for <%= user.username %>" aria-haspopup="menu" aria-expanded="false">
-                      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.4"></circle><circle cx="12" cy="12" r="1.4"></circle><circle cx="12" cy="19" r="1.4"></circle></svg>
+                      <i class="ph ph-dots-three-vertical" aria-hidden="true"></i>
                     </button>
                     <div class="action-menu-popover action-menu-popover-end" role="menu">
                       <% if (user.is_active) { %>
