@@ -54,7 +54,6 @@
     </div>
   </section>
 
-  <!-- section -->
   <section class="reg-panel" data-flow-view="register">
     <div class="section-head">
       <h2>New Registration</h2>
@@ -137,7 +136,6 @@
     </form>
   </section>
 
-  <!-- section -->
   <section class="directory-panel" data-flow-view="directory">
     <div class="directory-heading-row">
       <div class="section-head">
@@ -302,7 +300,6 @@
     <% students.forEach(student => { %>
       <div class="student-card" data-searchable="<%= student.student_number %> <%= student.full_name %> <%= student.program_name %> <%= student.program_display %> <%= student.year_level_label %> <%= student.email %> <%= (student.vehicles || []).map(v => v.plate_number + ' ' + v.model).join(' ') %>">
 
-        <!-- section -->
         <div class="sc-header">
           <div class="sc-meta">
             <div class="sc-avatar" aria-hidden="true"><%= String(student.full_name || 'S').trim().charAt(0).toUpperCase() %></div>
@@ -392,7 +389,6 @@
           </div>
         </div>
 
-        <!-- section -->
         <div class="inline-edit-form" id="studentEditForm_<%= student.id %>" hidden>
           <form method="post" action="/students/<%= student.id %>/edit" class="edit-form-grid">
             <div class="form-row-2">
@@ -446,7 +442,6 @@
           </form>
         </div>
 
-        <!-- section -->
         <div class="sc-vehicles" id="studentDetails_<%= student.id %>" hidden>
           <div class="sv-header">
             <span class="sv-title">
@@ -578,7 +573,6 @@
   </section>
 </div>
 
-<!-- section -->
 <style>
   .overlap-wrapper {
     display: grid;

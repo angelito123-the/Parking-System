@@ -149,7 +149,6 @@ const OfflineManager = {
           data.roster.forEach(vehicle => store.put(vehicle));
         };
       });
-      console.log(`Offline roster synced: ${data.roster.length} active vehicles.`);
     } catch (err) {
       console.error('Failed to sync roster:', err);
     }
@@ -196,7 +195,6 @@ const OfflineManager = {
     );
 
     if (isDuplicate) {
-      console.log("Duplicate offline scan blocked by cooldown.");
       return { duplicate: true };
     }
 

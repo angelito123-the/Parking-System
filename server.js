@@ -24,7 +24,7 @@ const {
   summarizeBackupPayload
 } = require("./lib/encrypted-backup");
 const { serializeForScript } = require("./lib/serialize-for-script");
-const { parseCsv, parseCsvDocument, stringifyCsv } = require("./lib/csv");
+const { escapeCsvCell, parseCsv, parseCsvDocument, stringifyCsv } = require("./lib/csv");
 const {
   STUDENT_IMPORT_COLUMNS,
   validateStudentImportDocument
@@ -178,12 +178,6 @@ const ALERT_STATUS = Object.freeze({
   RESOLVED: "resolved"
 });
 const INVALID_SCAN_RESULTS = new Set(["INVALID", "REVOKED", "EXPIRED"]);
-const ZONE_LOW_SLOT_WARNING_THRESHOLD = Math.max(
-  1,
-  Number.isFinite(Number(process.env.ZONE_LOW_SLOT_WARNING_THRESHOLD))
-    ? Number(process.env.ZONE_LOW_SLOT_WARNING_THRESHOLD)
-    : 2
-);
 const SUSPICIOUS_WINDOW_MINUTES = Math.max(
   1,
   Number.isFinite(Number(process.env.SUSPICIOUS_WINDOW_MINUTES))
@@ -1001,11 +995,6 @@ function isSchemaCompatibilityError(error) {
   return code === "ER_BAD_FIELD_ERROR" || code === "ER_NO_SUCH_TABLE" || code === "ER_BAD_TABLE_ERROR";
 }
 
-function escapeCsv(value) {
-  const text = value == null ? "" : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
 function formatDurationMinutes(totalMinutes) {
   const safeMinutes = Math.max(0, Math.floor(Number(totalMinutes) || 0));
   const days = Math.floor(safeMinutes / 1440);
@@ -1266,6 +1255,13 @@ function broadcastNotificationsUpdated(reason = "updated", payload = {}) {
   });
 }
 
+function broadcastExpiredPendingEntries(expiredPendingIds) {
+  if (!Array.isArray(expiredPendingIds) || expiredPendingIds.length === 0) return;
+  broadcastNotificationsUpdated("pending-entry-expired", {
+    expired_pending_ids: expiredPendingIds
+  });
+}
+
 async function broadcastAutoScanHealth(reason = "heartbeat") {
   if (!autoScanSseClients.size) return;
   try {
@@ -1292,6 +1288,22 @@ function getDuplicateScanInfo(lastMovement) {
   const secondsSinceLastScan = Math.floor((Date.now() - lastScannedAtMs) / 1000);
   const duplicate = secondsSinceLastScan >= 0 && secondsSinceLastScan < SCAN_COOLDOWN_SECONDS;
   return { duplicate, secondsSinceLastScan };
+}
+
+async function reportDuplicateScan({ qrValue, gate, source, actorName, deniedReason }) {
+  await evaluateSuspiciousScanSignals(pool, {
+    qrValue,
+    gate,
+    source,
+    actorName,
+    result: "VALID",
+    duplicateScan: true,
+    deniedReason
+  });
+  broadcastNotificationsUpdated("duplicate-scan-blocked", {
+    gate_id: gate,
+    qr_value: qrValue
+  });
 }
 
 function getAutoStickerPayload(sticker) {
@@ -4452,18 +4464,12 @@ async function resolveScan(token, gate = "Main Gate") {
     const duplicateInfo = getDuplicateScanInfo(lastMovement);
     if (duplicateInfo.duplicate) {
       await connection.rollback();
-      await evaluateSuspiciousScanSignals(pool, {
+      await reportDuplicateScan({
         qrValue: token,
         gate,
         source: "scanner",
         actorName: "system",
-        result: "VALID",
-        duplicateScan: true,
         deniedReason: `Duplicate scan blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
-      });
-      broadcastNotificationsUpdated("duplicate-scan-blocked", {
-        gate_id: gate,
-        qr_value: token
       });
       return {
         ...verification,
@@ -7813,18 +7819,12 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
       const duplicateInfo = getDuplicateScanInfo(lastMovement);
       if (duplicateInfo.duplicate) {
         await connection.rollback();
-        await evaluateSuspiciousScanSignals(pool, {
+        await reportDuplicateScan({
           qrValue: token,
           gate,
           source: "camera_phone",
           actorName: guardName,
-          result: "VALID",
-          duplicateScan: true,
           deniedReason: `Duplicate phone scan blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
-        });
-        broadcastNotificationsUpdated("duplicate-scan-blocked", {
-          gate_id: gate,
-          qr_value: token
         });
         return res.json({
           ok: false,
@@ -7883,11 +7883,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
           });
 
           await connection.commit();
-          if (expiredPendingIds.length > 0) {
-            broadcastNotificationsUpdated("pending-entry-expired", {
-              expired_pending_ids: expiredPendingIds
-            });
-          }
+          broadcastExpiredPendingEntries(expiredPendingIds);
           broadcastNotificationsUpdated("pending-entry-created", {
             pending_entry_id: queuedEntry?.id || null,
             gate_id: gate,
@@ -7963,11 +7959,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
 
       await releaseParkingSlot(connection, sticker.id);
       await connection.commit();
-      if (expiredPendingIds.length > 0) {
-        broadcastNotificationsUpdated("pending-entry-expired", {
-          expired_pending_ids: expiredPendingIds
-        });
-      }
+      broadcastExpiredPendingEntries(expiredPendingIds);
       await evaluateZoneCapacityAlerts(pool, guardName || "auto-exit");
       broadcastNotificationsUpdated("movement-recorded", {
         movement_action: "EXIT",
@@ -8080,18 +8072,12 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (r
       const duplicateInfo = getDuplicateScanInfo(lastMovement);
       if (duplicateInfo.duplicate) {
         await connection.rollback();
-        await evaluateSuspiciousScanSignals(pool, {
+        await reportDuplicateScan({
           qrValue: token,
           gate,
           source: "camera_phone",
           actorName: guardName,
-          result: "VALID",
-          duplicateScan: true,
           deniedReason: `Duplicate entry confirm blocked within ${SCAN_COOLDOWN_SECONDS} seconds cooldown.`
-        });
-        broadcastNotificationsUpdated("duplicate-scan-blocked", {
-          gate_id: gate,
-          qr_value: token
         });
         return res.status(400).json({
           ok: false,
@@ -8198,11 +8184,7 @@ app.get("/api/auto-scan/pending-entries", requireRole(USER_ROLES.GUARD), async (
   const limit = Number(req.query.limit) || 25;
   try {
     const expiredPendingIds = await expireStalePendingAutoEntries();
-    if (expiredPendingIds.length > 0) {
-      broadcastNotificationsUpdated("pending-entry-expired", {
-        expired_pending_ids: expiredPendingIds
-      });
-    }
+    broadcastExpiredPendingEntries(expiredPendingIds);
     const rows = await listPendingAutoEntries(limit);
     res.json({
       ok: true,
@@ -8260,11 +8242,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
       );
       await resolvePendingApprovalAlert(connection, entryId, guardName);
       await connection.commit();
-      if (expiredPendingIds.length > 0) {
-        broadcastNotificationsUpdated("pending-entry-expired", {
-          expired_pending_ids: expiredPendingIds
-        });
-      }
+      broadcastExpiredPendingEntries(expiredPendingIds);
       broadcastNotificationsUpdated("pending-entry-rejected", {
         pending_entry_id: entryId,
         reason: "missing-token-data"
@@ -8309,11 +8287,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
         deniedReason: "Pending entry was denied because sticker is no longer valid."
       });
       await connection.commit();
-      if (expiredPendingIds.length > 0) {
-        broadcastNotificationsUpdated("pending-entry-expired", {
-          expired_pending_ids: expiredPendingIds
-        });
-      }
+      broadcastExpiredPendingEntries(expiredPendingIds);
       broadcastNotificationsUpdated("pending-entry-rejected", {
         pending_entry_id: entryId,
         reason: "sticker-invalid"
@@ -8351,11 +8325,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
         deniedReason: "Pending entry rejected because vehicle is already marked inside."
       });
       await connection.commit();
-      if (expiredPendingIds.length > 0) {
-        broadcastNotificationsUpdated("pending-entry-expired", {
-          expired_pending_ids: expiredPendingIds
-        });
-      }
+      broadcastExpiredPendingEntries(expiredPendingIds);
       broadcastNotificationsUpdated("pending-entry-rejected", {
         pending_entry_id: entryId,
         reason: "already-inside"
@@ -8411,11 +8381,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
     await resolvePendingApprovalAlert(connection, entryId, guardName);
 
     await connection.commit();
-    if (expiredPendingIds.length > 0) {
-      broadcastNotificationsUpdated("pending-entry-expired", {
-        expired_pending_ids: expiredPendingIds
-      });
-    }
+    broadcastExpiredPendingEntries(expiredPendingIds);
     await evaluateZoneCapacityAlerts(pool, guardName || "pending-confirm");
     broadcastNotificationsUpdated("pending-entry-confirmed", {
       pending_entry_id: entryId,
@@ -8498,11 +8464,7 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.GUA
     );
     await resolvePendingApprovalAlert(connection, entryId, guardName);
     await connection.commit();
-    if (expiredPendingIds.length > 0) {
-      broadcastNotificationsUpdated("pending-entry-expired", {
-        expired_pending_ids: expiredPendingIds
-      });
-    }
+    broadcastExpiredPendingEntries(expiredPendingIds);
     broadcastNotificationsUpdated("pending-entry-cancelled", {
       pending_entry_id: entryId
     });
@@ -9049,15 +9011,15 @@ app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       for (const row of data.exportRows) {
         lines.push(
           [
-            escapeCsv(row.scanned_at),
-            escapeCsv(row.pass_type),
-            escapeCsv(row.identity_number),
-            escapeCsv(row.identity_name),
-            escapeCsv(row.plate_number),
-            escapeCsv(row.vehicle_type),
-            escapeCsv(row.zone),
-            escapeCsv(row.gate),
-            escapeCsv(row.action),
+            escapeCsvCell(row.scanned_at),
+            escapeCsvCell(row.pass_type),
+            escapeCsvCell(row.identity_number),
+            escapeCsvCell(row.identity_name),
+            escapeCsvCell(row.plate_number),
+            escapeCsvCell(row.vehicle_type),
+            escapeCsvCell(row.zone),
+            escapeCsvCell(row.gate),
+            escapeCsvCell(row.action),
           ].join(",")
         );
       }
@@ -9071,43 +9033,43 @@ app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     if (format === "analytics_csv") {
       const lines = [];
       lines.push("NAAP Parking Analytics");
-      lines.push(`Date Range,${escapeCsv(`${data.filters.from} to ${data.filters.to}`)}`);
-      lines.push(`Preset,${escapeCsv(data.filters.preset)}`);
-      lines.push(`Gate Filter,${escapeCsv(data.filters.gate)}`);
-      lines.push(`Zone Filter,${escapeCsv(data.filters.zone)}`);
-      lines.push(`Pass Type Filter,${escapeCsv(data.filters.pass_type)}`);
-      lines.push(`Vehicle Type Filter,${escapeCsv(data.filters.vehicle_type)}`);
+      lines.push(`Date Range,${escapeCsvCell(`${data.filters.from} to ${data.filters.to}`)}`);
+      lines.push(`Preset,${escapeCsvCell(data.filters.preset)}`);
+      lines.push(`Gate Filter,${escapeCsvCell(data.filters.gate)}`);
+      lines.push(`Zone Filter,${escapeCsvCell(data.filters.zone)}`);
+      lines.push(`Pass Type Filter,${escapeCsvCell(data.filters.pass_type)}`);
+      lines.push(`Vehicle Type Filter,${escapeCsvCell(data.filters.vehicle_type)}`);
       lines.push("");
 
       lines.push("Summary");
       lines.push("metric,value");
-      lines.push(`total_vehicles_today,${escapeCsv(data.summary.total_vehicles_today)}`);
-      lines.push(`active_parked_vehicles,${escapeCsv(data.summary.active_parked_vehicles)}`);
-      lines.push(`busiest_hour_today,${escapeCsv(data.summary.busiest_hour_today)}`);
-      lines.push(`most_used_zone,${escapeCsv(data.summary.most_used_zone)}`);
-      lines.push(`average_parking_duration,${escapeCsv(data.summary.average_parking_duration_label)}`);
-      lines.push(`total_overstay_cases,${escapeCsv(data.summary.total_overstay_cases)}`);
-      lines.push(`available_slots_now,${escapeCsv(data.summary.available_slots_now)}`);
+      lines.push(`total_vehicles_today,${escapeCsvCell(data.summary.total_vehicles_today)}`);
+      lines.push(`active_parked_vehicles,${escapeCsvCell(data.summary.active_parked_vehicles)}`);
+      lines.push(`busiest_hour_today,${escapeCsvCell(data.summary.busiest_hour_today)}`);
+      lines.push(`most_used_zone,${escapeCsvCell(data.summary.most_used_zone)}`);
+      lines.push(`average_parking_duration,${escapeCsvCell(data.summary.average_parking_duration_label)}`);
+      lines.push(`total_overstay_cases,${escapeCsvCell(data.summary.total_overstay_cases)}`);
+      lines.push(`available_slots_now,${escapeCsvCell(data.summary.available_slots_now)}`);
       lines.push("");
 
       lines.push("Busiest Hours");
       lines.push("hour_slot,total_scans");
       data.charts.busiestHours.forEach((row) => {
-        lines.push([escapeCsv(row.bucket), escapeCsv(row.total)].join(","));
+        lines.push([escapeCsvCell(row.bucket), escapeCsvCell(row.total)].join(","));
       });
       lines.push("");
 
       lines.push("Zone Usage");
       lines.push("zone,total_entries,share_percent");
       data.charts.zoneUsage.forEach((row) => {
-        lines.push([escapeCsv(row.zone), escapeCsv(row.total), escapeCsv(row.percent)].join(","));
+        lines.push([escapeCsvCell(row.zone), escapeCsvCell(row.total), escapeCsvCell(row.percent)].join(","));
       });
       lines.push("");
 
       lines.push("Overstay Frequency (Daily)");
       lines.push("date,total_overstay_cases");
       data.charts.overstayByDay.forEach((row) => {
-        lines.push([escapeCsv(row.bucket), escapeCsv(row.total)].join(","));
+        lines.push([escapeCsvCell(row.bucket), escapeCsvCell(row.total)].join(","));
       });
       lines.push("");
 
@@ -9115,11 +9077,11 @@ app.get("/reports", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       lines.push("bucket,entries,exits,occupied,available");
       data.charts.slotTrends.forEach((row) => {
         lines.push([
-          escapeCsv(row.bucket),
-          escapeCsv(row.entries),
-          escapeCsv(row.exits),
-          escapeCsv(row.occupied),
-          escapeCsv(row.available)
+          escapeCsvCell(row.bucket),
+          escapeCsvCell(row.entries),
+          escapeCsvCell(row.exits),
+          escapeCsvCell(row.occupied),
+          escapeCsvCell(row.available)
         ].join(","));
       });
 
