@@ -39,13 +39,14 @@ async function redirect(api, url, form, expected) {
   assert.equal((await guard.get('/admin/users')).status(), 403);
   pass('password login and administrator access restriction');
   const run = 'REV' + Date.now();
+  const reviewGate = 'Review ' + run;
   const program = 'Bachelor of Science in Aeronautical Engineering';
   await redirect(admin, '/students', { student_number: run, full_name: 'System Review Student', program, year_level: '1', email: 'review@example.invalid', plate_number: run, model: 'Test car', color: 'Blue' }, /success=1/);
   const [[vehicle]] = await pool.query('SELECT id FROM vehicles WHERE plate_number = ?', [run]);
   await redirect(admin, '/stickers', { vehicle_id: String(vehicle.id), expires_at: '2027-12-31' }, /success=1/);
   let [[sticker]] = await pool.query('SELECT * FROM stickers WHERE vehicle_id = ?', [vehicle.id]);
   const slots = async () => (await pool.query("SELECT id FROM parking_slots WHERE status = 'available' AND current_sticker_id IS NULL AND current_visitor_pass_id IS NULL ORDER BY id"))[0];
-  const move = (action, slot_id) => json(guard, '/api/manual-movement', { token: sticker.qr_token, action, slot_id, gate: 'Review Gate' });
+  const move = (action, slot_id) => json(guard, '/api/manual-movement', { token: sticker.qr_token, action, slot_id, gate: reviewGate });
   const firstSlot = (await slots())[0].id;
   assert.equal((await move('ENTRY', firstSlot)).movement_saved, true);
   assert.equal((await move('ENTRY', firstSlot)).movement_saved, false);
@@ -59,13 +60,13 @@ async function redirect(api, url, form, expected) {
   assert.equal((await admin.get(`/stickers/${sticker.id}/qr`)).headers()['content-type'], 'image/png');
   pass('QR replacement invalidates the previous token and image download works');
   await new Promise(resolve => setTimeout(resolve, 11000)); // Respect the scanner duplicate cooldown.
-  let detected = await json(guard, '/api/auto-scan/detect', { token: sticker.qr_token, defer_entry_confirmation: true, device_id: run, snapshot_data_url: snapshot, gate: 'Review Gate' });
+  let detected = await json(guard, '/api/auto-scan/detect', { token: sticker.qr_token, defer_entry_confirmation: true, device_id: run, snapshot_data_url: snapshot, gate: reviewGate });
   assert.ok(detected.pending_entry_id, JSON.stringify(detected));
   assert.equal((await json(guard, `/api/auto-scan/pending-entries/${detected.pending_entry_id}/confirm`, { slot_id: firstSlot })).movement_saved, true);
   assert.equal((await move('EXIT')).movement_saved, true);
   pass('remote phone scan queues an entry and guard confirmation assigns the slot');
   const sync = async movement => json(guard, '/api/sync-queue', { movements: [movement] });
-  const movement = { event_id: run + '-offline-entry', token: sticker.qr_token, action: 'ENTRY', offline_timestamp: Date.now(), gate: 'Review Gate' };
+  const movement = { event_id: run + '-offline-entry', token: sticker.qr_token, action: 'ENTRY', offline_timestamp: Date.now(), gate: reviewGate };
   const result = await sync(movement);
   assert.equal(result.results[0].action, 'ENTRY', JSON.stringify(result));
   assert.equal((await sync(movement)).results[0].status, 'duplicate');
@@ -94,7 +95,7 @@ async function redirect(api, url, form, expected) {
   const [[visitor]] = await pool.query('SELECT * FROM visitor_passes WHERE visitor_name = ?', [run]);
   await redirect(admin, `/visitor-passes/${visitor.id}/approve`, {}, /approved=1/);
   const [[visitorSlot]] = await pool.query("SELECT id FROM parking_slots WHERE zone = 'Visitor Zone' AND status = 'available' AND current_sticker_id IS NULL AND current_visitor_pass_id IS NULL LIMIT 1");
-  const visitorMove = action => json(guard, '/api/manual-movement', { token: visitor.qr_token, entity_type: 'visitor', action, slot_id: visitorSlot.id, gate: 'Review Gate' });
+  const visitorMove = action => json(guard, '/api/manual-movement', { token: visitor.qr_token, entity_type: 'visitor', action, slot_id: visitorSlot.id, gate: reviewGate });
   assert.equal((await visitorMove('ENTRY')).movement_saved, true);
   assert.equal((await visitorMove('EXIT')).movement_saved, true);
   pass('visitor registration, approval, entry and exit');
@@ -127,6 +128,10 @@ async function redirect(api, url, form, expected) {
       await page.goto(baseURL + '/reports');
       assert.equal(await page.evaluate(() => typeof window.Chart), 'function');
       assert.ok(await page.evaluate(() => Object.keys(Chart.instances).length) > 0);
+      await page.goto(baseURL + '/reports?gate=' + encodeURIComponent(reviewGate));
+      const hour = new Date(Date.now() + 8 * 3600000).toISOString().slice(11, 13) + ':00';
+      const reportHours = await page.evaluate(() => Chart.getChart('analyticsBusiestHoursChart').data.labels);
+      assert.ok(reportHours.includes(hour), JSON.stringify({ hour, reportHours }));
       await context.route('**/vendor/chartjs/**', route => route.abort());
       await page.reload();
       await page.getByText('Chart unavailable.', { exact: false }).first().waitFor();

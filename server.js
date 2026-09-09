@@ -3125,11 +3125,11 @@ async function listVisitorScanLogs(filters = {}, db = pool) {
     params.push(like, like, like, like, like);
   }
   if (safeFilters.from) {
-    where.push("DATE(vsl.scanned_at) >= ?");
+    where.push("DATE(vsl.scanned_at + INTERVAL 8 HOUR) >= ?");
     params.push(safeFilters.from);
   }
   if (safeFilters.to) {
-    where.push("DATE(vsl.scanned_at) <= ?");
+    where.push("DATE(vsl.scanned_at + INTERVAL 8 HOUR) <= ?");
     params.push(safeFilters.to);
   }
   if (safeFilters.type && safeFilters.type !== "all") {
@@ -3327,7 +3327,7 @@ async function getReportsData(filters) {
   const computeWeekKey = (value) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Unknown";
-    const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const utc = new Date(`${toDateOnly(date)}T00:00:00.000Z`);
     const dayNum = utc.getUTCDay() || 7;
     utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
@@ -3374,7 +3374,7 @@ async function getReportsData(filters) {
     const studentWhere = [
       "sl.result = 'VALID'",
       "sl.action IN ('ENTRY', 'EXIT')",
-      "DATE(sl.scanned_at) BETWEEN ? AND ?"
+      "DATE(sl.scanned_at + INTERVAL 8 HOUR) BETWEEN ? AND ?"
     ];
     const studentParams = [rangeFrom, rangeTo];
     if (safeFilters.gate !== "ALL") {
@@ -3393,7 +3393,7 @@ async function getReportsData(filters) {
     const visitorWhere = [
       "vsl.result = 'VALID'",
       "vsl.action IN ('ENTRY', 'EXIT')",
-      "DATE(vsl.scanned_at) BETWEEN ? AND ?"
+      "DATE(vsl.scanned_at + INTERVAL 8 HOUR) BETWEEN ? AND ?"
     ];
     const visitorParams = [rangeFrom, rangeTo];
     if (safeFilters.gate !== "ALL") {
@@ -3427,8 +3427,8 @@ async function getReportsData(filters) {
              COALESCE(st.full_name, 'Unknown Student') AS identity_name,
              COALESCE(v.plate_number, '-') AS plate_number,
              COALESCE(sl.sticker_id, sl.vehicle_id, sl.student_id, sl.id) AS entity_id,
-             DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
-             DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot
+             DATE_FORMAT(sl.scanned_at + INTERVAL 8 HOUR, '%Y-%m-%d') AS day_key,
+             DATE_FORMAT(sl.scanned_at + INTERVAL 8 HOUR, '%H:00') AS hour_slot
            FROM scan_logs sl
            LEFT JOIN stickers s ON s.id = sl.sticker_id
            LEFT JOIN vehicles v ON v.id = COALESCE(sl.vehicle_id, s.vehicle_id)
@@ -3445,7 +3445,7 @@ async function getReportsData(filters) {
         const legacyWhere = [
           "sl.result = 'VALID'",
           "sl.action IN ('ENTRY', 'EXIT')",
-          "DATE(sl.scanned_at) BETWEEN ? AND ?"
+          "DATE(sl.scanned_at + INTERVAL 8 HOUR) BETWEEN ? AND ?"
         ];
         const legacyParams = [rangeFrom, rangeTo];
         if (safeFilters.gate !== "ALL") {
@@ -3468,8 +3468,8 @@ async function getReportsData(filters) {
              COALESCE(st.full_name, 'Unknown Student') AS identity_name,
              COALESCE(v.plate_number, '-') AS plate_number,
              COALESCE(sl.sticker_id, sl.id) AS entity_id,
-             DATE_FORMAT(sl.scanned_at, '%Y-%m-%d') AS day_key,
-             DATE_FORMAT(sl.scanned_at, '%H:00') AS hour_slot,
+             DATE_FORMAT(sl.scanned_at + INTERVAL 8 HOUR, '%Y-%m-%d') AS day_key,
+             DATE_FORMAT(sl.scanned_at + INTERVAL 8 HOUR, '%H:00') AS hour_slot,
              'Unassigned' AS zone
            FROM scan_logs sl
            LEFT JOIN stickers s ON s.id = sl.sticker_id
@@ -3498,8 +3498,8 @@ async function getReportsData(filters) {
            COALESCE(vp.visitor_name, 'Visitor') AS identity_name,
            COALESCE(vp.plate_number, '-') AS plate_number,
            COALESCE(vsl.visitor_pass_id, vsl.id) AS entity_id,
-           DATE_FORMAT(vsl.scanned_at, '%Y-%m-%d') AS day_key,
-           DATE_FORMAT(vsl.scanned_at, '%H:00') AS hour_slot
+           DATE_FORMAT(vsl.scanned_at + INTERVAL 8 HOUR, '%Y-%m-%d') AS day_key,
+           DATE_FORMAT(vsl.scanned_at + INTERVAL 8 HOUR, '%H:00') AS hour_slot
          FROM visitor_scan_logs vsl
          JOIN visitor_passes vp ON vp.id = vsl.visitor_pass_id
          LEFT JOIN parking_slots ps ON ps.id = vsl.slot_id
@@ -6383,7 +6383,7 @@ app.get("/api/parking-history", requireRole(USER_ROLES.ADMIN), async (req, res) 
        LEFT JOIN parking_slots ps ON ps.id = sl.slot_id
        WHERE sl.result = 'VALID'
          AND sl.action = 'ENTRY'
-         AND DATE(sl.scanned_at) = ?
+         AND DATE(sl.scanned_at + INTERVAL 8 HOUR) = ?
          AND TIME(sl.scanned_at) BETWEEN ? AND ?
        ORDER BY sl.scanned_at DESC
        LIMIT 300`,
