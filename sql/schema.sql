@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS users (
   password VARCHAR(255) NOT NULL,
   role ENUM('admin', 'guard') NOT NULL,
   student_id INT NULL,
-  totp_enabled TINYINT(1) NOT NULL DEFAULT 0,
-  totp_secret_encrypted TEXT NULL,
   password_changed_at TIMESTAMP NULL DEFAULT NULL,
   last_login_at TIMESTAMP NULL DEFAULT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,

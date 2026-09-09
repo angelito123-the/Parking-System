@@ -4,7 +4,6 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const QRCode = require("qrcode");
 const compression = require("compression");
 const multer = require("multer");
 const session = require("express-session");
@@ -31,12 +30,8 @@ const {
 } = require("./lib/student-import");
 const {
   SlidingWindowRateLimiter,
-  decryptSecret,
-  encryptSecret,
-  generateTotpSecret,
   hashIdentifier,
-  validatePassword,
-  verifyTotpToken
+  validatePassword
 } = require("./lib/security");
 const {
   ACADEMIC_PROGRAM_GROUPS,
@@ -101,9 +96,6 @@ function readBoundedIntegerEnv(name, fallback, min, max) {
   const value = Number.isInteger(parsed) ? parsed : fallback;
   return Math.max(min, Math.min(max, value));
 }
-const REQUIRE_ADMIN_2FA = IS_PRODUCTION
-  ? !/^(0|false|no|off)$/i.test(String(process.env.REQUIRE_ADMIN_2FA || "true"))
-  : /^(1|true|yes|on)$/i.test(String(process.env.REQUIRE_ADMIN_2FA || "false"));
 const GUARD_INACTIVITY_DAYS = readBoundedIntegerEnv("GUARD_INACTIVITY_DAYS", IS_PRODUCTION ? 120 : 0, 0, 3650);
 const SNAPSHOT_RETENTION_DAYS = readBoundedIntegerEnv("SNAPSHOT_RETENTION_DAYS", 30, 1, 3650);
 const SCAN_LOG_RETENTION_DAYS = readBoundedIntegerEnv("SCAN_LOG_RETENTION_DAYS", 365, 30, 3650);
@@ -123,7 +115,6 @@ if (IS_PRODUCTION && configuredSessionSecret.length < 32) {
 const SESSION_SECRET = configuredSessionSecret || "naap-parking-local-development-secret";
 const loginRateLimiter = new SlidingWindowRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
 const loginAccountRateLimiter = new SlidingWindowRateLimiter({ limit: 15, windowMs: 15 * 60 * 1000 });
-const twoFactorRateLimiter = new SlidingWindowRateLimiter({ limit: 6, windowMs: 10 * 60 * 1000 });
 const accountSecurityRateLimiter = new SlidingWindowRateLimiter({ limit: 8, windowMs: 15 * 60 * 1000 });
 const qrEmailRateLimiter = new SlidingWindowRateLimiter({ limit: 10, windowMs: 10 * 60 * 1000 });
 const EMAIL_WORKER_INTERVAL_MS = Math.max(5000, Number(process.env.EMAIL_WORKER_INTERVAL_MS || 15000) || 15000);
@@ -389,7 +380,6 @@ function getSessionUser(req) {
     id: Number(user.id) || null,
     username: String(user.username || "").trim(),
     role,
-    totpEnabled: Boolean(user.totpEnabled),
     mustChangePassword: Boolean(user.mustChangePassword)
   };
 }
@@ -495,7 +485,6 @@ function regenerateAuthenticatedSession(req, user) {
         id: Number(user.id) || null,
         username: String(user.username || "").trim(),
         role: normalizeRole(user.role),
-        totpEnabled: Boolean(user.totp_enabled),
         mustChangePassword: Boolean(user.must_change_password)
       };
       req.session.save((saveError) => saveError ? reject(saveError) : resolve());
@@ -529,7 +518,6 @@ app.use((req, res, next) => {
   const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
   const excluded = [
     "/login",
-    "/login/2fa",
     "/api/auto-scan/heartbeat",
     "/api/scanner-metrics",
     "/api/scanner-metrics/batch",
@@ -559,7 +547,6 @@ app.use((req, res, next) => {
   if (!user) return next();
   const accountPath = req.path === "/account/security"
     || req.path.startsWith("/account/password")
-    || req.path.startsWith("/account/2fa/")
     || req.path === "/logout";
 
   if (user.mustChangePassword && !accountPath) {
@@ -567,12 +554,6 @@ app.use((req, res, next) => {
       return res.status(403).json({ ok: false, message: "Change your temporary password before continuing." });
     }
     return res.redirect("/account/security?password_required=1#password");
-  }
-  if (REQUIRE_ADMIN_2FA && user.role === USER_ROLES.ADMIN && !user.totpEnabled && !accountPath) {
-    if (isApiRequest(req)) {
-      return res.status(403).json({ ok: false, message: "Administrator two-factor enrollment is required." });
-    }
-    return res.redirect("/account/security?setup_2fa=required#two-factor");
   }
   return next();
 });
@@ -619,7 +600,6 @@ app.get("/login", (req, res) => {
   if (user) {
     return res.redirect(getRoleHomePath(user.role));
   }
-  if (req.session?.pending2fa) return res.redirect("/login/2fa");
   res.render("login", { error: null, usernameVal: "" });
 });
 
@@ -649,7 +629,7 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT id, username, password, role, totp_enabled, totp_secret_encrypted,
+      `SELECT id, username, password, role,
               is_active, must_change_password
        FROM users
        WHERE username = ?
@@ -701,23 +681,6 @@ app.post("/login", async (req, res) => {
 
     loginRateLimiter.reset(rateKey);
     loginAccountRateLimiter.reset(accountRateKey);
-    if (user.totp_enabled && user.totp_secret_encrypted) {
-      await new Promise((resolve, reject) => {
-        req.session.regenerate((error) => {
-          if (error) return reject(error);
-          req.session.pending2fa = {
-            id: Number(user.id),
-            username: String(user.username || "").trim(),
-            role,
-            mustChangePassword: Boolean(user.must_change_password),
-            createdAt: Date.now()
-          };
-          req.session.save((saveError) => saveError ? reject(saveError) : resolve());
-        });
-      });
-      return res.redirect("/login/2fa");
-    }
-
     await regenerateAuthenticatedSession(req, user);
     await pool.query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
     await recordSecurityAudit(req, "LOGIN_SUCCEEDED", { actor: user });
@@ -728,56 +691,9 @@ app.post("/login", async (req, res) => {
   }
 });
 
-app.get("/login/2fa", (req, res) => {
-  const pending = req.session?.pending2fa;
-  if (!pending || Date.now() - Number(pending.createdAt || 0) > 5 * 60 * 1000) {
-    if (req.session) delete req.session.pending2fa;
-    return res.redirect("/login");
-  }
-  return res.render("login_2fa", { error: null, username: pending.username });
-});
-
-app.post("/login/2fa", async (req, res) => {
-  const pending = req.session?.pending2fa;
-  if (!pending || Date.now() - Number(pending.createdAt || 0) > 5 * 60 * 1000) {
-    if (req.session) delete req.session.pending2fa;
-    return res.redirect("/login");
-  }
-  const rateKey = getRateLimitKey(req, `2fa:${pending.id}`);
-  const rateState = twoFactorRateLimiter.check(rateKey);
-  if (!rateState.allowed) {
-    res.setHeader("Retry-After", String(rateState.retryAfterSeconds));
-    return res.status(429).render("login_2fa", {
-      error: `Too many verification attempts. Try again in ${Math.ceil(rateState.retryAfterSeconds / 60)} minute(s).`,
-      username: pending.username
-    });
-  }
-
-  try {
-    const [rows] = await pool.query(
-      `SELECT id, username, role, totp_enabled, totp_secret_encrypted,
-              is_active, must_change_password
-       FROM users WHERE id = ? LIMIT 1`,
-      [pending.id]
-    );
-    const user = rows[0];
-    if (!user || !user.is_active || !user.totp_enabled || !user.totp_secret_encrypted) throw new Error("Two-factor setup is unavailable.");
-    const secret = decryptSecret(user.totp_secret_encrypted, SESSION_SECRET);
-    if (!verifyTotpToken(secret, req.body.code)) {
-      twoFactorRateLimiter.recordFailure(rateKey);
-      await recordSecurityAudit(req, "TWO_FACTOR_FAILED", { actor: user, outcome: "failed" });
-      return res.render("login_2fa", { error: "The verification code is invalid or expired.", username: pending.username });
-    }
-    twoFactorRateLimiter.reset(rateKey);
-    await regenerateAuthenticatedSession(req, user);
-    await pool.query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
-    await recordSecurityAudit(req, "LOGIN_SUCCEEDED_2FA", { actor: user });
-    return res.redirect(getRoleHomePath(user.role));
-  } catch (error) {
-    console.error("Two-factor login error:", error);
-    return res.render("login_2fa", { error: "Unable to verify the code right now.", username: pending.username });
-  }
-});
+// Send old verification pages back through password sign-in.
+app.get("/login/2fa", (_req, res) => res.redirect("/login"));
+app.post("/login/2fa", (_req, res) => res.redirect("/login"));
 
 app.get("/logout", async (req, res) => {
   await recordSecurityAudit(req, "LOGOUT");
@@ -5179,7 +5095,7 @@ app.get("/forbidden", requireAuth, (req, res) => {
 app.get("/account/security", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, username, role, totp_enabled, must_change_password,
+      `SELECT id, username, role, must_change_password,
               password_changed_at, last_login_at, created_at
        FROM users WHERE id = ? LIMIT 1`,
       [req.authUser.id]
@@ -5202,8 +5118,6 @@ app.get("/account/security", requireAuth, async (req, res) => {
         ? { type: "success", message: "Session access was revoked." }
         : req.query.password_required
           ? { type: "error", message: "Change your temporary password before continuing." }
-          : req.query.setup_2fa === "required"
-            ? { type: "error", message: "Administrators must enable two-factor authentication before continuing." }
         : req.query.error
           ? { type: "error", message: String(req.query.error).slice(0, 180) }
           : null;
@@ -5211,8 +5125,6 @@ app.get("/account/security", requireAuth, async (req, res) => {
       account: rows[0],
       sessions,
       auditRows: auditResult[0],
-      setupSecret: String(req.session.pendingTotpSecret || ""),
-      adminTwoFactorRequired: REQUIRE_ADMIN_2FA && rows[0].role === USER_ROLES.ADMIN,
       flash
     });
   } catch (error) {
@@ -5255,107 +5167,6 @@ app.post("/account/password", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Password change error:", error);
     return res.redirect("/account/security?error=Unable+to+change+password.");
-  }
-});
-
-app.post("/account/2fa/setup", requireAuth, async (req, res) => {
-  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
-  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
-    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
-  }
-  try {
-    const [rows] = await pool.query("SELECT password, totp_enabled FROM users WHERE id = ? LIMIT 1", [req.authUser.id]);
-    if (!rows.length || rows[0].totp_enabled) return res.redirect("/account/security");
-    if (!(await bcrypt.compare(String(req.body.current_password || ""), String(rows[0].password || "")))) {
-      accountSecurityRateLimiter.recordFailure(rateKey);
-      await recordSecurityAudit(req, "TWO_FACTOR_SETUP_FAILED", { outcome: "failed" });
-      return res.redirect("/account/security?error=Current+password+is+incorrect.");
-    }
-    req.session.pendingTotpSecret = generateTotpSecret();
-    accountSecurityRateLimiter.reset(rateKey);
-    await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
-    await recordSecurityAudit(req, "TWO_FACTOR_SETUP_STARTED");
-    return res.redirect("/account/security#two-factor");
-  } catch (error) {
-    console.error("2FA setup error:", error);
-    return res.redirect("/account/security?error=Unable+to+start+two-factor+setup.");
-  }
-});
-
-app.get("/account/2fa/setup-qr", requireAuth, async (req, res) => {
-  const secret = String(req.session.pendingTotpSecret || "");
-  if (!secret) return res.status(404).send("No two-factor setup is active.");
-  const label = encodeURIComponent(`NAAP Parking:${req.authUser.username}`);
-  const issuer = encodeURIComponent("NAAP Parking");
-  const uri = `otpauth://totp/${label}?secret=${encodeURIComponent(secret)}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
-  try {
-    const png = await QRCode.toBuffer(uri, { type: "png", width: 280, margin: 2, errorCorrectionLevel: "M" });
-    res.setHeader("Cache-Control", "private, no-store");
-    return res.type("png").send(png);
-  } catch (_error) {
-    return res.status(500).send("Unable to generate setup QR.");
-  }
-});
-
-app.post("/account/2fa/enable", requireAuth, async (req, res) => {
-  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
-  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
-    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
-  }
-  const secret = String(req.session.pendingTotpSecret || "");
-  if (!secret || !verifyTotpToken(secret, req.body.code)) {
-    accountSecurityRateLimiter.recordFailure(rateKey);
-    await recordSecurityAudit(req, "TWO_FACTOR_ENABLE_FAILED", { outcome: "failed" });
-    return res.redirect("/account/security?error=The+verification+code+is+invalid+or+expired.#two-factor");
-  }
-  try {
-    await pool.query(
-      "UPDATE users SET totp_enabled = 1, totp_secret_encrypted = ? WHERE id = ?",
-      [encryptSecret(secret, SESSION_SECRET), req.authUser.id]
-    );
-    if (req.session?.user) req.session.user.totpEnabled = true;
-    accountSecurityRateLimiter.reset(rateKey);
-    delete req.session.pendingTotpSecret;
-    await new Promise((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
-    await recordSecurityAudit(req, "TWO_FACTOR_ENABLED");
-    return res.redirect("/account/security?saved=1#two-factor");
-  } catch (error) {
-    console.error("Enable 2FA error:", error);
-    return res.redirect("/account/security?error=Unable+to+enable+two-factor+authentication.");
-  }
-});
-
-app.post("/account/2fa/disable", requireAuth, async (req, res) => {
-  if (REQUIRE_ADMIN_2FA && req.authUser.role === USER_ROLES.ADMIN) {
-    return res.redirect("/account/security?error=Administrator+two-factor+authentication+is+required.#two-factor");
-  }
-  const rateKey = getRateLimitKey(req, `2fa-settings:${req.authUser.id}`);
-  if (!accountSecurityRateLimiter.check(rateKey).allowed) {
-    return res.redirect("/account/security?error=Too+many+security+changes.+Try+again+later.#two-factor");
-  }
-  try {
-    const [rows] = await pool.query(
-      "SELECT password, totp_enabled, totp_secret_encrypted FROM users WHERE id = ? LIMIT 1",
-      [req.authUser.id]
-    );
-    const user = rows[0];
-    const passwordMatches = user && await bcrypt.compare(String(req.body.current_password || ""), String(user.password || ""));
-    const tokenMatches = user?.totp_enabled && user.totp_secret_encrypted
-      ? verifyTotpToken(decryptSecret(user.totp_secret_encrypted, SESSION_SECRET), req.body.code)
-      : false;
-    if (!passwordMatches || !tokenMatches) {
-      accountSecurityRateLimiter.recordFailure(rateKey);
-      await recordSecurityAudit(req, "TWO_FACTOR_DISABLE_FAILED", { outcome: "failed" });
-      return res.redirect("/account/security?error=Password+or+verification+code+is+incorrect.#two-factor");
-    }
-    await pool.query("UPDATE users SET totp_enabled = 0, totp_secret_encrypted = NULL WHERE id = ?", [req.authUser.id]);
-    if (req.session?.user) req.session.user.totpEnabled = false;
-    accountSecurityRateLimiter.reset(rateKey);
-    await recordSecurityAudit(req, "TWO_FACTOR_DISABLED");
-    return res.redirect("/account/security?saved=1#two-factor");
-  } catch (error) {
-    console.error("Disable 2FA error:", error);
-    return res.redirect("/account/security?error=Unable+to+disable+two-factor+authentication.");
   }
 });
 
@@ -5802,7 +5613,6 @@ app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          u.role,
          u.is_active,
          u.must_change_password,
-         u.totp_enabled,
          u.last_login_at,
          u.disabled_at,
          u.disabled_reason,
@@ -5823,8 +5633,6 @@ app.get("/admin/users", requireRole(USER_ROLES.ADMIN), async (req, res) => {
         ? { type: "success", message: "User updated successfully." }
         : req.query.status
           ? { type: "success", message: "Account status updated successfully." }
-          : req.query.reset2fa
-            ? { type: "success", message: "Two-factor enrollment was reset. The user can enroll a new device." }
         : req.query.deleted
           ? { type: "success", message: "User deleted successfully." }
           : req.query.error === "duplicate"
@@ -6005,26 +5813,6 @@ app.post("/admin/users/:id/status", requireRole(USER_ROLES.ADMIN), async (req, r
     return res.redirect("/admin/users?status=1");
   } catch (error) {
     console.error("Account status update error:", error);
-    return res.redirect("/admin/users?error=invalid");
-  }
-});
-
-app.post("/admin/users/:id/reset-2fa", requireRole(USER_ROLES.ADMIN), async (req, res) => {
-  const userId = Number(req.params.id);
-  if (!Number.isInteger(userId) || userId <= 0 || Number(req.authUser.id) === userId) {
-    return res.redirect("/admin/users?error=invalid");
-  }
-  try {
-    const [result] = await pool.query(
-      "UPDATE users SET totp_enabled = 0, totp_secret_encrypted = NULL WHERE id = ?",
-      [userId]
-    );
-    if (!result.affectedRows) return res.redirect("/admin/users?error=notfound");
-    await revokeUserSessions(userId);
-    await recordSecurityAudit(req, "USER_TWO_FACTOR_RESET", { targetType: "user", targetId: userId });
-    return res.redirect("/admin/users?reset2fa=1");
-  } catch (error) {
-    console.error("Two-factor reset error:", error);
     return res.redirect("/admin/users?error=invalid");
   }
 });

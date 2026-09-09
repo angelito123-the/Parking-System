@@ -44,11 +44,10 @@ test("administrators can export backups and import protected master data", () =>
   assert.match(server, /scanner_metrics/);
 });
 
-test("account security includes throttling, password changes, sessions, audit, and TOTP", () => {
+test("account security includes throttling, password changes, sessions, and audit", () => {
   const server = read("server.js");
   assert.match(server, /SlidingWindowRateLimiter/);
   assert.match(server, /\/account\/password/);
   assert.match(server, /\/account\/sessions\/revoke-others/);
   assert.match(server, /security_audit_logs/);
-  assert.match(server, /\/account\/2fa\/enable/);
 });

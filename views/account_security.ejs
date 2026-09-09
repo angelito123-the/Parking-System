@@ -9,11 +9,10 @@
   <div class="hero-greeting">
     <h2>Account</h2>
     <h1>Security &amp; Sessions</h1>
-    <p>Manage your password, two-factor authentication, and signed-in devices.</p>
+    <p>Manage your password and signed-in devices.</p>
   </div>
   <div class="hero-cards">
     <div class="hero-card"><h3>Role</h3><p class="security-text-value"><%= account.role %></p></div>
-    <div class="hero-card"><h3>Two-factor</h3><p class="security-text-value"><%= account.totp_enabled ? "Enabled" : adminTwoFactorRequired ? "Required" : "Optional" %></p></div>
     <div class="hero-card"><h3>Active Sessions</h3><p><%= safeSessions.length %></p></div>
     <div class="hero-card"><h3>Last Login</h3><p class="security-date-value"><%= dateLabel(account.last_login_at) %></p></div>
   </div>
@@ -33,44 +32,6 @@
       <div><label for="confirm_password">Confirm new password</label><input id="confirm_password" name="confirm_password" type="password" minlength="10" autocomplete="new-password" required /></div>
       <div class="form-actions"><button type="submit">Update Password</button></div>
     </form>
-  </section>
-
-  <section class="panel" id="two-factor">
-    <div class="section-head">
-      <h2>Two-factor Authentication</h2>
-      <p>Add a rotating code from an authenticator app after your password.</p>
-    </div>
-    <% if (account.totp_enabled) { %>
-      <div class="security-status is-enabled"><strong>Two-factor authentication is enabled.</strong><span>Your account requires a six-digit code at sign-in.</span></div>
-      <% if (adminTwoFactorRequired) { %>
-        <p class="helper-text">Two-factor authentication is required for administrator accounts. Another administrator can reset enrollment if your device is lost.</p>
-      <% } else { %>
-        <form method="post" action="/account/2fa/disable" class="form-grid security-form security-form-compact">
-          <div><label for="disable_password">Current password</label><input id="disable_password" name="current_password" type="password" autocomplete="current-password" required /></div>
-          <div><label for="disable_code">Current authenticator code</label><input id="disable_code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></div>
-          <div class="form-actions"><button class="danger" type="submit">Disable Two-factor</button></div>
-        </form>
-      <% } %>
-    <% } else if (setupSecret) { %>
-      <div class="two-factor-setup">
-        <img src="/account/2fa/setup-qr" alt="Authenticator setup QR code" width="220" height="220" />
-        <div>
-          <h3>1. Scan this QR</h3>
-          <p>Use Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app.</p>
-          <details><summary>Cannot scan?</summary><code class="security-secret"><%= setupSecret %></code></details>
-          <form method="post" action="/account/2fa/enable" class="form-grid security-form-compact">
-            <div><label for="enable_code">2. Enter the generated code</label><input id="enable_code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required /></div>
-            <div class="form-actions"><button type="submit">Verify and Enable</button></div>
-          </form>
-        </div>
-      </div>
-    <% } else { %>
-      <div class="security-status <%= adminTwoFactorRequired ? 'is-required' : '' %>"><strong>Two-factor authentication is not enabled.</strong><span><%= adminTwoFactorRequired ? 'Administrator access remains limited until enrollment is complete.' : 'It is recommended for every staff account.' %></span></div>
-      <form method="post" action="/account/2fa/setup" class="form-grid security-form-compact">
-        <div><label for="setup_password">Confirm current password</label><input id="setup_password" name="current_password" type="password" autocomplete="current-password" required /></div>
-        <div class="form-actions"><button type="submit">Start Two-factor Setup</button></div>
-      </form>
-    <% } %>
   </section>
 
   <section class="panel" id="sessions">

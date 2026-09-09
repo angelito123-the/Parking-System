@@ -34,8 +34,6 @@ services:
         sync: false
       - key: GUARD_PASSWORD
         sync: false
-      - key: REQUIRE_ADMIN_2FA
-        value: "true"
       - key: GUARD_INACTIVITY_DAYS
         value: "120"
       - key: SNAPSHOT_RETENTION_DAYS

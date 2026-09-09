@@ -25,10 +25,8 @@ test("sticker management remains available when optional history data is unavail
 });
 
 test("administrator and guard account controls enforce practical security", () => {
-  assert.match(server, /REQUIRE_ADMIN_2FA/);
   assert.match(server, /mustChangePassword/);
   assert.match(server, /\/admin\/users\/:id\/status/);
-  assert.match(server, /\/admin\/users\/:id\/reset-2fa/);
   assert.match(server, /GUARD_INACTIVITY_SUSPENDED/);
   assert.match(read("views/admin_users.ejs"), /Suspend account/);
 });

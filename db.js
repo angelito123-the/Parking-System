@@ -335,9 +335,7 @@ async function ensureSecurityMigrations() {
     await pool.query(`ALTER TABLE users ADD COLUMN ${columnName} ${definition}`);
   }
 
-  await addUserColumnIfMissing("totp_enabled", "TINYINT(1) NOT NULL DEFAULT 0 AFTER student_id");
-  await addUserColumnIfMissing("totp_secret_encrypted", "TEXT NULL AFTER totp_enabled");
-  await addUserColumnIfMissing("password_changed_at", "TIMESTAMP NULL DEFAULT NULL AFTER totp_secret_encrypted");
+  await addUserColumnIfMissing("password_changed_at", "TIMESTAMP NULL DEFAULT NULL AFTER student_id");
   await addUserColumnIfMissing("last_login_at", "TIMESTAMP NULL DEFAULT NULL AFTER password_changed_at");
   await addUserColumnIfMissing("is_active", "TINYINT(1) NOT NULL DEFAULT 1 AFTER last_login_at");
   await addUserColumnIfMissing("must_change_password", "TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active");

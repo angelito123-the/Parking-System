@@ -73,7 +73,7 @@
   <section class="panel">
     <div class="section-head">
       <h2>Existing Accounts</h2>
-      <p>Reset passwords, review two-factor enrollment, and suspend access without deleting audit history.</p>
+      <p>Reset passwords and suspend access without deleting audit history.</p>
     </div>
 
     <div class="table-wrap">
@@ -102,8 +102,7 @@
               <td><span class="badge"><%= user.role %></span></td>
               <td><span class="badge badge-<%= user.is_active ? 'valid' : 'invalid' %>"><%= user.is_active ? 'Active' : 'Suspended' %></span></td>
               <td>
-                <span class="badge badge-<%= user.totp_enabled ? 'valid' : 'soft' %>"><%= user.totp_enabled ? '2FA enabled' : 'No 2FA' %></span>
-                <% if (user.must_change_password) { %><span class="badge badge-warning">Password change required</span><% } %>
+                <% if (user.must_change_password) { %><span class="badge badge-warning">Password change required</span><% } else { %><span class="badge badge-valid">Password set</span><% } %>
               </td>
               <td><%= dateLabel(user.last_login_at) %></td>
               <td>
@@ -126,15 +125,11 @@
                       <% } else { %>
                         <form method="post" action="/admin/users/<%= user.id %>/status"><input type="hidden" name="is_active" value="1" /><button type="submit" role="menuitem">Reactivate account</button></form>
                       <% } %>
-                      <% if (user.totp_enabled) { %>
-                        <button type="button" role="menuitem" data-destructive-trigger data-form-id="resetTwoFactorForm_<%= user.id %>" data-confirm-title="Reset two-factor authentication?" data-confirm-message="Sign out <%= user.username %> and remove the current authenticator enrollment?" data-confirm-label="Reset 2FA">Reset 2FA</button>
-                      <% } %>
                       <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteUserForm_<%= user.id %>" data-confirm-title="Delete user account?" data-confirm-message="Delete the account for <%= user.username %>? They will immediately lose access and this cannot be undone." data-confirm-label="Delete account">Delete user</button>
                     </div>
                   </div>
                   <% } %>
                   <form id="suspendUserForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/status" hidden><input type="hidden" name="is_active" value="0" /></form>
-                  <form id="resetTwoFactorForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/reset-2fa" hidden></form>
                   <form id="deleteUserForm_<%= user.id %>" class="destructive-form" method="post" action="/admin/users/<%= user.id %>/delete" hidden></form>
                 </div>
               </td>

@@ -17,10 +17,7 @@ async function signIn(page, credentials) {
   await page.locator("#password").fill(credentials.password);
   await page.getByRole("button", { name: /sign in/i }).click();
   await page.waitForLoadState("domcontentloaded");
-  if (page.url().includes("/login/2fa")) {
-    throw new Error("E2E account requires a TOTP code. Use a dedicated local account without TOTP for automated browser checks.");
-  }
-  await expect(page).not.toHaveURL(/\/login(?:\/2fa)?$/);
+  await expect(page).toHaveURL(credentials === adminCredentials ? /\/admin$/ : /\/guard$/);
 }
 
 async function expectPhosphorIconFont(page) {
@@ -50,6 +47,7 @@ test.describe("administrator workflows", () => {
     await expectPhosphorIconFont(page);
 
     const pages = [
+      ["/account/security", "Security & Sessions"],
       ["/admin/users", "User Management"],
       ["/stickers", "Sticker Management"],
       ["/admin/slots", "Parking Slot Monitoring"],
