@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v33`;
+const CACHE_NAME = `${CACHE_PREFIX}v34`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
@@ -19,13 +19,13 @@ const ASSETS_TO_CACHE = [
   '/js/ui-states.js?v=20260826-ui1',
   '/js/qr-token-parser.js?v=20260826-accuracy1',
   '/js/scan-readiness-model.js?v=20260828-ops1',
-  '/js/ml-qr-detector.js?v=20260828-ops1',
+  '/js/ml-qr-detector.js?v=20260909-camera1',
+  '/vendor/jsqr/jsQR.js?v=1.4.0',
+  '/vendor/html5-qrcode/html5-qrcode.min.js?v=2.3.8',
   '/js/scanner-guidance.js?v=20260827-ml1',
   '/js/scanner-device-check.js?v=20260828-ops1'
 ];
 const OPTIONAL_ASSETS_TO_CACHE = [
-  'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
-  'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap'
 ];
 

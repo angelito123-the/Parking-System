@@ -12,6 +12,7 @@
     "generate:pwa-icons": "node scripts/generate-pwa-icons.js",
     "test": "node --test",
     "test:e2e": "playwright test",
+    "test:camera": "playwright test --config=playwright.camera.config.js",
     "verify:schema": "node scripts/verify-operational-schema.js"
   },
   "keywords": [

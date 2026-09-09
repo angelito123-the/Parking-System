@@ -42,13 +42,13 @@
             <option value="South Gate">South Gate</option>
           </select>
         </div>
-        <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Stop Camera</button>
+        <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Start Camera</button>
       </div>
     </div>
 
     <div class="auto-indicator-row">
-      <span id="chipAutoState" class="auto-chip state-live">Scanner Active</span>
-      <span id="chipCameraState" class="auto-chip state-live">Camera Ready</span>
+      <span id="chipAutoState" class="auto-chip state-idle">Scanner Starting</span>
+      <span id="chipCameraState" class="auto-chip state-idle">Camera Not Started</span>
       <span id="chipCooldownState" class="auto-chip state-idle">Ready for QR</span>
       <span id="chipOfflineQueueState" class="auto-chip state-idle">Offline Queue: 0</span>
     </div>
@@ -74,7 +74,7 @@
         </div>
       </div>
 
-      <p id="autoCameraStatus" class="auto-camera-status">Initializing rear camera...</p>
+      <p id="autoCameraStatus" class="auto-camera-status" role="status" aria-live="polite">Loading scanner...</p>
       <div class="scanner-assist scanner-assist-auto">
         <p id="autoScannerGuidance" class="scanner-guidance" role="status" aria-live="polite">
           <span class="scanner-guidance-dot" aria-hidden="true"></span>
@@ -178,14 +178,14 @@
   </article>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="/vendor/jsqr/jsQR.js?v=1.4.0"></script>
 <script src="/js/qr-token-parser.js?v=20260826-accuracy1"></script>
 <script src="/js/qr-behavior-classifier.js"></script>
 <script src="/js/scan-readiness-model.js?v=20260828-ops1"></script>
-<script src="/js/ml-qr-detector.js?v=20260828-ops1"></script>
+<script src="/js/ml-qr-detector.js?v=20260909-camera1"></script>
 <script src="/js/scanner-guidance.js?v=20260827-ml1"></script>
 <script src="/js/scanner-device-check.js?v=20260828-ops1"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="/vendor/html5-qrcode/html5-qrcode.min.js?v=2.3.8"></script>
 <script nonce="<%= cspNonce %>">
   (() => {
     const shell = document.querySelector(".auto-gate-shell");
@@ -263,6 +263,7 @@
 
     let html5QrCode = null;
     let cameraStarted = false;
+    let cameraStarting = false;
     let processingScan = false;
 
     const QR_STATE = {
@@ -1351,69 +1352,84 @@
     }
 
     async function startCamera() {
-      if (!html5QrCode) {
-        if (enhancedScannerAvailable) {
-          html5QrCode = new window.MLQrCodeScanner("autoQrReader", {
-            targetFps: 24,
-            confidenceThreshold: 0.35,
-            maxProcessWidth: 720,
-            perspectiveSize: 320,
-            lowConfidenceDecodeRatio: 0.58,
-            duplicateSuppressMs: 220,
-            onMlMetrics: (metrics) => {
-              scannerGuidance.update(metrics);
-              lastGuidanceKey = String(metrics?.readinessGuidance || lastGuidanceKey || "center");
-              updateMlChip({
-                ...metrics,
-                model: metrics?.usedDetector ? "BarcodeDetector+jsQR" : "jsQR-fallback"
-              });
-            }
-          });
-          setChip(chipMlState, "Smart Assist: Active", "live");
-        } else {
-          html5QrCode = new Html5Qrcode("autoQrReader");
-          setChip(chipMlState, "Smart Assist: Unavailable", "warning");
-        }
-      }
-
-      const config = {
-        fps: 24,
-        aspectRatio: 1.333333,
-        disableFlip: false
-      };
-
-      const onFailure = () => {
-        unreadableFrameCount += 1;
-        scannerGuidance.unreadableFrame();
-      };
-
-      setCameraStatus("Requesting camera permission...");
+      if (cameraStarted || cameraStarting) return;
+      cameraStarting = true;
+      toggleCameraBtn.disabled = true;
+      setCameraStatus("Requesting camera permission. Allow access in your browser.");
       setChip(chipCameraState, "Opening Camera", "warning");
 
       try {
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          config,
-          handleDecodedText,
-          onFailure
-        );
-        cameraStarted = true;
-        resetScanCycle();
-        scannerGuidance.start();
-        toggleCameraBtn.textContent = "Stop Camera";
-        setCameraStatus("Rear camera active", "ok");
-        setChip(chipAutoState, "Ready to Scan", "live");
-        setChip(chipCameraState, "Camera Ready", "live");
-        if (!enhancedScannerAvailable) {
-          setChip(chipMlState, "Smart Assist: Unavailable", "warning");
+        if (!window.isSecureContext) {
+          throw new Error("Camera access requires HTTPS. Open the secure website address and retry.");
         }
-        setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
-        return;
-      } catch (_rearError) {
-        // Fallback below.
-      }
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("Camera access is unavailable in this browser. Open this page in Chrome or Safari and retry.");
+        }
+        if (!html5QrCode) {
+          if (enhancedScannerAvailable) {
+            html5QrCode = new window.MLQrCodeScanner("autoQrReader", {
+              targetFps: 24,
+              confidenceThreshold: 0.35,
+              maxProcessWidth: 720,
+              perspectiveSize: 320,
+              lowConfidenceDecodeRatio: 0.58,
+              duplicateSuppressMs: 220,
+              onMlMetrics: (metrics) => {
+                scannerGuidance.update(metrics);
+                lastGuidanceKey = String(metrics?.readinessGuidance || lastGuidanceKey || "center");
+                updateMlChip({
+                  ...metrics,
+                  model: metrics?.usedDetector ? "BarcodeDetector+jsQR" : "jsQR-fallback"
+                });
+              }
+            });
+            setChip(chipMlState, "Smart Assist: Active", "live");
+          } else {
+            if (typeof window.Html5Qrcode !== "function") {
+              throw new Error("Scanner files could not load. Reload this page and tap Start Camera.");
+            }
+            html5QrCode = new Html5Qrcode("autoQrReader");
+            setChip(chipMlState, "Smart Assist: Unavailable", "warning");
+          }
+        }
 
-      try {
+        const config = {
+          fps: 24,
+          aspectRatio: 1.333333,
+          disableFlip: false
+        };
+
+        const onFailure = () => {
+          unreadableFrameCount += 1;
+          scannerGuidance.unreadableFrame();
+        };
+
+        try {
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            handleDecodedText,
+            onFailure
+          );
+          cameraStarted = true;
+          resetScanCycle();
+          scannerGuidance.start();
+          toggleCameraBtn.textContent = "Stop Camera";
+          setCameraStatus("Rear camera active", "ok");
+          setChip(chipAutoState, "Ready to Scan", "live");
+          setChip(chipCameraState, "Camera Ready", "live");
+          if (!enhancedScannerAvailable) {
+            setChip(chipMlState, "Smart Assist: Unavailable", "warning");
+          }
+          setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
+          return;
+        } catch (rearError) {
+          // A different camera cannot fix a denied permission or blocked playback.
+          if (/NotAllowedError|SecurityError/.test(rearError?.name || "") || /permission|denied/i.test(String(rearError))) {
+            throw rearError;
+          }
+        }
+
         const getCamerasFn = typeof html5QrCode.constructor.getCameras === "function"
           ? html5QrCode.constructor.getCameras.bind(html5QrCode.constructor)
           : (typeof Html5Qrcode !== "undefined" && typeof Html5Qrcode.getCameras === "function"
@@ -1438,11 +1454,16 @@
         }
         setResultState("idle", "Waiting for QR detection", "Point the camera to a student vehicle QR sticker anywhere in view.");
       } catch (error) {
+        if (html5QrCode) {
+          try { await html5QrCode.stop(); } catch (_stopError) { /* Camera may not have opened. */ }
+          try { await html5QrCode.clear(); } catch (_clearError) { /* Keep the error and retry controls available. */ }
+          html5QrCode = null;
+        }
         cameraStarted = false;
         scannerGuidance.stop();
         toggleCameraBtn.textContent = "Start Camera";
         const message = String(error && error.message ? error.message : error);
-        const prettyMessage = /permission|denied/i.test(message)
+        const prettyMessage = /NotAllowedError|SecurityError/.test(error?.name || "") || /permission|denied/i.test(message)
           ? "Camera permission denied. Allow camera access and retry."
           : message;
         setCameraStatus(prettyMessage, "error");
@@ -1451,7 +1472,10 @@
         setChip(chipMlState, "Smart Assist: Offline", "error");
         setResultState("error", "Camera unavailable", prettyMessage);
         pushSessionEvent("ERROR", "error", "Camera unavailable", prettyMessage);
-        await reportScannerMetric("CAMERA_ERROR", { reason: prettyMessage });
+        reportScannerMetric("CAMERA_ERROR", { reason: prettyMessage });
+      } finally {
+        cameraStarting = false;
+        toggleCameraBtn.disabled = false;
       }
     }
 

@@ -375,7 +375,13 @@
         : null;
 
       if (typeof BarcodeDetector !== "undefined") {
-        this.detector = new BarcodeDetector({ formats: ["qr_code"] });
+        try {
+          this.detector = new BarcodeDetector({ formats: ["qr_code"] });
+        } catch (_unsupportedDetector) {
+          // Some browsers expose BarcodeDetector without supporting QR codes.
+          // The bundled jsQR decoder can still scan the camera stream.
+          this.detector = null;
+        }
       }
     }
 
@@ -441,7 +447,7 @@
       const baseVideo = {
         width: { ideal: 1920 },
         height: { ideal: 1080 },
-        frameRate: { ideal: 30, min: 15 }
+        frameRate: { ideal: 30 }
       };
 
       let mediaConstraints = { video: baseVideo, audio: false };

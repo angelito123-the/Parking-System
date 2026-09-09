@@ -1,5 +1,10 @@
 # Scanner device test checklist
 
+Run `npm run test:camera` for browser checks of camera startup, stop/restart,
+permission recovery, and decoder fallbacks with external network requests blocked.
+These use a simulated camera at desktop and phone sizes without a database.
+Complete the physical-device checks below before assigning a phone to a gate.
+
 Use this checklist before assigning a phone or tablet to a gate. Open **Gate Operations → Scan & Process → Scanner details → Run Device Check** first. The result must say the device is ready; native QR detection and flashlight support are useful but optional.
 
 ## Device matrix
