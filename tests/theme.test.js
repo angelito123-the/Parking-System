@@ -32,7 +32,7 @@ test('theme stylesheet version is consistent with the offline cache', () => {
 
   assert.ok(header.includes(asset));
   assert.ok(worker.includes(asset));
-  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v34`/);
+  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v35`/);
   assert.match(header, /localStorage\.setItem\('theme', newTheme\)/);
   assert.match(header, /setAttribute\('aria-pressed', isDark \? 'true' : 'false'\)/);
 });

@@ -153,3 +153,59 @@ test("manual camera tools also load without external QR scripts", async ({ page 
   expect(errors).toEqual([]);
   expect(externalRequests).toEqual([]);
 });
+
+test("manual camera permission errors allow a direct retry", async ({ page }) => {
+  const { errors } = await serveScanner(page);
+  await page.addInitScript(() => {
+    const getMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    let deny = true;
+    navigator.mediaDevices.getUserMedia = constraints => {
+      if (deny) { deny = false; return Promise.reject(new DOMException("Denied", "NotAllowedError")); }
+      return getMedia(constraints);
+    };
+  });
+  await page.goto(`${origin}/scanner`);
+  await page.locator("#toggleCameraBtn").click();
+  await expect(page.locator("#cameraStatus")).toContainText("Camera unavailable");
+  await page.locator("#toggleCameraBtn").click();
+  await expect(page.locator("#cameraStatus")).toHaveText("Scanner active");
+  expect(errors).toEqual([]);
+});
+
+test("online lookup does not require offline storage support", async ({ page }) => {
+  const { errors } = await serveScanner(page);
+  await page.route("**/api/gate-lookup?*", route => route.fulfill({ json: { ok: true, results: [] } }));
+  await page.goto(`${origin}/scanner?q=TEST`);
+  await expect(page.locator("#gateSearchStatus")).toHaveText("No results found.");
+  expect(errors).toEqual([]);
+});
+
+for (const brokenStorage of [false, true]) {
+  test(`offline lookup recovers from unavailable support (storage=${brokenStorage})`, async ({ page }) => {
+    const { errors } = await serveScanner(page);
+    await page.addInitScript(broken => {
+      Object.defineProperty(navigator, "onLine", { get: () => false });
+      if (broken) window.OfflineManager = { searchOfflineRoster: async () => { throw new Error("IndexedDB unavailable"); } };
+    }, brokenStorage);
+    await page.goto(`${origin}/scanner?q=TEST`);
+    await expect(page.locator("#gateSearchStatus")).toContainText("Offline lookup is unavailable");
+    expect(errors).toEqual([]);
+  });
+}
+
+test("manual history displays only movements the server saved", async ({ page }) => {
+  const { errors } = await serveScanner(page);
+  await page.route("**/api/gate-lookup?*", route => route.fulfill({ json: { ok: true, results: [{ qr_token: 'history-token', full_name: 'Review driver', plate_number: 'TEST', sticker_status: 'active', last_action: 'ENTRY' }] } }));
+  let saved = false;
+  await page.route("**/api/manual-movement", route => route.fulfill({ json: { ok: saved, movement_saved: saved, message: 'Test rejection' } }));
+  await page.goto(`${origin}/scanner?q=TEST`);
+  await page.locator('.select-vehicle-btn').click();
+  await page.locator('#gateExitBtn').click();
+  await expect(page.locator('#gateLogFeedback')).toContainText('Test rejection');
+  await expect(page.locator('#scanHistoryList .scanner-history-item')).toHaveCount(0);
+  saved = true;
+  await page.locator('#gateExitBtn').click();
+  await expect(page.locator('#scanHistoryList .scanner-history-item')).toHaveCount(1);
+  await expect(page.locator('#scanHistoryList')).toContainText('Review driver');
+  expect(errors).toEqual([]);
+});

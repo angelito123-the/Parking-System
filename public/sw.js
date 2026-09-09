@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v34`;
+const CACHE_NAME = `${CACHE_PREFIX}v35`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
@@ -14,7 +14,7 @@ const ASSETS_TO_CACHE = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-  '/offline-sync.js?v=20260828-ops1',
+  '/offline-sync.js?v=20260909-review1',
   '/js/qr-behavior-classifier.js',
   '/js/ui-states.js?v=20260826-ui1',
   '/js/qr-token-parser.js?v=20260826-accuracy1',
@@ -22,9 +22,11 @@ const ASSETS_TO_CACHE = [
   '/js/ml-qr-detector.js?v=20260909-camera1',
   '/vendor/jsqr/jsQR.js?v=1.4.0',
   '/vendor/html5-qrcode/html5-qrcode.min.js?v=2.3.8',
+  '/vendor/chartjs/chart.umd.min.js?v=4.4.3',
   '/js/scanner-guidance.js?v=20260827-ml1',
   '/js/scanner-device-check.js?v=20260828-ops1'
 ];
+const STATIC_ASSET_PATHS = new Set(ASSETS_TO_CACHE.map(asset => new URL(asset, self.location.origin).pathname));
 const OPTIONAL_ASSETS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap'
 ];
@@ -68,6 +70,8 @@ self.addEventListener('fetch', event => {
   }
 
   if (requestUrl.origin === self.location.origin && requestUrl.pathname.startsWith('/api/')) return;
+  // Authenticated images, QR codes, and downloads must always go to the server.
+  if (requestUrl.origin === self.location.origin && !STATIC_ASSET_PATHS.has(requestUrl.pathname)) return;
 
   const unavailableResponse = () => new Response('Offline and resource not cached.', {
     status: 503,

@@ -17,7 +17,7 @@ const passwordHash = bcrypt.hashSync(password, 4);
 
 // Exercise the real Express routes, middleware, sessions, and templates without
 // starting background maintenance or connecting to the application's database.
-async function startApp(t, overrides = {}) {
+async function startApp(t, overrides = {}, database = {}) {
   const user = {
     id: 1, username: "test-admin", password: passwordHash, role: "admin",
     is_active: 1, must_change_password: 0, last_login_at: null,
@@ -27,6 +27,7 @@ async function startApp(t, overrides = {}) {
   const audits = [];
   let store;
   const pool = {
+    ...database,
     async query(sql, values) {
       if (/FROM users\s+WHERE username/.test(sql)) return [[values[0] === user.username ? user : null].filter(Boolean)];
       if (/FROM users(?:\s+WHERE id| u)/.test(sql)) return [[user]];
@@ -64,13 +65,14 @@ async function startApp(t, overrides = {}) {
   }));
   await once(server, "listening");
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  async function request(route, { cookie, form } = {}) {
+  async function request(route, { cookie, form, data } = {}) {
     const headers = { "x-forwarded-proto": "https", origin: "https://parking.example" };
     if (cookie) headers.cookie = cookie;
+    if (data) headers["content-type"] = "application/json";
     if (form) headers["content-type"] = "application/x-www-form-urlencoded";
     return fetch(baseUrl + route, {
-      method: form ? "POST" : "GET", headers, redirect: "manual",
-      body: form ? new URLSearchParams(form) : undefined
+      method: form || data ? "POST" : "GET", headers, redirect: "manual",
+      body: form ? new URLSearchParams(form) : data ? JSON.stringify(data) : undefined
     });
   }
   const signIn = (suppliedPassword = password) => request("/login", {
@@ -158,4 +160,43 @@ test("old verification pages return pending sessions to password sign-in", async
   assert.match(await loginPage.text(), /Sign In/i);
   assert.equal((await request("/admin/users", { cookie })).headers.get("location"), "/login");
   assert.equal((await signIn()).headers.get("location"), "/admin");
+});
+
+
+test("database connection failures return responses and leave the server available", async t => {
+  for (const role of ["admin", "guard"]) {
+    const app = await startApp(t, { role }, { getConnection: async () => { throw new Error("Simulated database outage"); } });
+    const login = await app.signIn();
+    const cookie = login.headers.get("set-cookie").split(";")[0];
+    const cases = role === "admin" ? [
+      ["/students", { student_number: "OUTAGE-1", full_name: "Test", program: "Bachelor of Science in Aeronautical Engineering", year_level: "1" }],
+      ["/visitor-passes/1/approve", {}], ["/visitor-passes/1/reject", {}], ["/visitor-passes/1/cancel", {}]
+    ] : [
+      ["/api/auto-scan/pending-entries/1/confirm", { slot_id: "1" }],
+      ["/api/auto-scan/pending-entries/1/cancel", {}]
+    ];
+    for (const [route, form] of cases) {
+      const response = await app.request(route, { cookie, form });
+      if (route.startsWith("/api/")) assert.equal((await response.json()).ok, false);
+      else assert.match(response.headers.get("location"), /error=/);
+      assert.equal((await app.request("/account/security", { cookie })).status, 200);
+    }
+  }
+});
+
+
+test("offline and metrics batch failures are handled without crashing the process", async t => {
+  const app = await startApp(t, { role: "guard" }, { getConnection: async () => { throw new Error("Simulated database outage"); } });
+  const login = await app.signIn();
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  for (const [route, data] of [
+    ["/api/sync-queue", { movements: [{ event_id: "outage", action: "ENTRY" }] }],
+    ["/api/scanner-metrics/batch", { metrics: [{ event_id: "outage" }] }],
+    ["/api/sync-queue", { movements: [null, null] }]
+  ]) {
+    const response = await app.request(route, { cookie, data });
+    assert.ok(response.status >= 400);
+    assert.equal((await response.json()).ok, false);
+  }
+  assert.equal((await app.request("/account/security", { cookie })).status, 200);
 });

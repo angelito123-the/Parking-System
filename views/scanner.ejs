@@ -620,37 +620,48 @@
 
     setCameraButton(false);
 
-    toggleCameraBtn.addEventListener("click", () => {
+    let cameraStarting = false;
+    toggleCameraBtn.addEventListener("click", async () => {
+      if (cameraStarting) return;
       const currentlyHidden = cameraWrapper.style.display === "none" || getComputedStyle(cameraWrapper).display === "none";
-      if (currentlyHidden) {
-        cameraWrapper.style.display = "block";
-        setCameraButton(true);
-        if (cameraStatus) cameraStatus.textContent = "Scanner active";
-        if (!html5QrCode) {
-          const enhancedScannerAvailable = typeof window.MLQrCodeScanner === "function" && typeof window.jsQR === "function";
-          html5QrCode = enhancedScannerAvailable
-            ? new window.MLQrCodeScanner("qr-reader", {
-                targetFps: 24,
-                confidenceThreshold: 0.35,
-                maxProcessWidth: 720,
-                perspectiveSize: 320,
-                lowConfidenceDecodeRatio: 0.58,
-                duplicateSuppressMs: 220,
-                onMlMetrics: (metrics) => scannerGuidance.update(metrics)
-              })
-            : new Html5Qrcode("qr-reader");
-        }
-        html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 24, aspectRatio: 1.333333, disableFlip: false },
-          onScanSuccess,
-          () => scannerGuidance.unreadableFrame()
-        )
-          .then(() => scannerGuidance.start())
-          .catch(e => {
-            if (cameraStatus) cameraStatus.textContent = "Camera error: " + e;
-            scannerGuidance.stop();
-          });
+      if (currentlyHidden || !html5QrCode) {
+        cameraStarting = true;
+        try {
+          cameraWrapper.style.display = "block";
+          setCameraButton(true);
+          if (cameraStatus) cameraStatus.textContent = "Starting camera...";
+          if (!html5QrCode) {
+            const enhancedScannerAvailable = typeof window.MLQrCodeScanner === "function" && typeof window.jsQR === "function";
+            html5QrCode = enhancedScannerAvailable
+              ? new window.MLQrCodeScanner("qr-reader", {
+                  targetFps: 24,
+                  confidenceThreshold: 0.35,
+                  maxProcessWidth: 720,
+                  perspectiveSize: 320,
+                  lowConfidenceDecodeRatio: 0.58,
+                  duplicateSuppressMs: 220,
+                  onMlMetrics: (metrics) => scannerGuidance.update(metrics)
+                })
+              : new Html5Qrcode("qr-reader");
+          }
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 24, aspectRatio: 1.333333, disableFlip: false },
+            onScanSuccess,
+            () => scannerGuidance.unreadableFrame()
+          );
+          scannerGuidance.start();
+          if (cameraStatus) cameraStatus.textContent = "Scanner active";
+        } catch (error) {
+          if (cameraStatus) cameraStatus.textContent = "Camera unavailable. Check camera permission and tap Use Camera Here to retry.";
+          scannerGuidance.stop();
+          if (html5QrCode) {
+            try { await html5QrCode.stop(); } catch (_) {}
+            try { await html5QrCode.clear(); } catch (_) {}
+          }
+          html5QrCode = null;
+          setCameraButton(false);
+        } finally { cameraStarting = false; }
       } else {
         cameraWrapper.style.display = "none";
         setCameraButton(false);
@@ -685,63 +696,30 @@
       logPanel.style.display = "none";
       setGateStage("scan");
 
-      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+      const isOffline = !navigator.onLine;
       
-      if (isOffline) {
-        // Offline Scan
-        const verifyRes = await window.OfflineManager.verifyOfflineToken(token);
-        if (verifyRes.ok) {
+      try {
+        if (isOffline) {
+          if (!window.OfflineManager) throw new Error("Offline lookup is unavailable. Reconnect and retry.");
+          const verified = await window.OfflineManager.verifyOfflineToken(token);
+          if (!verified.ok) throw new Error(verified.message);
+          renderSearchResults([{ ...verified.sticker, qr_token: token, sticker_status: "active" }]);
+        } else {
+          searchInput.value = token;
+          await doSearch();
+        }
+        const selectable = document.querySelector('.select-vehicle-btn');
+        if (selectable) {
           playBeep('success');
-          // Fake a search result for selection UI
-          renderSearchResults([{
-            qr_token: token,
-            full_name: verifyRes.sticker.full_name,
-            plate_number: verifyRes.sticker.plate_number,
-            sticker_code: verifyRes.sticker.sticker_code,
-            student_number: verifyRes.sticker.student_number,
-            sticker_status: 'active'
-          }]);
-          // Auto-select it
-          setTimeout(() => document.querySelector('.select-vehicle-btn').click(), 100);
+          selectable.click();
         } else {
           playBeep('error');
-          statusEl.innerHTML = `<span style="color:red">Warning: ${escapeHtml(verifyRes.message)} (Offline Mode)</span>`;
           setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
         }
-      } else {
-        // Online Scan - check the full API to get exact movement history for smart scanning
-        try {
-          // fetch /api/gate-lookup doesn't take tokens directly, so let's use the verify state
-          // Alternatively, we use the fact that the token is unique and do a manual search?
-          // No, token is secret. Let's do a fast fetch to a verify endpoint if needed or just use search by plate.
-          // Since we need to lookup by token online without recording yet, let's use a quick local search if possible.
-          // Wait, we have the token, we can just fetch the verify endpoint HTML and parse it? No.
-          // Let's rely on `/api/scan` directly, but `/api/scan` auto-records!
-          // Okay, if online, just do an offline roster check to find plate, then search by plate securely!
-          const verifyRes = window.OfflineManager ? await window.OfflineManager.verifyOfflineToken(token) : null;
-          if (verifyRes && verifyRes.ok) {
-            playBeep('success');
-            searchInput.value = verifyRes.sticker.plate_number;
-            await doSearch(); // Does full online search using plate
-            setTimeout(() => document.querySelector('.select-vehicle-btn')?.click(), 100);
-          } else {
-            searchInput.value = token;
-            await doSearch();
-            const firstSelectable = document.querySelector('.select-vehicle-btn');
-            if (firstSelectable) {
-              playBeep('success');
-              setTimeout(() => firstSelectable.click(), 120);
-            } else {
-              playBeep('error');
-              statusEl.innerHTML = `<span style="color:red">Warning: Token not found or invalid.</span>`;
-              setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
-            }
-          }
-        } catch(e) {
-            playBeep('error');
-            statusEl.textContent = "Network error during scan.";
-            setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
-        }
+      } catch (error) {
+        playBeep('error');
+        statusEl.textContent = isOffline ? "Offline lookup is unavailable or this sticker is invalid. Reconnect and retry." : "Lookup failed. Please retry.";
+        setTimeout(() => html5QrCode && html5QrCode.resume(), 2000);
       }
     }
 
@@ -855,12 +833,19 @@
       resultsEl.innerHTML = "";
       logPanel.style.display = "none";
       
-      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+      const isOffline = !navigator.onLine;
 
       if (isOffline) {
         // Search local DB
         statusEl.textContent = "Searching Offline Roster...";
-        const offlineResults = await window.OfflineManager.searchOfflineRoster(q);
+        let offlineResults;
+        try {
+          if (!window.OfflineManager) throw new Error("Offline support unavailable");
+          offlineResults = await window.OfflineManager.searchOfflineRoster(q);
+        } catch (error) {
+          statusEl.textContent = "Offline lookup is unavailable on this device. Reconnect and retry.";
+          return;
+        }
         if (offlineResults.length === 0) {
           statusEl.textContent = "No offline matches found.";
           setGateStage("scan");
@@ -885,7 +870,7 @@
             renderSearchResults(data.results);
           }
         } catch (err) {
-          statusEl.textContent = "Network error. Try searching offline.";
+          statusEl.textContent = "Lookup failed. Check your connection and retry.";
           setGateStage("scan");
         }
       }
@@ -924,7 +909,7 @@
       }
       logFeedback.innerHTML = `<span class="helper-text">Recording ${action}...</span>`;
       
-      let isOffline = !window.OfflineManager || !window.OfflineManager.isOnline;
+      const isOffline = !navigator.onLine;
 
       if (isOffline) {
         if (action === "ENTRY") {
@@ -933,7 +918,15 @@
           return;
         }
         // Queue movement in outbox
-        await window.OfflineManager.queueMovement(selectedToken, action, gate);
+        try {
+          if (!window.OfflineManager) throw new Error("Offline support unavailable");
+          const queued = await window.OfflineManager.queueMovement(selectedToken, action, gate);
+          if (!queued.queued && !queued.duplicate) throw new Error("Movement was not queued");
+        } catch (error) {
+          logFeedback.textContent = "Movement could not be saved offline. Reconnect and retry.";
+          return;
+        }
+        addToHistory(selectedLabel, action, true, true);
         playBeep('success');
         logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">${action} saved to OFFLINE QUEUE.<br><small>Will sync when connection is restored.</small></div>`;
         logPanel.style.opacity = '0.7';
@@ -956,6 +949,7 @@
           });
           const data = await resp.json();
           if (data.movement_saved) {
+            addToHistory(selectedLabel, action, false, true);
             playBeep('success');
             if (action === "ENTRY") {
               await loadParkingSlots(selectedSlotScope);
@@ -990,8 +984,6 @@
 
     // Scan History
     const scanHistory = [];
-    const historyList = document.getElementById("scanHistoryList");
-    const historyEmpty = document.getElementById("scanHistoryEmpty");
 
     function addToHistory(label, action, isOffline, isSuccess) {
       const time = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' });
@@ -1001,6 +993,8 @@
     }
 
     function renderHistory() {
+      const historyList = document.getElementById("scanHistoryList");
+      const historyEmpty = document.getElementById("scanHistoryEmpty");
       if (!historyList || !historyEmpty) return;
       if (scanHistory.length === 0) {
         historyEmpty.style.display = "";
@@ -1022,14 +1016,6 @@
         </div>`;
       }).join("");
     }
-
-    // Track each button-triggered movement in session history.
-    entryBtn.addEventListener("click", () => {
-      if (selectedLabel) addToHistory(selectedLabel, "ENTRY", !window.OfflineManager?.isOnline, true);
-    });
-    exitBtn.addEventListener("click", () => {
-      if (selectedLabel) addToHistory(selectedLabel, "EXIT", !window.OfflineManager?.isOnline, true);
-    });
 
     if (guardQueueMode) {
       fetchRemotePendingEntries({ silent: false });

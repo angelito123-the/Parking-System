@@ -726,7 +726,7 @@
   </section>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/vendor/chartjs/chart.umd.min.js?v=4.4.3"></script>
 <script nonce="<%= cspNonce %>">
   (() => {
     const charts = <%- serializeForScript(safeCharts || {}) %>;
@@ -877,10 +877,21 @@
       });
     };
 
-    renderBusiestHours();
-    renderZoneUsage();
-    renderSlotTrend();
-    renderOverstay();
+    if (typeof window.Chart === "function") {
+      renderBusiestHours();
+      renderZoneUsage();
+      renderSlotTrend();
+      renderOverstay();
+    } else {
+      document.querySelectorAll("canvas").forEach((canvas) => {
+        canvas.hidden = true;
+        const message = document.createElement("p");
+        message.className = "helper-text";
+        message.setAttribute("role", "status");
+        message.textContent = "Chart unavailable. Reload to retry; report tables and exports are still available.";
+        canvas.after(message);
+      });
+    }
 
     const isPrintMode = <%- serializeForScript(isPrintMode) %>;
     if (isPrintMode) {

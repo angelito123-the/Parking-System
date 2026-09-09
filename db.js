@@ -33,6 +33,11 @@ const pool = mysql.createPool({
     : undefined
 });
 
+// Match SQL timestamps to the UTC dates serialized and parsed by mysql2.
+pool.on("connection", (connection) => {
+  connection.query("SET time_zone = '+00:00'");
+});
+
 async function ensureDatabaseSchema() {
   const schemaPath = path.join(__dirname, "sql", "schema.sql");
   const schemaSql = fs.readFileSync(schemaPath, "utf8");

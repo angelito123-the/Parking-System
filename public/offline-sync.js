@@ -159,8 +159,16 @@ const OfflineManager = {
     if (!vehicle) {
       return { ok: false, result: "INVALID", message: "Sticker not found in offline DB." };
     }
-    // For offline, we trust the downloaded list which only contains ACTIVE and non-expired vehicles.
+    if (this.isRosterEntryExpired(vehicle)) {
+      return { ok: false, result: "EXPIRED", message: "Sticker has expired. Reconnect to refresh the roster." };
+    }
     return { ok: true, result: "VALID", message: "Offline Verification successful.", sticker: vehicle };
+  },
+
+  isRosterEntryExpired(vehicle) {
+    if (!vehicle.expires_at) return false;
+    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return String(vehicle.expires_at).slice(0, 10) < today;
   },
 
   async searchOfflineRoster(query) {
@@ -168,7 +176,7 @@ const OfflineManager = {
     if (!q) return [];
 
     const roster = await dbTransaction('roster', 'readonly', store => store.getAll());
-    return roster.filter(vehicle => (
+    return roster.filter(vehicle => !this.isRosterEntryExpired(vehicle) && (
       String(vehicle.plate_number || '').toLowerCase().includes(q) ||
       String(vehicle.student_number || '').toLowerCase().includes(q) ||
       String(vehicle.full_name || '').toLowerCase().includes(q)
@@ -315,6 +323,18 @@ const OfflineManager = {
       if (!response.ok) throw new Error(`Queue sync failed (${response.status}).`);
       const data = await response.json();
       if (!data.ok) throw new Error(data.message || 'Server rejected the offline queue.');
+      const rejected = Array.isArray(data.results) ? data.results.filter(result => result.status === 'rejected') : [];
+      if (rejected.length) {
+        let notice = document.getElementById('offlineSyncWarning');
+        if (!notice) {
+          notice = document.createElement('div');
+          notice.id = 'offlineSyncWarning';
+          notice.className = 'flash flash-error';
+          notice.setAttribute('role', 'alert');
+          (document.querySelector('main') || document.body).prepend(notice);
+        }
+        notice.textContent = 'Some offline movements could not be applied because access or entry/exit status changed. Ask an administrator to review the offline sync audit.';
+      }
       const accepted = new Set(Array.isArray(data.accepted_event_ids) ? data.accepted_event_ids : movements.map(item => item.event_id));
       await this.deleteQueuedItems('outbox', movements.filter(item => accepted.has(item.event_id)));
     }

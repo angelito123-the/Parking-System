@@ -438,7 +438,7 @@ function sessionFingerprint(sessionId) {
 }
 
 async function listUserSessions(userId, currentSessionId) {
-  const [rows] = await pool.query("SELECT session_id, expires, data FROM sessions ORDER BY expires DESC LIMIT 500");
+  const [rows] = await pool.query("SELECT session_id, expires, data FROM sessions ORDER BY expires DESC");
   const sessions = [];
   for (const row of rows) {
     try {
@@ -459,7 +459,7 @@ async function listUserSessions(userId, currentSessionId) {
 async function revokeUserSessions(userId, options = {}) {
   const keepSessionId = options.keepSessionId || null;
   const targetFingerprint = options.fingerprint || null;
-  const [rows] = await pool.query("SELECT session_id, data FROM sessions LIMIT 500");
+  const [rows] = await pool.query("SELECT session_id, data FROM sessions");
   const sessionIds = [];
   for (const row of rows) {
     try {
@@ -1669,13 +1669,13 @@ async function getOperationalAlertMetrics(db = pool) {
          (SELECT COUNT(*)
           FROM scan_logs
           WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED')
-            AND scanned_at >= CURDATE()
-            AND scanned_at < CURDATE() + INTERVAL 1 DAY) AS invalid_today,
+            AND scanned_at >= (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR)
+            AND scanned_at < (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR) + INTERVAL 1 DAY) AS invalid_today,
          (SELECT COUNT(*)
           FROM visitor_scan_logs
           WHERE result IN ('INVALID', 'REVOKED', 'EXPIRED', 'DENIED')
-            AND scanned_at >= CURDATE()
-            AND scanned_at < CURDATE() + INTERVAL 1 DAY) AS visitor_invalid_today,
+            AND scanned_at >= (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR)
+            AND scanned_at < (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR) + INTERVAL 1 DAY) AS visitor_invalid_today,
          (SELECT COUNT(*)
           FROM auto_scan_queue
           WHERE status = 'PENDING') AS pending_queue,
@@ -3239,8 +3239,8 @@ async function getTodayMovementCounts(db = pool) {
        COALESCE(SUM(CASE WHEN action = 'EXIT' THEN 1 ELSE 0 END), 0) AS exits
      FROM scan_logs
      WHERE result = 'VALID'
-       AND scanned_at >= CURDATE()
-       AND scanned_at < CURDATE() + INTERVAL 1 DAY`
+       AND scanned_at >= (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR)
+       AND scanned_at < (DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) - INTERVAL 8 HOUR) + INTERVAL 1 DAY`
   );
   return {
     entries: Number(row?.entries || 0),
@@ -5170,18 +5170,22 @@ app.post("/account/password", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/account/sessions/:fingerprint/revoke", requireAuth, async (req, res) => {
-  const fingerprint = String(req.params.fingerprint || "");
-  if (!/^[a-f0-9]{12}$/.test(fingerprint)) return res.redirect("/account/security?error=Invalid+session.");
-  const revoked = await revokeUserSessions(req.authUser.id, { fingerprint, keepSessionId: req.sessionID });
-  await recordSecurityAudit(req, "SESSION_REVOKED", { targetType: "session", targetId: fingerprint, metadata: { revoked } });
-  return res.redirect("/account/security?revoked=1#sessions");
+app.post("/account/sessions/:fingerprint/revoke", requireAuth, async (req, res, next) => {
+  try {
+    const fingerprint = String(req.params.fingerprint || "");
+    if (!/^[a-f0-9]{12}$/.test(fingerprint)) return res.redirect("/account/security?error=Invalid+session.");
+    const revoked = await revokeUserSessions(req.authUser.id, { fingerprint, keepSessionId: req.sessionID });
+    await recordSecurityAudit(req, "SESSION_REVOKED", { targetType: "session", targetId: fingerprint, metadata: { revoked } });
+    return res.redirect("/account/security?revoked=1#sessions");
+  } catch (error) { next(error); }
 });
 
-app.post("/account/sessions/revoke-others", requireAuth, async (req, res) => {
-  const revoked = await revokeUserSessions(req.authUser.id, { keepSessionId: req.sessionID });
-  await recordSecurityAudit(req, "OTHER_SESSIONS_REVOKED", { metadata: { revoked } });
-  return res.redirect("/account/security?revoked=1#sessions");
+app.post("/account/sessions/revoke-others", requireAuth, async (req, res, next) => {
+  try {
+    const revoked = await revokeUserSessions(req.authUser.id, { keepSessionId: req.sessionID });
+    await recordSecurityAudit(req, "OTHER_SESSIONS_REVOKED", { metadata: { revoked } });
+    return res.redirect("/account/security?revoked=1#sessions");
+  } catch (error) { next(error); }
 });
 
 app.get("/admin", requireRole(USER_ROLES.ADMIN), async (req, res) => {
@@ -5741,6 +5745,9 @@ app.post("/admin/users/:id/edit", requireRole(USER_ROLES.ADMIN), async (req, res
         role
       };
     }
+    if (!password && existingRows[0].role !== role) {
+      await revokeUserSessions(userId);
+    }
     await recordSecurityAudit(req, password ? "USER_PASSWORD_RESET" : "USER_UPDATED", {
       targetType: "user",
       targetId: userId,
@@ -5772,6 +5779,7 @@ app.post("/admin/users/:id/delete", requireRole(USER_ROLES.ADMIN), async (req, r
       const [[countRow]] = await pool.query("SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1");
       if (Number(countRow?.total || 0) <= 1) return res.redirect("/admin/users?error=last-admin");
     }
+    await revokeUserSessions(userId);
     await pool.query("DELETE FROM users WHERE id = ?", [userId]);
     await recordSecurityAudit(req, "USER_DELETED", {
       targetType: "user",
@@ -5937,8 +5945,9 @@ app.post("/visitor-passes/:id/approve", requireRole(USER_ROLES.ADMIN, USER_ROLES
     return res.redirect("/visitor-passes?error=invalid");
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     await expireStaleVisitorPasses(connection, getAuthActorName(req) || "visitor-approve");
 
@@ -5947,13 +5956,13 @@ app.post("/visitor-passes/:id/approve", requireRole(USER_ROLES.ADMIN, USER_ROLES
       [visitorPassId]
     );
     if (!rows.length) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.redirect("/visitor-passes?error=notfound");
     }
 
     const visitorPass = rows[0];
     if (![VISITOR_APPROVAL_STATUS.PENDING, VISITOR_APPROVAL_STATUS.APPROVED].includes(visitorPass.approval_status)) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.redirect("/visitor-passes?error=state");
     }
 
@@ -5977,11 +5986,11 @@ app.post("/visitor-passes/:id/approve", requireRole(USER_ROLES.ADMIN, USER_ROLES
     });
     return res.redirect("/visitor-passes?approved=1");
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Visitor pass approve error:", error);
     return res.redirect("/visitor-passes?error=save");
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -5992,15 +6001,16 @@ app.post("/visitor-passes/:id/reject", requireRole(USER_ROLES.ADMIN, USER_ROLES.
     return res.redirect("/visitor-passes?error=invalid");
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const [rows] = await connection.query(
       "SELECT id, approval_status, pass_state FROM visitor_passes WHERE id = ? FOR UPDATE",
       [visitorPassId]
     );
     if (!rows.length) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.redirect("/visitor-passes?error=notfound");
     }
 
@@ -6029,11 +6039,11 @@ app.post("/visitor-passes/:id/reject", requireRole(USER_ROLES.ADMIN, USER_ROLES.
     });
     return res.redirect("/visitor-passes?rejected=1");
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Visitor pass reject error:", error);
     return res.redirect("/visitor-passes?error=save");
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -6043,15 +6053,16 @@ app.post("/visitor-passes/:id/cancel", requireRole(USER_ROLES.ADMIN, USER_ROLES.
     return res.redirect("/visitor-passes?error=invalid");
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const [rows] = await connection.query(
       "SELECT id FROM visitor_passes WHERE id = ? FOR UPDATE",
       [visitorPassId]
     );
     if (!rows.length) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.redirect("/visitor-passes?error=notfound");
     }
 
@@ -6076,11 +6087,11 @@ app.post("/visitor-passes/:id/cancel", requireRole(USER_ROLES.ADMIN, USER_ROLES.
     });
     return res.redirect("/visitor-passes?cancelled=1");
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Visitor pass cancel error:", error);
     return res.redirect("/visitor-passes?error=save");
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -6534,7 +6545,7 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       whereParts.push(`COALESCE((
         SELECT CASE
           WHEN sticker_filter.status = 'revoked' THEN 'revoked'
-          WHEN sticker_filter.expires_at IS NOT NULL AND DATE(sticker_filter.expires_at) < CURDATE() THEN 'expired'
+          WHEN sticker_filter.expires_at IS NOT NULL AND DATE(sticker_filter.expires_at) < DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) THEN 'expired'
           ELSE 'active'
         END
         FROM vehicles sticker_vehicle
@@ -6548,7 +6559,7 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
         WHERE sticker_vehicle.student_id = s.id
         ORDER BY CASE
           WHEN sticker_filter.status = 'active'
-            AND (sticker_filter.expires_at IS NULL OR DATE(sticker_filter.expires_at) >= CURDATE()) THEN 1
+            AND (sticker_filter.expires_at IS NULL OR DATE(sticker_filter.expires_at) >= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR)) THEN 1
           WHEN sticker_filter.status = 'active' THEN 2
           ELSE 3
         END
@@ -6594,7 +6605,7 @@ app.get("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
           `SELECT id, vehicle_id, status, expires_at, created_at,
                   CASE
                     WHEN status = 'revoked' THEN 'revoked'
-                    WHEN expires_at IS NOT NULL AND DATE(expires_at) < CURDATE() THEN 'expired'
+                    WHEN expires_at IS NOT NULL AND DATE(expires_at) < DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) THEN 'expired'
                     ELSE 'active'
                   END AS display_status
            FROM stickers
@@ -6742,8 +6753,9 @@ app.post("/students/import", requireRole(USER_ROLES.ADMIN), async (req, res) => 
     return res.redirect(`/students?import_error=${encodeURIComponent(error.message || "Invalid CSV file.")}#directory`);
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const existingStudentNumbers = await getExistingStudentNumbers(document, connection);
     const validation = validateStudentImportDocument(document, existingStudentNumbers);
@@ -6751,7 +6763,7 @@ app.post("/students/import", requireRole(USER_ROLES.ADMIN), async (req, res) => 
       const firstError = validation.headerErrors[0]
         || validation.rows.find((row) => row.issues.length)?.issues[0]
         || "The CSV contains invalid rows.";
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.redirect(`/students?import_error=${encodeURIComponent(firstError)}#directory`);
     }
     await saveStudentImportRows(validation.rows, connection, {
@@ -6769,11 +6781,11 @@ app.post("/students/import", requireRole(USER_ROLES.ADMIN), async (req, res) => 
     });
     return res.redirect(`/students?imported=${validation.total}#directory`);
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Student CSV import error:", error);
     return res.redirect(`/students?import_error=${encodeURIComponent("Unable to import the CSV. No records were changed.")}#directory`);
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -6785,8 +6797,9 @@ app.post("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     return res.redirect("/students?error=academic");
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const [result] = await connection.query(
       "INSERT INTO students (student_number, full_name, program, year_level, email) VALUES (?, ?, ?, ?, ?)",
@@ -6802,14 +6815,14 @@ app.post("/students", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     await connection.commit();
     res.redirect("/students?success=1");
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     if (error.code === "ER_DUP_ENTRY") {
       return res.redirect("/students?error=duplicate");
     }
     console.error("Create student error:", error);
     res.redirect("/students?error=1");
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -8061,18 +8074,19 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
     return res.status(400).json({ ok: false, message: "Please choose a parking slot before confirming entry." });
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const expiredPendingIds = await expireStalePendingAutoEntries(connection);
 
     const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
     if (!pendingEntry) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.status(404).json({ ok: false, message: "Pending entry was not found." });
     }
     if (pendingEntry.status !== "PENDING") {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.status(400).json({
         ok: false,
         message: `This request is already ${String(pendingEntry.status).toLowerCase()}.`
@@ -8266,11 +8280,11 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
       scanned_at: scanLog?.scanned_at || null
     });
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Confirm pending auto entry error:", error);
     return res.status(400).json({ ok: false, message: error.message || "Failed to confirm pending entry." });
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -8284,17 +8298,18 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.GUA
     return res.status(400).json({ ok: false, message: "Invalid pending entry id." });
   }
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const expiredPendingIds = await expireStalePendingAutoEntries(connection);
     const pendingEntry = await getPendingAutoEntryByIdForUpdate(entryId, connection);
     if (!pendingEntry) {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.status(404).json({ ok: false, message: "Pending entry was not found." });
     }
     if (pendingEntry.status !== "PENDING") {
-      await connection.rollback();
+      if (connection) await connection.rollback().catch(() => {});
       return res.status(400).json({
         ok: false,
         message: `This request is already ${String(pendingEntry.status).toLowerCase()}.`
@@ -8325,11 +8340,11 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.GUA
     });
     return res.json({ ok: true, cancelled: true, pending_entry_id: entryId });
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Cancel pending auto entry error:", error);
     return res.status(400).json({ ok: false, message: error.message || "Failed to cancel pending entry." });
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -8979,8 +8994,9 @@ app.post("/api/scanner-metrics", requireRole(USER_ROLES.GUARD), async (req, res)
 app.post("/api/scanner-metrics/batch", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const items = Array.isArray(req.body.metrics) ? req.body.metrics.slice(0, 100) : [];
   if (!items.length) return res.json({ ok: true, accepted_event_ids: [] });
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const acceptedEventIds = [];
     for (const item of items) {
@@ -8991,11 +9007,11 @@ app.post("/api/scanner-metrics/batch", requireRole(USER_ROLES.GUARD), async (req
     await connection.commit();
     return res.json({ ok: true, accepted_event_ids: acceptedEventIds });
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Scanner metric batch error:", error);
     return res.status(400).json({ ok: false, message: "Unable to synchronize scanner metrics." });
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
@@ -9025,7 +9041,7 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
       JOIN vehicles v ON v.id = s.vehicle_id
       JOIN students st ON st.id = v.student_id
       WHERE s.status = 'active'
-        AND (s.expires_at IS NULL OR s.expires_at >= CURDATE())
+        AND (s.expires_at IS NULL OR s.expires_at >= DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR))
     `);
     res.json({ ok: true, roster });
   } catch (error) {
@@ -9038,10 +9054,14 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
 app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const movements = Array.isArray(req.body.movements) ? req.body.movements.slice(0, 100) : [];
   if (!movements.length) return res.json({ ok: true, accepted_event_ids: [], results: [] });
+  if (movements.some(movement => !movement || typeof movement !== "object" || Array.isArray(movement))) {
+    return res.status(400).json({ ok: false, message: "Invalid offline movement data." });
+  }
   movements.sort((a, b) => Number(a.offline_timestamp || 0) - Number(b.offline_timestamp || 0));
 
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
     const acceptedEventIds = [];
     const results = [];
@@ -9076,12 +9096,21 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
       const lastMovement = await getLastValidMovement(sticker.id, connection);
       const expectedAction = lastMovement?.action === "ENTRY" ? "EXIT" : "ENTRY";
       const requestedAction = String(movement.action || "").trim().toUpperCase();
-      const action = ["ENTRY", "EXIT"].includes(requestedAction) && requestedAction === expectedAction
-        ? requestedAction
-        : expectedAction;
+      const offlineDate = new Date(Number(movement.offline_timestamp));
+      const isOlderMovement = lastMovement?.scanned_at && Number.isFinite(offlineDate.getTime())
+        && offlineDate.getTime() < new Date(lastMovement.scanned_at).getTime();
+      if (requestedAction !== expectedAction || isOlderMovement) {
+        await connection.query(
+          "INSERT INTO offline_sync_receipts (event_id, sticker_id, action, synced_by_user_id, occurred_at) VALUES (?, ?, 'REJECTED', ?, NOW())",
+          [eventId, sticker.id, req.authUser.id]
+        );
+        acceptedEventIds.push(eventId);
+        results.push({ event_id: eventId, status: "rejected", reason: "Offline movement conflicts with the current entry/exit state. Review the movement log." });
+        continue;
+      }
+      const action = requestedAction;
       const gate = normalizeGateId(movement.gate || "Offline Scan");
       let scannedAt = new Date();
-      const offlineDate = new Date(Number(movement.offline_timestamp));
       if (!Number.isNaN(offlineDate.getTime()) && Math.abs(Date.now() - offlineDate.getTime()) <= 30 * 24 * 60 * 60 * 1000) {
         scannedAt = offlineDate;
       }
@@ -9107,9 +9136,7 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
         "VALID",
         action,
         gate,
-        requestedAction !== action
-          ? `Offline action corrected from ${requestedAction || "unknown"} to ${action}`
-          : action === "ENTRY" && !currentSlot
+        action === "ENTRY" && !currentSlot
             ? "Synced from offline device; no parking slot was available"
             : "Synced from offline device",
         {
@@ -9145,15 +9172,22 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
       synced_count: acceptedEventIds.length
     });
     await recordSecurityAudit(req, "OFFLINE_QUEUE_SYNCED", {
-      metadata: { received: movements.length, accepted: acceptedEventIds.length }
+      metadata: {
+        received: movements.length,
+        accepted: acceptedEventIds.length,
+        rejected: results.filter(result => result.status === "rejected").map(result => ({
+          ...result,
+          requested_action: movements.find(movement => movement.event_id === result.event_id)?.action || null
+        }))
+      }
     });
     return res.json({ ok: true, synced_count: acceptedEventIds.length, accepted_event_ids: acceptedEventIds, results });
   } catch (error) {
-    await connection.rollback();
+    if (connection) await connection.rollback().catch(() => {});
     console.error("Sync queue error:", error);
     return res.status(500).json({ ok: false, message: "Failed to sync offline queue." });
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 });
 
