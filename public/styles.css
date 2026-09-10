@@ -2452,7 +2452,7 @@ body.is-ready .container>* {
 
 @media (prefers-reduced-motion: reduce) {
 
-  .sidebar,
+  /* The sidebar transform controls visibility, not decorative motion. */
   .topbar,
   .top-nav,
   .container>* {

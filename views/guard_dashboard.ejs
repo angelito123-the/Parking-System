@@ -19,6 +19,7 @@
   <div class="hero-greeting">
     <h2>Security Operations</h2>
     <h1>Guard Dashboard</h1>
+    <a class="hero-primary-action" href="/scanner/auto"><i class="ph ph-camera" aria-hidden="true"></i> Open scanner <i class="ph ph-arrow-right" aria-hidden="true"></i></a>
   </div>
   <div class="hero-cards">
     <div class="hero-card">
@@ -189,7 +190,7 @@
         <%= summary.total || 0 %> total
       </p>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Vehicles currently inside">
       <table>
         <thead>
           <tr>
@@ -267,7 +268,7 @@
       <h2>Visitor Logs</h2>
       <p>Latest visitor gate scans including denied and expired attempts.</p>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Visitor movement history">
       <table>
         <thead>
           <tr>

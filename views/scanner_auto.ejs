@@ -12,25 +12,20 @@
       ? 'Use this device as a camera and send entry requests to the guard console.'
       : 'Scan a QR, assign an entry slot, and continue to the next vehicle from one screen.' %>
   </p>
-</section>
-
-<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>" data-scanner-mode="<%= isRemoteScannerMode ? 'remote' : 'local' %>">
-  <section class="panel scan-mode-bar" aria-label="Scanner mode">
-    <div class="scan-mode-copy">
-      <strong><%= isRemoteScannerMode ? 'Remote phone mode' : 'Standard gate mode' %></strong>
-      <span><%= isRemoteScannerMode ? 'Entries wait for approval on another device.' : 'Recommended: scan and approve entries on this device.' %></span>
-    </div>
     <div class="scan-mode-switch" role="navigation" aria-label="Choose scanner workflow">
       <a href="/scanner/auto" class="<%= isRemoteScannerMode ? '' : 'is-active' %>" <%- isRemoteScannerMode ? '' : 'aria-current="page"' %>>This device</a>
       <a href="/scanner/auto?mode=remote" class="<%= isRemoteScannerMode ? 'is-active' : '' %>" <%- isRemoteScannerMode ? 'aria-current="page"' : '' %>>Remote phone</a>
     </div>
-  </section>
+</section>
+
+<div class="overlap-wrapper auto-gate-shell" data-scan-cooldown="<%= scanCooldownSeconds %>" data-scanner-mode="<%= isRemoteScannerMode ? 'remote' : 'local' %>">
+
 
   <section class="panel auto-gate-camera-panel">
     <div class="auto-gate-toolbar">
       <div>
         <h3>Scan Vehicle QR</h3>
-        <p>The rear camera starts automatically. Hold the QR inside the guide.</p>
+        <p>Hold the vehicle QR inside the camera view.</p>
       </div>
       <div class="auto-gate-controls">
         <div>

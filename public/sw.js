@@ -1,11 +1,11 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v35`;
+const CACHE_NAME = `${CACHE_PREFIX}v36`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
   '/offline.js',
-  '/styles.css?v=20260828-ops1',
-  '/design-system.css?v=20260908-workflows',
+  '/styles.css?v=20260910-usability',
+  '/design-system.css?v=20260910-usability',
   '/vendor/phosphor/style.css?v=2.1.2',
   '/vendor/phosphor/Phosphor.woff2',
   '/manifest.json',

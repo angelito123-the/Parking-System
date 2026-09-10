@@ -96,7 +96,7 @@
   }
 
   .analytics-v3-card span {
-    color: var(--muted);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     font-size: 0.7rem;
@@ -140,7 +140,7 @@
   .analytics-v3-preset.active {
     border-color: rgba(37, 99, 235, 0.5);
     background: rgba(37, 99, 235, 0.14);
-    color: #1d4ed8;
+    color: var(--status-info-text);
   }
 
   .analytics-v3-form {
@@ -588,7 +588,7 @@
       <% if (!Array.isArray(safeTables.peakHoursByDay) || !safeTables.peakHoursByDay.length) { %>
         <div class="analytics-v3-empty">No daily peak data for this range.</div>
       <% } else { %>
-        <div class="analytics-v3-table-wrap">
+        <div class="analytics-v3-table-wrap" tabindex="0" role="region" aria-label="Average parking duration by zone">
           <table>
             <thead>
               <tr>
@@ -618,7 +618,7 @@
       <% if (!Array.isArray(safeTables.durationByZone) || !safeTables.durationByZone.length) { %>
         <div class="analytics-v3-empty">No completed sessions for duration analysis.</div>
       <% } else { %>
-        <div class="analytics-v3-table-wrap">
+        <div class="analytics-v3-table-wrap" tabindex="0" role="region" aria-label="Repeat overstays">
           <table>
             <thead>
               <tr>
@@ -651,7 +651,7 @@
       <% if (!Array.isArray(safeTables.repeatOverstays) || !safeTables.repeatOverstays.length) { %>
         <div class="analytics-v3-empty">No repeat overstay behavior found.</div>
       <% } else { %>
-        <div class="analytics-v3-table-wrap">
+        <div class="analytics-v3-table-wrap" tabindex="0" role="region" aria-label="Latest parking sessions">
           <table>
             <thead>
               <tr>
@@ -686,7 +686,7 @@
       <% if (!Array.isArray(safeTables.sessions) || !safeTables.sessions.length) { %>
         <div class="analytics-v3-empty">No completed sessions found for this filter.</div>
       <% } else { %>
-        <div class="analytics-v3-table-wrap">
+        <div class="analytics-v3-table-wrap" tabindex="0" role="region" aria-label="Daily peak hours">
           <table>
             <thead>
               <tr>

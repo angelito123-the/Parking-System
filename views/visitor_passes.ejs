@@ -176,7 +176,7 @@
     <% if (!safeCurrentInside.length) { %>
       <div class="empty-state"><p>No visitor vehicles currently inside campus.</p></div>
     <% } else { %>
-      <div class="table-wrap">
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Visitor vehicles currently inside">
         <table>
           <thead>
             <tr>
@@ -269,7 +269,7 @@
       </div>
     </form>
 
-    <div class="table-wrap" style="margin-top:0.8rem;">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Visitor pass directory" style="margin-top:0.8rem;">
       <table>
         <thead>
           <tr>
@@ -353,7 +353,7 @@
       <p>Audit visitor gate movement history, denied scans, and expiration-related rejections.</p>
     </div>
 
-    <div class="table-wrap">
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Visitor entry and exit history">
       <table>
         <thead>
           <tr>

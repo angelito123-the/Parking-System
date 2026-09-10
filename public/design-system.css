@@ -2597,3 +2597,237 @@ body.is-ready .container > *,
     justify-self: center;
   }
 }
+
+/* Usability refinements: clear actions, readable content, and compact phone layouts. */
+.container,
+.overlap-wrapper,
+.overlap-wrapper > *,
+.panel > *,
+.reg-panel,
+.directory-panel,
+.section-head > * {
+  min-width: 0;
+}
+
+
+.panel .section-head,
+.reg-panel .section-head,
+.directory-panel .section-head {
+  flex-wrap: wrap;
+}
+
+.section-head p {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.hero-greeting h2,
+.dashboard-hero .hero-greeting h2,
+body.page-visitor-passes .visitor-hero .hero-greeting h2 {
+  color: var(--status-info-text);
+}
+
+.hero-primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 44px;
+  margin-top: 1rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--ui-primary);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-primary);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.hero-primary-action:hover {
+  color: #ffffff;
+  background: var(--ui-primary-hover, #1d4ed8);
+}
+
+.hero-primary-action:focus-visible,
+[role="region"][tabindex="0"]:focus-visible {
+  outline: 3px solid var(--status-info-text);
+  outline-offset: 3px;
+}
+
+body[data-role] .mobile-nav-trigger {
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--ui-radius-control);
+  box-shadow: none;
+}
+
+body[data-role] .auto-camera-toggle {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+.manual-tools-shortcut {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.25rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.manual-tools-shortcut .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+@media (max-width: 1080px) {
+  .sidebar {
+    visibility: hidden;
+  }
+
+  body.mobile-nav-open .sidebar {
+    visibility: visible;
+  }
+
+  body[data-role] :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 700px) {
+  .dashboard-hero + .overlap-wrapper:not(.visitor-module-shell) {
+    width: calc(100% - 1.25rem);
+    max-width: none;
+  }
+
+  .dashboard-hero .hero-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-top: 0;
+  }
+
+  .dashboard-hero .hero-card {
+    min-height: 74px;
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .dashboard-hero .hero-card h3 {
+    font-size: 0.68rem;
+    line-height: 1.4;
+  }
+
+  .dashboard-hero .hero-card p {
+    padding-left: 0;
+    font-size: 1.45rem;
+  }
+
+  .dashboard-hero .hero-card:only-child,
+  .dashboard-hero .hero-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .hero-primary-action {
+    width: 100%;
+  }
+
+  .section-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .section-head p,
+  .helper-text,
+  .workflow-card p {
+    font-size: 0.875rem;
+  }
+
+  .panel .section-head h2 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .page-scanner-auto .dashboard-hero {
+    padding: 1rem !important;
+  }
+
+  .page-scanner-auto .hero-greeting {
+    margin-bottom: 0;
+  }
+
+  .page-scanner-auto .hero-description {
+    margin-top: 0.5rem;
+  }
+
+  .page-scanner-auto .hero-greeting h2 {
+    display: none;
+  }
+
+  .page-scanner-auto .dashboard-hero .scan-mode-switch {
+    width: 100%;
+  }
+
+  .auto-gate-toolbar {
+    gap: 0.65rem;
+  }
+
+  .auto-gate-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: end;
+  }
+
+  .auto-gate-controls select {
+    width: 100%;
+  }
+
+  .auto-indicator-row {
+    margin-bottom: 0.65rem;
+  }
+
+  .auto-chip {
+    letter-spacing: 0;
+  }
+
+  .auto-camera-wrapper #autoQrReader {
+    min-height: 240px;
+  }
+
+  .auto-camera-wrapper .hud-label {
+    max-width: 90%;
+    white-space: normal;
+    font-size: 0.65rem;
+    text-align: center;
+  }
+
+  .manual-tools-shortcut {
+    font-size: 0.82rem;
+  }
+}
+
+.page-scanner-auto .dashboard-hero .scan-mode-switch {
+  margin-top: 0.85rem;
+}
+
+.scan-mode-switch a.is-active {
+  color: var(--status-info-text);
+}
+/* Visibility must change immediately so drawer controls can receive focus. */
+.sidebar a,
+.sidebar button {
+  transition-property: color, background-color, border-color;
+}

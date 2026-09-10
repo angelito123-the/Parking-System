@@ -45,16 +45,15 @@
 <div class="overlap-wrapper">
   <section class="panel flow-assist-panel">
     <div class="section-head">
-      <h2>Registration Flow</h2>
-      <p>Switch between creating records and managing existing students.</p>
+      <h2>Student records</h2>
     </div>
-    <div class="flow-tabs" role="tablist" aria-label="Students workflow tabs">
-      <button type="button" class="flow-tab-btn is-active" data-flow-tab="register" aria-selected="true">1. Register</button>
-      <button type="button" class="flow-tab-btn" data-flow-tab="directory" aria-selected="false">2. Directory</button>
+    <div class="flow-tabs" role="tablist" aria-label="Student records">
+      <button type="button" class="flow-tab-btn is-active" id="registerTab" role="tab" aria-controls="registerPanel" data-flow-tab="register" aria-selected="true" tabindex="0">Register student</button>
+      <button type="button" class="flow-tab-btn" id="directoryTab" role="tab" aria-controls="directoryPanel" data-flow-tab="directory" aria-selected="false" tabindex="-1">Student directory</button>
     </div>
   </section>
 
-  <section class="reg-panel" data-flow-view="register">
+  <section class="reg-panel" id="registerPanel" role="tabpanel" aria-labelledby="registerTab" data-flow-view="register">
     <div class="section-head">
       <h2>New Registration</h2>
       <p>Register a student. You may also add their vehicle in the same step - vehicle fields are optional.</p>
@@ -66,7 +65,7 @@
       <div class="form-row-2">
         <div>
           <label for="s_student_number">Student Number <span class="req">*</span></label>
-          <input id="s_student_number" name="student_number" required placeholder="e.g. 2024-00123" />
+          <input id="s_student_number" name="student_number" autocomplete="off" required placeholder="e.g. 2024-00123" />
         </div>
         <div>
           <label for="s_full_name">Full Name <span class="req">*</span></label>
@@ -136,7 +135,7 @@
     </form>
   </section>
 
-  <section class="directory-panel" data-flow-view="directory">
+  <section class="directory-panel" id="directoryPanel" role="tabpanel" aria-labelledby="directoryTab" data-flow-view="directory">
     <div class="directory-heading-row">
       <div class="section-head">
         <h2>Student Directory</h2>
@@ -1936,11 +1935,24 @@
         const active = button.dataset.flowTab === target;
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-selected", active ? "true" : "false");
+        button.tabIndex = active ? 0 : -1;
       });
     };
 
     tabButtons.forEach((button) => {
-      button.addEventListener("click", () => setFlowView(button.dataset.flowTab || "register"));
+      button.addEventListener("click", () => {
+        setFlowView(button.dataset.flowTab);
+        history.replaceState(null, "", '#' + button.dataset.flowTab);
+      });
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const index = tabButtons.indexOf(button);
+        const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1
+          : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length;
+        tabButtons[nextIndex].click();
+        tabButtons[nextIndex].focus();
+      });
     });
 
     const params = new URLSearchParams(window.location.search);
@@ -1949,8 +1961,12 @@
     const directoryParams = ["q", "course", "year_level", "vehicle_status", "sticker_status", "sort", "direction", "page", "page_size"];
     const hasSuccess = successParams.some((key) => params.has(key));
     const hasDirectoryQuery = directoryParams.some((key) => params.has(key));
-    const defaultView = hashView === "directory" || hasSuccess || hasDirectoryQuery ? "directory" : "register";
+    const defaultView = hashView === "register" ? "register" : hashView === "directory" || hasSuccess || hasDirectoryQuery ? "directory" : "register";
     setFlowView(defaultView);
+    window.addEventListener("hashchange", () => {
+      const view = window.location.hash.slice(1);
+      if (["register", "directory"].includes(view)) setFlowView(view);
+    });
   })();
 
   (() => {
