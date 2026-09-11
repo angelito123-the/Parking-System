@@ -13,10 +13,11 @@
     : safeOverstayLimitHours.toFixed(1).replace(/\.0$/, "");
 %>
 
-<section class="dashboard-hero">
+<section class="dashboard-hero workspace-hero">
   <div class="hero-greeting">
-    <h2>Access Control</h2>
+    <h2>Campus overview</h2>
     <h1>Admin Dashboard</h1>
+    <p class="hero-description">Monitor campus parking and manage vehicle access.</p>
   </div>
   <div class="hero-cards">
     <div class="hero-card">
@@ -39,143 +40,42 @@
 </section>
 
 <div class="overlap-wrapper" style="display:grid; gap:1.35rem;">
-  <section class="panel quick-links-panel">
-    <div class="section-head workflow-heading">
-      <div>
-        <span class="workflow-eyebrow">Operations guide</span>
-        <h2>Daily workflow</h2>
-      </div>
-      <p>Set up access first, manage parking activity throughout the day, then review the gate record.</p>
-    </div>
-    <ol class="quick-links-grid workflow-grid" aria-label="Daily parking operations workflow">
-      <li>
-        <a href="/students" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">1</span>
-            <span class="workflow-stage">Set up access</span>
-          </span>
-          <h3>Register a student and vehicle</h3>
-          <p>Add or update the student profile and vehicle details.</p>
-          <span class="workflow-action">Manage students <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-      <li>
-        <a href="/stickers" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">2</span>
-            <span class="workflow-stage">Set up access</span>
-          </span>
-          <h3>Issue a QR sticker</h3>
-          <p>Link an active sticker to the registered vehicle.</p>
-          <span class="workflow-action">Manage stickers <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-      <li>
-        <a href="/visitor-passes" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">3</span>
-            <span class="workflow-stage">Set up access</span>
-          </span>
-          <h3>Prepare visitor passes</h3>
-          <p>Approve temporary parking access and track each visit.</p>
-          <span class="workflow-action">Manage visitors <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-      <li>
-        <a href="/admin/slots" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">4</span>
-            <span class="workflow-stage">Monitor parking</span>
-          </span>
-          <h3>Assign and monitor slots</h3>
-          <p>Check occupancy, available spaces, and slot history.</p>
-          <span class="workflow-action">View parking slots <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-      <li>
-        <a href="/admin/updates" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">5</span>
-            <span class="workflow-stage">Monitor parking</span>
-          </span>
-          <h3>Check live gate updates</h3>
-          <p>Respond to overstay alerts and recent gate activity.</p>
-          <span class="workflow-action">Open live updates <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-      <li>
-        <a href="/admin/records" class="quick-link-card workflow-card">
-          <span class="workflow-card-top">
-            <span class="workflow-step">6</span>
-            <span class="workflow-stage">Close and review</span>
-          </span>
-          <h3>Review gate records</h3>
-          <p>Search activity logs for reports, audits, or incidents.</p>
-          <span class="workflow-action">Review records <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-        </a>
-      </li>
-    </ol>
-  </section>
-
-  <section class="panel alert-summary-panel">
-    <div class="section-head">
-      <h2>Security Alerts Snapshot</h2>
-      <p>Operational notifications for QR validation, zone capacity, pending approvals, and suspicious activity.</p>
-    </div>
-    <div class="alert-summary-grid">
-      <article class="alert-summary-card tone-danger">
-        <p class="alert-summary-label">Invalid QR Attempts Today</p>
-        <p id="metricInvalidQrAttempts" class="alert-summary-value"><%= safeMetrics.invalidQrAttemptsToday || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-warning">
-        <p class="alert-summary-label">Full Parking Zones</p>
-        <p id="metricFullParkingZones" class="alert-summary-value"><%= safeMetrics.fullParkingZones || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-info">
-        <p class="alert-summary-label">Pending Approvals</p>
-        <p id="metricPendingApprovals" class="alert-summary-value"><%= safeMetrics.pendingApprovals || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-strong">
-        <p class="alert-summary-label">Suspicious Scans</p>
-        <p id="metricSuspiciousScans" class="alert-summary-value"><%= safeMetrics.suspiciousScans || 0 %></p>
-      </article>
-    </div>
-    <div class="alert-summary-footer">
-      <a href="/admin/alerts" class="btn-sm">Open Notifications & Alerts</a>
-    </div>
-  </section>
-
-  <section class="panel visitor-summary-panel">
-    <div class="section-head">
-      <h2>Visitor Pass Snapshot</h2>
-      <p>Real-time overview of temporary permits and visitor vehicles.</p>
-    </div>
-    <div class="alert-summary-grid">
-      <article class="alert-summary-card tone-info">
-        <p class="alert-summary-label">Active Passes</p>
-        <p id="metricVisitorActive" class="alert-summary-value"><%= safeMetrics.visitorActivePasses || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-warning">
-        <p class="alert-summary-label">Pending Visitor Approvals</p>
-        <p id="metricVisitorPending" class="alert-summary-value"><%= safeMetrics.visitorPendingApprovals || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-danger">
-        <p class="alert-summary-label">Expired Passes</p>
-        <p id="metricVisitorExpired" class="alert-summary-value"><%= safeMetrics.visitorExpiredPasses || 0 %></p>
-      </article>
-      <article class="alert-summary-card tone-strong">
-        <p class="alert-summary-label">Visitor Vehicles Inside</p>
-        <p id="metricVisitorInside" class="alert-summary-value"><%= safeMetrics.visitorCurrentlyInside || 0 %></p>
-      </article>
-    </div>
-    <div class="alert-summary-footer">
-      <a href="/visitor-passes" class="btn-sm">Open Visitor Passes</a>
-    </div>
-  </section>
+  <nav class="task-shortcuts" aria-label="Quick actions">
+    <a class="task-shortcut" href="/students">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-student"></i></span>
+      <span class="task-shortcut-copy"><strong>Register student</strong><small>Student and vehicle details</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/stickers">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-qr-code"></i></span>
+      <span class="task-shortcut-copy"><strong>Issue sticker</strong><small>Vehicle access permits</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/visitor-passes">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-identification-card"></i></span>
+      <span class="task-shortcut-copy"><strong>Visitor passes</strong><small>Temporary campus access</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/admin/slots">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-grid-four"></i></span>
+      <span class="task-shortcut-copy"><strong>Parking slots</strong><small>Availability and assignments</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/admin/updates">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-bell-ringing"></i></span>
+      <span class="task-shortcut-copy"><strong>Live updates</strong><small>Recent gate activity</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/admin/records">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-clipboard-text"></i></span>
+      <span class="task-shortcut-copy"><strong>Gate records</strong><small>Search entry and exit logs</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+  </nav>
 
   <section class="panel admin-overview-panel">
     <div class="section-head">
-      <h2>Overview of Inside Vehicles</h2>
+      <h2>Vehicles on campus</h2>
       <p>Live roster of vehicles currently inside campus.</p>
     </div>
     <div class="refresh-row" style="margin-bottom: 0.75rem;">
@@ -188,7 +88,7 @@
         <strong>Overstay Watch</strong>
         <span id="overstayLimitMeta" class="helper-text">Limit: <%= safeOverstayLimitLabel %> hour(s)</span>
       </div>
-      <div id="overstayAlertList" class="overstay-alert-list">
+      <div id="overstayAlertList" class="overstay-alert-list" role="region" aria-label="Overstay alerts" tabindex="0">
         <% if (!safeOverstayAlerts.length) { %>
           <div class="overstay-empty">No active overstay alerts.</div>
         <% } %>
@@ -214,7 +114,7 @@
       </div>
     </div>
 
-    <div class="table-wrap desktop-only-table ops-table-shell">
+    <div class="table-wrap desktop-only-table ops-table-shell" role="region" aria-label="Vehicles on campus" tabindex="0">
       <table>
         <thead>
           <tr>
@@ -299,6 +199,66 @@
       <% }) %>
     </div>
   </section>
+
+  <div class="dashboard-secondary-grid">
+  <section class="panel alert-summary-panel">
+    <div class="section-head">
+      <h2>Security alerts</h2>
+      <p>Operational notifications for QR validation, zone capacity, pending approvals, and suspicious activity.</p>
+    </div>
+    <div class="alert-summary-grid">
+      <article class="alert-summary-card tone-danger">
+        <p class="alert-summary-label">Invalid QR Attempts Today</p>
+        <p id="metricInvalidQrAttempts" class="alert-summary-value"><%= safeMetrics.invalidQrAttemptsToday || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-warning">
+        <p class="alert-summary-label">Full Parking Zones</p>
+        <p id="metricFullParkingZones" class="alert-summary-value"><%= safeMetrics.fullParkingZones || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-info">
+        <p class="alert-summary-label">Pending Approvals</p>
+        <p id="metricPendingApprovals" class="alert-summary-value"><%= safeMetrics.pendingApprovals || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-strong">
+        <p class="alert-summary-label">Suspicious Scans</p>
+        <p id="metricSuspiciousScans" class="alert-summary-value"><%= safeMetrics.suspiciousScans || 0 %></p>
+      </article>
+    </div>
+    <div class="alert-summary-footer">
+      <a href="/admin/alerts" class="btn-sm">Open Notifications & Alerts</a>
+    </div>
+  </section>
+
+  <section class="panel visitor-summary-panel">
+    <div class="section-head">
+      <h2>Visitor overview</h2>
+      <p>Real-time overview of temporary permits and visitor vehicles.</p>
+    </div>
+    <div class="alert-summary-grid">
+      <article class="alert-summary-card tone-info">
+        <p class="alert-summary-label">Active Passes</p>
+        <p id="metricVisitorActive" class="alert-summary-value"><%= safeMetrics.visitorActivePasses || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-warning">
+        <p class="alert-summary-label">Pending Visitor Approvals</p>
+        <p id="metricVisitorPending" class="alert-summary-value"><%= safeMetrics.visitorPendingApprovals || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-danger">
+        <p class="alert-summary-label">Expired Passes</p>
+        <p id="metricVisitorExpired" class="alert-summary-value"><%= safeMetrics.visitorExpiredPasses || 0 %></p>
+      </article>
+      <article class="alert-summary-card tone-strong">
+        <p class="alert-summary-label">Visitor Vehicles Inside</p>
+        <p id="metricVisitorInside" class="alert-summary-value"><%= safeMetrics.visitorCurrentlyInside || 0 %></p>
+      </article>
+    </div>
+    <div class="alert-summary-footer">
+      <a href="/visitor-passes" class="btn-sm">Open Visitor Passes</a>
+    </div>
+  </section>
+
+  </div>
+
 </div>
 
 <script nonce="<%= cspNonce %>">

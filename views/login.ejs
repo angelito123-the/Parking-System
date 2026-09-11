@@ -364,7 +364,6 @@
     .auth-kicker,
     .auth-title,
     .auth-copy,
-    .access-note,
     .login-error,
     .login-form,
     .login-note {
@@ -397,52 +396,6 @@
       font-size: 0.87rem;
       line-height: 1.55;
       animation-delay: 330ms;
-    }
-
-    .access-note {
-      display: flex;
-      align-items: center;
-      gap: 0.78rem;
-      margin-bottom: 1.35rem;
-      padding: 0.78rem 0.88rem;
-      border: 1px solid #d8e5f5;
-      border-radius: 11px;
-      color: #29415d;
-      background: rgba(239, 246, 255, 0.82);
-      animation-delay: 350ms;
-    }
-
-    .access-note-icon {
-      width: 34px;
-      height: 34px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      border-radius: 10px;
-      color: #1d4ed8;
-      background: #e5efff;
-    }
-
-    .access-note-icon .ph {
-      font-size: 18px;
-    }
-
-    .access-note-copy {
-      min-width: 0;
-      display: grid;
-      gap: 0.15rem;
-    }
-
-    .access-note-copy strong {
-      color: #23364d;
-      font-size: 0.76rem;
-      line-height: 1.2;
-    }
-
-    .access-note-copy small {
-      color: #71839a;
-      font-size: 0.67rem;
-      line-height: 1.35;
     }
 
     .login-error {
@@ -653,7 +606,7 @@
       margin-top: 1.8rem;
       padding-top: 1.15rem;
       border-top: 1px solid #e5ebf2;
-      color: #8191a5;
+      color: #5f7188;
       font-size: 0.68rem;
       line-height: 1.45;
       text-align: center;
@@ -729,6 +682,13 @@
       .auth-copy { margin-bottom: 1.35rem; }
     }
 
+    @media (max-width: 760px) {
+      .auth-panel { justify-content: center; padding-block: 2rem; }
+      .input-wrap input { font-size: 1rem; }
+      .password-toggle { width: 44px; height: 44px; }
+      .auth-footer { margin-top: 1.3rem; }
+    }
+
     @media (max-width: 380px) {
       body { padding: 0; }
       .auth-panel { padding: 1.25rem; }
@@ -740,6 +700,7 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         scroll-behavior: auto !important;
+        animation-delay: 0ms !important;
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
@@ -793,16 +754,6 @@
       <h2 class="auth-title" id="login-title">Welcome back</h2>
       <p class="auth-copy">Sign in with your Admin or Guard account to continue.</p>
 
-      <div class="access-note">
-        <span class="access-note-icon" aria-hidden="true">
-          <i class="ph ph-shield-check"></i>
-        </span>
-        <span class="access-note-copy">
-          <strong>Automatic role routing</strong>
-          <small>Your authorized dashboard opens automatically after sign-in.</small>
-        </span>
-      </div>
-
       <% if (locals.error) { %>
         <div class="login-error" role="alert">
           <i class="ph ph-warning" aria-hidden="true"></i>
@@ -822,8 +773,9 @@
               id="username"
               name="username"
               required
-              autofocus
               autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
               placeholder="Enter your username"
               value="<%= locals.usernameVal || '' %>"
             />
@@ -851,7 +803,7 @@
         </div>
 
         <button type="submit" class="login-btn">
-          <span class="button-label">Sign in securely</span>
+          <span class="button-label">Sign in</span>
           <i class="ph ph-arrow-right button-icon" aria-hidden="true"></i>
           <span class="button-spinner" aria-hidden="true"></span>
         </button>
@@ -859,7 +811,7 @@
 
       <p class="login-note">
         <i class="ph ph-lock-key" aria-hidden="true"></i>
-        Your session is protected and role restricted.
+        Need an account? Contact your system administrator.
       </p>
 
       <footer class="auth-footer">

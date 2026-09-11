@@ -14,13 +14,15 @@
   const directoryQuery = typeof makeStudentDirectoryQuery === 'function'
     ? makeStudentDirectoryQuery
     : (() => '/students#directory');
-  const hasDirectoryFilters = Boolean(
-    safeFilters.q || safeFilters.course || safeFilters.year_level
+  const hasAdvancedFilters = Boolean(
+    safeFilters.course || safeFilters.year_level
     || safeFilters.vehicle_status !== 'all' || safeFilters.sticker_status !== 'all'
+    || safeFilters.sort !== 'registered' || safeFilters.direction !== 'desc'
   );
+  const hasDirectoryFilters = Boolean(safeFilters.q || hasAdvancedFilters);
 %>
 
-<section class="dashboard-hero">
+<section class="dashboard-hero directory-hero">
   <div class="hero-greeting">
     <h2>Access Control</h2>
     <h1>Students &amp; Vehicles</h1>
@@ -43,10 +45,7 @@
 </section>
 
 <div class="overlap-wrapper">
-  <section class="panel flow-assist-panel">
-    <div class="section-head">
-      <h2>Student records</h2>
-    </div>
+  <section class="student-tabs-bar" aria-label="Student records">
     <div class="flow-tabs" role="tablist" aria-label="Student records">
       <button type="button" class="flow-tab-btn is-active" id="registerTab" role="tab" aria-controls="registerPanel" data-flow-tab="register" aria-selected="true" tabindex="0">Register student</button>
       <button type="button" class="flow-tab-btn" id="directoryTab" role="tab" aria-controls="directoryPanel" data-flow-tab="directory" aria-selected="false" tabindex="-1">Student directory</button>
@@ -139,11 +138,9 @@
     <div class="directory-heading-row">
       <div class="section-head">
         <h2>Student Directory</h2>
-        <p>Search student records, update account details, and manage registered vehicles.</p>
       </div>
       <div class="directory-heading-actions">
-        <a class="btn-directory-secondary" href="/students/import/template" download>Download template</a>
-        <button type="button" class="btn-directory-primary" id="studentImportToggle" aria-controls="studentImportPanel" aria-expanded="false">Import CSV</button>
+        <button type="button" class="btn-directory-secondary" id="studentImportToggle" aria-controls="studentImportPanel" aria-expanded="false">Import CSV</button>
       </div>
     </div>
 
@@ -155,6 +152,7 @@
         </div>
         <button type="button" class="student-import-close" id="studentImportClose" aria-label="Close CSV import"><i class="ph ph-x" aria-hidden="true"></i></button>
       </div>
+      <p><a class="link-btn" href="/students/import/template" download>Download CSV template</a></p>
       <div class="student-import-file-row">
         <div>
           <label for="studentCsvFile">Student CSV file</label>
@@ -191,71 +189,77 @@
           name="q"
           type="search"
           autocomplete="off"
-          placeholder="Search students or plate numbers"
+          placeholder="Name, student no. or plate"
           value="<%= safeFilters.q %>"
         />
       </div>
-      <div class="directory-filter-field">
-        <label for="directoryCourse">Course</label>
-        <select id="directoryCourse" name="course">
-          <option value="">All courses</option>
-          <% academicProgramGroups.forEach(group => { %>
-            <optgroup label="<%= group.institute %>">
-              <% group.programs.forEach(program => { %>
-                <option value="<%= program.name %>" <%= safeFilters.course === program.name ? 'selected' : '' %>><%= program.code || program.name %></option>
-              <% }) %>
-            </optgroup>
-          <% }) %>
-        </select>
-      </div>
-      <div class="directory-filter-field">
-        <label for="directoryYear">Year level</label>
-        <select id="directoryYear" name="year_level">
-          <option value="">All years</option>
-          <% yearLevels.forEach(year => { %>
-            <option value="<%= year.value %>" <%= safeFilters.year_level === year.value ? 'selected' : '' %>><%= year.label %></option>
-          <% }) %>
-        </select>
-      </div>
-      <div class="directory-filter-field">
-        <label for="directoryVehicleStatus">Vehicle</label>
-        <select id="directoryVehicleStatus" name="vehicle_status">
-          <option value="all" <%= safeFilters.vehicle_status === 'all' ? 'selected' : '' %>>Any status</option>
-          <option value="with_vehicle" <%= safeFilters.vehicle_status === 'with_vehicle' ? 'selected' : '' %>>Has vehicle</option>
-          <option value="without_vehicle" <%= safeFilters.vehicle_status === 'without_vehicle' ? 'selected' : '' %>>No vehicle</option>
-        </select>
-      </div>
-      <div class="directory-filter-field">
-        <label for="directoryStickerStatus">Sticker</label>
-        <select id="directoryStickerStatus" name="sticker_status">
-          <option value="all" <%= safeFilters.sticker_status === 'all' ? 'selected' : '' %>>Any status</option>
-          <option value="active" <%= safeFilters.sticker_status === 'active' ? 'selected' : '' %>>Active</option>
-          <option value="expired" <%= safeFilters.sticker_status === 'expired' ? 'selected' : '' %>>Expired</option>
-          <option value="revoked" <%= safeFilters.sticker_status === 'revoked' ? 'selected' : '' %>>Revoked</option>
-          <option value="none" <%= safeFilters.sticker_status === 'none' ? 'selected' : '' %>>No sticker</option>
-        </select>
-      </div>
-      <div class="directory-filter-field">
-        <label for="directorySort">Sort by</label>
-        <select id="directorySort" name="sort">
-          <option value="name" <%= safeFilters.sort === 'name' ? 'selected' : '' %>>Name</option>
-          <option value="course" <%= safeFilters.sort === 'course' ? 'selected' : '' %>>Course</option>
-          <option value="year" <%= safeFilters.sort === 'year' ? 'selected' : '' %>>Year level</option>
-          <option value="registered" <%= safeFilters.sort === 'registered' ? 'selected' : '' %>>Registration date</option>
-        </select>
-      </div>
-      <div class="directory-filter-field directory-order-field">
-        <label for="directoryDirection">Order</label>
-        <select id="directoryDirection" name="direction">
-          <option value="asc" <%= safeFilters.direction === 'asc' ? 'selected' : '' %>>Ascending</option>
-          <option value="desc" <%= safeFilters.direction === 'desc' ? 'selected' : '' %>>Descending</option>
-        </select>
-      </div>
-      <input type="hidden" name="page_size" value="<%= safePagination.pageSize %>" />
-      <div class="directory-filter-actions">
-        <button type="submit" class="btn-filter-apply">Apply filters</button>
+      <div class="directory-search-actions">
+        <button type="submit" class="btn-filter-apply">Search</button>
         <% if (hasDirectoryFilters) { %><a class="btn-filter-clear" href="/students#directory">Reset</a><% } %>
       </div>
+      <details class="directory-advanced-filters" <%= hasAdvancedFilters ? 'open' : '' %>>
+        <summary><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Filters &amp; sorting<% if (hasAdvancedFilters) { %><span class="filter-active-label">Active</span><% } %></summary>
+        <div class="directory-filter-fields">
+          <div class="directory-filter-field">
+            <label for="directoryCourse">Course</label>
+            <select id="directoryCourse" name="course">
+              <option value="">All courses</option>
+              <% academicProgramGroups.forEach(group => { %>
+                <optgroup label="<%= group.institute %>">
+                  <% group.programs.forEach(program => { %>
+                    <option value="<%= program.name %>" <%= safeFilters.course === program.name ? 'selected' : '' %>><%= program.code || program.name %></option>
+                  <% }) %>
+                </optgroup>
+              <% }) %>
+            </select>
+          </div>
+          <div class="directory-filter-field">
+            <label for="directoryYear">Year level</label>
+            <select id="directoryYear" name="year_level">
+              <option value="">All years</option>
+              <% yearLevels.forEach(year => { %>
+                <option value="<%= year.value %>" <%= safeFilters.year_level === year.value ? 'selected' : '' %>><%= year.label %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="directory-filter-field">
+            <label for="directoryVehicleStatus">Vehicle</label>
+            <select id="directoryVehicleStatus" name="vehicle_status">
+              <option value="all" <%= safeFilters.vehicle_status === 'all' ? 'selected' : '' %>>Any status</option>
+              <option value="with_vehicle" <%= safeFilters.vehicle_status === 'with_vehicle' ? 'selected' : '' %>>Has vehicle</option>
+              <option value="without_vehicle" <%= safeFilters.vehicle_status === 'without_vehicle' ? 'selected' : '' %>>No vehicle</option>
+            </select>
+          </div>
+          <div class="directory-filter-field">
+            <label for="directoryStickerStatus">Sticker</label>
+            <select id="directoryStickerStatus" name="sticker_status">
+              <option value="all" <%= safeFilters.sticker_status === 'all' ? 'selected' : '' %>>Any status</option>
+              <option value="active" <%= safeFilters.sticker_status === 'active' ? 'selected' : '' %>>Active</option>
+              <option value="expired" <%= safeFilters.sticker_status === 'expired' ? 'selected' : '' %>>Expired</option>
+              <option value="revoked" <%= safeFilters.sticker_status === 'revoked' ? 'selected' : '' %>>Revoked</option>
+              <option value="none" <%= safeFilters.sticker_status === 'none' ? 'selected' : '' %>>No sticker</option>
+            </select>
+          </div>
+          <div class="directory-filter-field">
+            <label for="directorySort">Sort by</label>
+            <select id="directorySort" name="sort">
+              <option value="name" <%= safeFilters.sort === 'name' ? 'selected' : '' %>>Name</option>
+              <option value="course" <%= safeFilters.sort === 'course' ? 'selected' : '' %>>Course</option>
+              <option value="year" <%= safeFilters.sort === 'year' ? 'selected' : '' %>>Year level</option>
+              <option value="registered" <%= safeFilters.sort === 'registered' ? 'selected' : '' %>>Registration date</option>
+            </select>
+          </div>
+          <div class="directory-filter-field directory-order-field">
+            <label for="directoryDirection">Order</label>
+            <select id="directoryDirection" name="direction">
+              <option value="asc" <%= safeFilters.direction === 'asc' ? 'selected' : '' %>>Ascending</option>
+              <option value="desc" <%= safeFilters.direction === 'desc' ? 'selected' : '' %>>Descending</option>
+            </select>
+          </div>
+        </div>
+        <div class="directory-filter-actions"><button type="submit" class="btn-filter-apply">Apply filters</button></div>
+      </details>
+      <input type="hidden" name="page_size" value="<%= safePagination.pageSize %>" />
     </form>
 
     <div class="directory-results-bar">
@@ -279,7 +283,7 @@
         <div class="empty-state-icon" aria-hidden="true">
           <i class="ph ph-users"></i>
         </div>
-        <p><%= hasDirectoryFilters ? 'No students match the selected filters.' : 'No students registered yet. Open the Register tab to add one.' %></p>
+        <p><%= hasDirectoryFilters ? 'No students match the selected filters.' : 'No students registered yet. Choose Register student to add one.' %></p>
       </div>
     <% } %>
 
@@ -1088,7 +1092,7 @@
 
   .student-directory-columns,
   .student-card {
-    grid-template-columns: minmax(210px, 1.4fr) minmax(150px, 1.1fr) 72px 104px 112px 156px;
+    grid-template-columns: minmax(180px, 1.5fr) minmax(85px, 1fr) 62px 88px 98px 180px;
   }
 
   .student-directory-columns {
@@ -1142,8 +1146,13 @@
     box-shadow: none;
   }
 
-  .sc-header {
+  .page-students .sc-header {
     display: contents;
+  }
+
+  @media (min-width: 1280px) {
+    .page-students .sc-header-actions { grid-column: 6; grid-row: 1; }
+    .page-students .sc-info-row { display: contents; }
   }
 
   .sc-meta {
@@ -1678,7 +1687,7 @@
     }
   }
 
-  @media (max-width: 980px) {
+  @media (max-width: 1279px) {
     .reg-panel,
     .directory-panel {
       padding: 1.1rem;
@@ -1713,7 +1722,7 @@
       border-bottom: 1px solid var(--line);
     }
 
-    .sc-header {
+    .page-students .sc-header {
       display: flex;
       flex-direction: column;
       align-items: stretch;

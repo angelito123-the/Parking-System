@@ -15,7 +15,7 @@
   };
 %>
 
-<section class="dashboard-hero">
+<section class="dashboard-hero workspace-hero">
   <div class="hero-greeting">
     <h2>Security Operations</h2>
     <h1>Guard Dashboard</h1>
@@ -23,11 +23,11 @@
   </div>
   <div class="hero-cards">
     <div class="hero-card">
-      <h3>Today Entries</h3>
+      <h3>Entries today</h3>
       <p><%= safeMetrics.todayEntries || 0 %></p>
     </div>
     <div class="hero-card">
-      <h3>Today Exits</h3>
+      <h3>Exits today</h3>
       <p><%= safeMetrics.todayExits || 0 %></p>
     </div>
     <div class="hero-card">
@@ -46,38 +46,23 @@
 </section>
 
 <div class="overlap-wrapper" style="display:grid; gap:1.4rem;">
-  <section class="panel quick-links-panel">
-    <div class="section-head">
-      <h2>Quick Actions</h2>
-      <p>For most vehicles, open the scanner and follow the on-screen prompt.</p>
-    </div>
-    <div class="quick-links-grid workflow-grid guard-workflow-grid">
-      <a href="/scanner/auto" class="quick-link-card workflow-card">
-        <span class="workflow-card-top">
-          <span class="workflow-stage">Recommended</span>
-        </span>
-        <h3>Scan a Vehicle</h3>
-        <p>Scan the QR and complete entry approval on the same screen. Exits save automatically.</p>
-        <span class="workflow-action">Open scanner <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-      </a>
-      <a href="/scanner" class="quick-link-card workflow-card">
-        <span class="workflow-card-top">
-          <span class="workflow-stage">When needed</span>
-        </span>
-        <h3>Manual Lookup &amp; Pending Scans</h3>
-        <p>Use this when a QR cannot be read or a remote phone sent an entry request.</p>
-        <span class="workflow-action">Open manual tools <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-      </a>
-      <a href="/visitor-passes" class="quick-link-card workflow-card">
-        <span class="workflow-card-top">
-          <span class="workflow-stage">Visitors</span>
-        </span>
-        <h3>Visitor Passes</h3>
-        <p>Approve temporary permits and record visitor movement.</p>
-        <span class="workflow-action">Manage visitors <i class="ph ph-arrow-right" aria-hidden="true"></i></span>
-      </a>
-    </div>
-  </section>
+  <nav class="task-shortcuts" aria-label="Quick actions">
+    <a class="task-shortcut" href="/scanner">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-magnifying-glass"></i></span>
+      <span class="task-shortcut-copy"><strong>Manual lookup</strong><small>Find a vehicle or pending scan</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/visitor-passes">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-identification-card"></i></span>
+      <span class="task-shortcut-copy"><strong>Visitor passes</strong><small>Approve and record visits</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+    <a class="task-shortcut" href="/scanner/auto?mode=remote">
+      <span class="task-shortcut-icon" aria-hidden="true"><i class="ph ph-device-mobile-camera"></i></span>
+      <span class="task-shortcut-copy"><strong>Remote camera</strong><small>Use a phone at the gate</small></span>
+      <i class="ph ph-arrow-up-right task-shortcut-arrow" aria-hidden="true"></i>
+    </a>
+  </nav>
 
   <section class="panel queue-health-panel">
     <div class="section-head">

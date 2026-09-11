@@ -97,3 +97,74 @@ test('phone scanner actions and camera are visible without scrolling', async ({ 
   await expect(page.locator('#toggleAutoCameraBtn')).toBeInViewport();
   expect(await page.locator('#autoGateSelect').evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
 });
+
+test('directory search, optional filters and import controls stay usable', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/students#directory');
+  const filters = page.locator('.directory-advanced-filters');
+  await expect(filters).not.toHaveAttribute('open', '');
+  await expect(page.locator('#studentSearch')).toBeInViewport();
+  const name = await page.locator('.sc-name').first().innerText();
+  await page.locator('#studentSearch').fill(name);
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.locator('#studentSearch')).toHaveValue(name);
+  await expect(filters).not.toHaveAttribute('open', '');
+  expect(await page.locator('.sc-name').allTextContents()).toEqual(expect.arrayContaining([name]));
+  expect((await page.locator('.sc-name').allTextContents()).every(value => value.toLowerCase().includes(name.toLowerCase()))).toBeTruthy();
+  await filters.locator('summary').click();
+  await page.locator('#directorySort').selectOption('name');
+  await page.locator('#directoryDirection').selectOption('asc');
+  await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
+  await expect(page.locator('#directorySort')).toHaveValue('name');
+  await expect(page.locator('#directoryDirection')).toHaveValue('asc');
+  await page.getByRole('link', { name: 'Reset', exact: true }).click();
+  await expect(page.locator('#studentSearch')).toHaveValue('');
+  await expect(filters).not.toHaveAttribute('open', '');
+  await filters.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#directoryCourse')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#directoryCourse')).toBeHidden();
+  await page.locator('#studentImportToggle').click();
+  await expect(page.getByRole('link', { name: 'Download CSV template' })).toBeVisible();
+  await page.locator('#studentImportClose').click();
+  await expect(page.locator('#studentImportPanel')).toBeHidden();
+  const card = page.locator('.student-card').first();
+  await card.getByRole('button', { name: 'Details', exact: true }).click();
+  await expect(card.locator('.sc-vehicles')).toBeVisible();
+});
+
+test('desktop student values align with their column headings', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('phone'), 'Desktop columns only.');
+  await signIn(page, 'admin');
+  await page.goto('/students#directory');
+  const layout = await page.evaluate(() => {
+    const row = document.querySelector('.student-card');
+    const headings = [...document.querySelectorAll('.student-directory-columns > span')];
+    const cells = [row.querySelector('.sc-meta'), ...[...row.querySelectorAll('.sc-info-row > .sc-info-item')].filter(cell => cell.getBoundingClientRect().width > 0), row.querySelector('.sc-header-actions')];
+    return cells.map((cell, index) => {
+      const rect = cell.getBoundingClientRect();
+      const heading = headings[index].getBoundingClientRect();
+      return { offset: Math.abs(rect.left - heading.left), overflow: rect.right - heading.right };
+    });
+  });
+  expect(layout).toHaveLength(6);
+  for (const cell of layout) {
+    expect(cell.offset).toBeLessThanOrEqual(2);
+    expect(cell.overflow).toBeLessThanOrEqual(2);
+  }
+});
+
+test('sign-in works with readable phone fields and password visibility control', async ({ page }) => {
+  await page.goto('/login');
+  await expect(page.locator('.login-form')).toHaveCSS('opacity', '1');
+  await expect(page.locator('.login-btn')).toBeInViewport();
+  await page.getByLabel('Username', { exact: true }).fill(process.env.ADMIN_USERNAME);
+  await page.locator('#password').fill(process.env.ADMIN_PASSWORD);
+  await page.getByRole('button', { name: 'Show password', exact: true }).click();
+  await expect(page.locator('#password')).toHaveAttribute('type', 'text');
+  await page.getByRole('button', { name: 'Hide password', exact: true }).click();
+  await expect(page.locator('#password')).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+});
