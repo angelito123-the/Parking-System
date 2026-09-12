@@ -54,7 +54,7 @@
         <div><label for="newSlotStatus">Status</label><select id="newSlotStatus" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
         <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Required when disabled" /></div>
       </div>
-      <div class="form-actions"><button type="submit">Add Parking Space</button></div>
+      <div class="form-actions standard-form-actions"><button type="submit">Add parking space</button></div>
     </form>
     <% if (safeZoneSettings.length) { %>
       <div class="zone-threshold-grid">
@@ -147,13 +147,13 @@
             <div><label for="slotEditorReserved">Reserved for</label><input id="slotEditorReserved" name="reserved_for" maxlength="120" /></div>
             <div><label for="slotEditorState">Status</label><select id="slotEditorState" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
             <div><label for="slotEditorReason">Maintenance reason</label><input id="slotEditorReason" name="disabled_reason" maxlength="255" /></div>
-            <button type="submit" class="btn-sm">Save Space</button>
+            <div class="standard-form-actions"><button type="submit" class="btn-sm">Save changes</button></div>
           </form>
         </details>
 
         <div class="parking-inspector-history-head">
           <strong>Recent Activity</strong>
-          <button type="button" id="openSlotHistoryBtn" class="btn-sm">Open Full History</button>
+          <button type="button" id="openSlotHistoryBtn" class="btn-sm btn-secondary">View history</button>
         </div>
         <div id="slotInspectorHistory" class="parking-inspector-history-list" tabindex="0" role="region" aria-label="Recent history for the selected parking slot">
           <div class="empty-state" style="padding:0.8rem;">
@@ -410,7 +410,7 @@
       const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
         ? requestedOccupancy
         : "disabled";
-      const statusText = occupancy.toUpperCase();
+      const statusText = occupancy.charAt(0).toUpperCase() + occupancy.slice(1);
       slotInspectorTitleEl.textContent = slot.slot_code || "-";
       slotInspectorStatusEl.textContent = statusText;
       slotInspectorStatusEl.className = `parking-inspector-badge ${occupancy}`;

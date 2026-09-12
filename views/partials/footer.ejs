@@ -4,7 +4,7 @@
   </div>
 
   <div class="confirm-dialog" id="confirmDialog" hidden>
-    <button type="button" class="confirm-dialog-backdrop" data-confirm-close aria-label="Cancel action"></button>
+    <button type="button" class="confirm-dialog-backdrop" data-confirm-close tabindex="-1" aria-label="Close confirmation"></button>
     <div class="confirm-dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogMessage">
       <span class="confirm-dialog-icon" aria-hidden="true">
         <i class="ph ph-warning"></i>
@@ -13,9 +13,13 @@
         <h2 id="confirmDialogTitle">Confirm action</h2>
         <p id="confirmDialogMessage">This action cannot be undone.</p>
       </div>
+      <div class="confirm-dialog-note" id="confirmDialogNoteField" hidden>
+        <label for="confirmDialogNote">Reason <span class="optional-label">(optional)</span></label>
+        <textarea id="confirmDialogNote" maxlength="255" rows="3" placeholder="Add a short note for the record"></textarea>
+      </div>
       <div class="confirm-dialog-actions">
-        <button type="button" class="btn-cancel-sm" data-confirm-close>Cancel</button>
-        <button type="button" class="btn-confirm-danger" id="confirmDialogSubmit">Delete</button>
+        <button type="button" class="btn-cancel-sm" data-confirm-close>Go back</button>
+        <button type="button" class="btn-confirm-danger" id="confirmDialogSubmit">Confirm</button>
       </div>
     </div>
   </div>
@@ -110,13 +114,6 @@
 
   <script nonce="<%= cspNonce %>">
     (() => {
-      const dialog = document.getElementById("confirmDialog");
-      const title = document.getElementById("confirmDialogTitle");
-      const message = document.getElementById("confirmDialogMessage");
-      const confirmButton = document.getElementById("confirmDialogSubmit");
-      let targetForm = null;
-      let returnFocus = null;
-
       const closeActionMenu = (except = null) => {
         document.querySelectorAll(".action-menu.is-open").forEach((menu) => {
           if (menu === except) return;
@@ -140,42 +137,6 @@
         if (!(event.target instanceof Element) || !event.target.closest(".action-menu")) closeActionMenu();
       });
 
-      const closeDialog = (restoreFocus = true) => {
-        if (!dialog) return;
-        dialog.hidden = true;
-        document.body.classList.remove("confirm-dialog-open");
-        targetForm = null;
-        if (restoreFocus && returnFocus) returnFocus.focus({ preventScroll: true });
-        returnFocus = null;
-      };
-
-      document.addEventListener("click", (event) => {
-        const trigger = event.target instanceof Element ? event.target.closest("[data-destructive-trigger]") : null;
-        if (!trigger || !dialog) return;
-        event.preventDefault();
-        closeActionMenu();
-        targetForm = document.getElementById(trigger.dataset.formId || "");
-        if (!(targetForm instanceof HTMLFormElement)) return;
-        returnFocus = trigger;
-        title.textContent = trigger.dataset.confirmTitle || "Confirm deletion";
-        message.textContent = trigger.dataset.confirmMessage || "This action cannot be undone.";
-        confirmButton.textContent = trigger.dataset.confirmLabel || "Delete";
-        dialog.hidden = false;
-        document.body.classList.add("confirm-dialog-open");
-        window.requestAnimationFrame(() => confirmButton.focus());
-      });
-
-      dialog?.querySelectorAll("[data-confirm-close]").forEach((control) => {
-        control.addEventListener("click", () => closeDialog());
-      });
-      confirmButton?.addEventListener("click", () => {
-        const form = targetForm;
-        closeDialog(false);
-        if (form) form.requestSubmit();
-      });
-      document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && dialog && !dialog.hidden) closeDialog();
-      });
     })();
   </script>
 

@@ -61,5 +61,5 @@ test('destructive records use overflow actions and a shared confirmation dialog'
   assert.match(users, /data-destructive-trigger/);
   assert.doesNotMatch(users, /onsubmit="return confirm/);
   assert.match(footer, /role="alertdialog"/);
-  assert.match(footer, /form\.requestSubmit\(\)/);
+  assert.match(read('public', 'js', 'confirmation-dialog.js'), /form\.requestSubmit\(/);
 });

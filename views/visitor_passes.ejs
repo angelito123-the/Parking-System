@@ -62,7 +62,7 @@
   <section class="panel visitor-registration-panel">
     <div class="section-head">
       <h2>Register Visitor / Temporary Pass</h2>
-      <p>Create a pass request, then approve it to allow gate access. Overstay limit: <%= visitorOverstayLimitLabel || "4h" %>.</p>
+      <p>Create a pass request, then approve it to allow gate access. Overstay limit: <%= visitorOverstayLimitLabel || "4" %> hours.</p>
     </div>
 
     <form method="POST" action="/visitor-passes/register" class="visitor-form-grid" id="visitorRegisterForm" data-form-feedback>
@@ -120,8 +120,8 @@
         <input type="datetime-local" name="valid_until" id="visitorValidUntil" data-after="visitorValidFrom" required />
       </label>
 
-      <div class="visitor-form-actions">
-        <button type="submit" class="btn-sm">Submit Pass Request</button>
+      <div class="visitor-form-actions standard-form-actions">
+        <button type="submit" class="btn-sm">Request visitor pass</button>
       </div>
     </form>
   </section>
@@ -141,25 +141,14 @@
             <div class="visitor-pending-main">
               <p class="visitor-pending-title">
                 <strong><%= item.visitor_name || "Unknown Visitor" %></strong>
-                <span class="badge badge-warning">PENDING</span>
+                <%- include("partials/status_badge", { status: "PENDING" }) %>
               </p>
               <p class="helper-text"><%= item.pass_code || "-" %> | <%= item.visitor_type || "visitor" %> | Plate: <%= item.plate_number || "-" %></p>
               <p class="helper-text">Purpose: <%= item.purpose || "-" %></p>
               <p class="helper-text">Validity: <%= toPht(item.valid_from) %> to <%= toPht(item.valid_until) %></p>
             </div>
-            <div class="visitor-pending-actions">
-              <a class="btn-sm" href="/visitor-passes/<%= item.id %>/qr" target="_blank" rel="noopener">View QR</a>
-              <form method="POST" action="/visitor-passes/<%= item.id %>/approve" class="inline-form">
-                <button type="submit" class="btn-sm">Approve</button>
-              </form>
-              <form method="POST" action="/visitor-passes/<%= item.id %>/reject" class="inline-form js-note-form" data-note-label="Rejection note">
-                <input type="hidden" name="approval_note" value="" />
-                <button type="submit" class="btn-sm danger">Reject</button>
-              </form>
-              <form method="POST" action="/visitor-passes/<%= item.id %>/cancel" class="inline-form js-note-form" data-note-label="Cancel note">
-                <input type="hidden" name="approval_note" value="" />
-                <button type="submit" class="btn-sm danger">Cancel</button>
-              </form>
+            <div class="visitor-pending-actions record-actions">
+              <%- include('partials/visitor_pass_actions', { pass: item, inQueue: true }) %>
             </div>
           </article>
         <% }) %>
@@ -264,8 +253,8 @@
         <input type="date" name="to" value="<%= safeFilters.to || "" %>" />
       </label>
       <div class="visitor-filter-actions">
-        <button type="submit" class="btn-sm">Apply Filters</button>
-        <a href="/visitor-passes" class="btn-sm btn-reset">Reset</a>
+        <button type="submit" class="btn-sm">Apply filters</button>
+        <a href="/visitor-passes" class="btn-sm btn-reset">Clear filters</a>
       </div>
     </form>
 
@@ -305,10 +294,10 @@
               <td><%= row.plate_number || "-" %></td>
               <td><%= row.visitor_type || "visitor" %></td>
               <td>
-                <span class="badge badge-soft"><%= row.approval_status || "-" %></span>
+                <%- include("partials/status_badge", { status: row.approval_status }) %>
               </td>
               <td>
-                <span class="badge badge-soft"><%= row.pass_state || "-" %></span>
+                <%- include("partials/status_badge", { status: row.pass_state }) %>
               </td>
               <td>
                 <%= toPht(row.valid_from) %><br />
@@ -319,26 +308,9 @@
                 <small><%= row.assigned_zone || "Visitor Zone" %></small>
               </td>
               <td>
-                <div class="visitor-table-actions">
-                  <a class="btn-sm" href="/visitor-passes/<%= row.id %>/qr" target="_blank" rel="noopener">QR</a>
-                  <% if (String(currentRole || "").toLowerCase() === "guard") { %>
-                    <a class="btn-sm" href="/scanner?q=<%= encodeURIComponent(row.pass_code || "") %>">Gate Console</a>
-                  <% } %>
-                  <% if (row.approval_status === "PENDING") { %>
-                    <form method="POST" action="/visitor-passes/<%= row.id %>/approve" class="inline-form">
-                      <button type="submit" class="btn-sm">Approve</button>
-                    </form>
-                    <form method="POST" action="/visitor-passes/<%= row.id %>/reject" class="inline-form js-note-form" data-note-label="Rejection note">
-                      <input type="hidden" name="approval_note" value="" />
-                      <button type="submit" class="btn-sm danger">Reject</button>
-                    </form>
-                  <% } else if (row.approval_status === "APPROVED" && row.pass_state !== "EXPIRED" && row.pass_state !== "REVOKED") { %>
-                    <form method="POST" action="/visitor-passes/<%= row.id %>/cancel" class="inline-form js-note-form" data-note-label="Cancel note">
-                      <input type="hidden" name="approval_note" value="" />
-                      <button type="submit" class="btn-sm danger">Cancel</button>
-                    </form>
-                  <% } %>
-                </div>
+                <div class="visitor-table-actions record-actions">
+              <%- include('partials/visitor_pass_actions', { pass: row, inQueue: false }) %>
+            </div>
               </td>
             </tr>
           <% }) %>
@@ -399,7 +371,7 @@
   (() => {
     const validFrom = document.getElementById("visitorValidFrom");
     const validUntil = document.getElementById("visitorValidUntil");
-    const noteForms = Array.from(document.querySelectorAll(".js-note-form"));
+
 
     function formatDateTimeLocal(date) {
       const dt = new Date(date);
@@ -421,27 +393,6 @@
       validUntil.value = formatDateTimeLocal(until);
     }
 
-    noteForms.forEach((form) => {
-      form.addEventListener("submit", (event) => {
-        const input = form.querySelector('input[name="approval_note"]');
-        if (!input) return;
-        const label = String(form.dataset.noteLabel || "Note");
-        const actionText = form.action.includes("reject") ? "reject" : "cancel";
-        const note = window.prompt(`${label} (optional):`, "") || "";
-        input.value = note.trim();
-        if (!window.confirm(`Confirm ${actionText} this visitor pass?`)) {
-          event.preventDefault();
-        }
-      });
-    });
-
-    document.querySelectorAll('form[action*="/approve"]').forEach((form) => {
-      form.addEventListener("submit", (event) => {
-        if (!window.confirm("Approve this visitor pass request?")) {
-          event.preventDefault();
-        }
-      });
-    });
   })();
 </script>
 

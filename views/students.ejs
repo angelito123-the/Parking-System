@@ -129,8 +129,8 @@
         </div>
       </div>
 
-      <div class="form-actions">
-        <button type="submit" id="regSubmitBtn">Save Student</button>
+      <div class="form-actions standard-form-actions">
+        <button type="submit" id="regSubmitBtn">Register student</button>
       </div>
     </form>
   </section>
@@ -196,7 +196,7 @@
       </div>
       <div class="directory-search-actions">
         <button type="submit" class="btn-filter-apply">Search</button>
-        <% if (hasDirectoryFilters) { %><a class="btn-filter-clear" href="/students#directory">Reset</a><% } %>
+        <% if (hasDirectoryFilters) { %><a class="btn-filter-clear" href="/students#directory">Clear filters</a><% } %>
       </div>
       <details class="directory-advanced-filters" <%= hasAdvancedFilters ? 'open' : '' %>>
         <summary><i class="ph ph-sliders-horizontal" aria-hidden="true"></i> Filters &amp; sorting<% if (hasAdvancedFilters) { %><span class="filter-active-label">Active</span><% } %></summary>
@@ -419,8 +419,8 @@
                 <input id="editStudentEmail_<%= student.id %>" name="email" type="email" value="<%= student.email || '' %>" />
               </div>
             </div>
-            <div class="edit-form-actions">
-              <button type="submit" class="btn-save-sm">Save Changes</button>
+            <div class="edit-form-actions standard-form-actions">
+              <button type="submit" class="btn-save-sm">Save changes</button>
               <button type="button" class="btn-cancel-sm" data-ui-action="toggle-student-edit" data-target-id="<%= student.id %>">Cancel</button>
             </div>
           </form>
@@ -455,8 +455,8 @@
                   <input name="color" placeholder="e.g. Black" />
                 </div>
               </div>
-              <div class="edit-form-actions">
-                <button type="submit" class="btn-save-sm">Register Vehicle</button>
+              <div class="edit-form-actions standard-form-actions">
+                <button type="submit" class="btn-save-sm">Register vehicle</button>
                 <button type="button" class="btn-cancel-sm" data-ui-action="toggle-add-vehicle" data-target-id="<%= student.id %>">Cancel</button>
               </div>
             </form>
@@ -519,8 +519,8 @@
                       <input name="color" value="<%= vehicle.color || '' %>" />
                     </div>
                   </div>
-                  <div class="edit-form-actions">
-                    <button type="submit" class="btn-save-sm">Save</button>
+                  <div class="edit-form-actions standard-form-actions">
+                    <button type="submit" class="btn-save-sm">Save changes</button>
                     <button type="button" class="btn-cancel-sm" data-ui-action="toggle-vehicle-edit" data-target-id="<%= vehicle.id %>">Cancel</button>
                   </div>
                 </form>
@@ -1860,7 +1860,7 @@
 
     // Update submit button text
     const submitBtn = document.getElementById('regSubmitBtn');
-    submitBtn.textContent = isVisible ? 'Save Student' : 'Save Student and Vehicle';
+    submitBtn.textContent = isVisible ? 'Register student' : 'Register student and vehicle';
   }
 
   function toggleStudentDetails(id) {

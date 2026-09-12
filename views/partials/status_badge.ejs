@@ -1,0 +1,5 @@
+<%
+  const key = String(status || '').toUpperCase();
+  const styles = { PENDING: 'warning', APPROVED: 'valid', ACTIVE: 'valid', AVAILABLE: 'valid', INSIDE: 'inside', OCCUPIED: 'warning', EXITED: 'soft', EXPIRED: 'expired', REJECTED: 'invalid', REVOKED: 'revoked', CANCELLED: 'soft', DISABLED: 'disabled' };
+  const text = key ? key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, ' ') : 'Unknown';
+%><span class="badge badge-<%= styles[key] || 'soft' %>"><%= text %></span>

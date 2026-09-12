@@ -30,21 +30,21 @@
       <div><label for="current_password">Current password</label><input id="current_password" name="current_password" type="password" autocomplete="current-password" required /></div>
       <div><label for="new_password">New password</label><input id="new_password" data-password-rules name="new_password" type="password" minlength="10" autocomplete="new-password" required /></div>
       <div><label for="confirm_password">Confirm new password</label><input id="confirm_password" data-match="new_password" name="confirm_password" type="password" minlength="10" autocomplete="new-password" required /></div>
-      <div class="form-actions"><button type="submit">Update Password</button></div>
+      <div class="form-actions standard-form-actions"><button type="submit">Change password</button></div>
     </form>
   </section>
 
   <section class="panel" id="sessions">
     <div class="section-head">
       <h2>Active Sessions</h2>
-      <p>Revoke access from devices you no longer use.</p>
+      <p>Sign out devices you no longer use.</p>
     </div>
     <div class="security-session-list">
       <% safeSessions.forEach((sessionItem) => { %>
         <article class="security-session-item">
           <div><strong><%= sessionItem.current ? "This device" : `Session ${sessionItem.fingerprint}` %></strong><span>Expires <%= dateLabel(sessionItem.expires_at) %></span></div>
-          <% if (sessionItem.current) { %><span class="badge">Current</span><% } else { %>
-            <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeSession_<%= sessionItem.fingerprint %>" data-confirm-title="Revoke session?" data-confirm-message="Sign this device out of your account?" data-confirm-label="Revoke session">Revoke</button>
+          <% if (sessionItem.current) { %><span class="badge badge-inside">Current</span><% } else { %>
+            <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeSession_<%= sessionItem.fingerprint %>" data-confirm-title="Sign out this device?" data-confirm-message="Sign this device out of your account. It will need to sign in again to regain access." data-confirm-label="Sign out device">Sign out device</button>
             <form id="revokeSession_<%= sessionItem.fingerprint %>" class="destructive-form" method="post" action="/account/sessions/<%= sessionItem.fingerprint %>/revoke" hidden></form>
           <% } %>
         </article>
@@ -53,7 +53,7 @@
     </div>
     <% if (safeSessions.some((item) => !item.current)) { %>
       <div class="security-revoke-all">
-        <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeOtherSessions" data-confirm-title="Revoke other sessions?" data-confirm-message="Sign out every other device currently using your account?" data-confirm-label="Revoke sessions">Revoke All Other Sessions</button>
+        <button type="button" class="btn-delete-sm" data-destructive-trigger data-form-id="revokeOtherSessions" data-confirm-title="Sign out other devices?" data-confirm-message="Sign out every other device using your account. You will stay signed in on this device." data-confirm-label="Sign out other devices">Sign out other devices</button>
         <form id="revokeOtherSessions" class="destructive-form" method="post" action="/account/sessions/revoke-others" hidden></form>
       </div>
     <% } %>

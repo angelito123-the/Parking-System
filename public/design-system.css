@@ -1511,7 +1511,7 @@ body[data-role] :is(
   border-radius: var(--ui-radius-control) !important;
   box-shadow: none !important;
   font: inherit;
-  font-size: 0.78rem !important;
+  font-size: var(--ui-action-font-size, 0.78rem) !important;
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
@@ -1520,7 +1520,7 @@ body[data-role] :is(
 }
 
 body[data-role] :is(
-  .btn-sm:not(.btn-reset):not(.danger):not(.refresh-btn),
+  .btn-sm:not(.btn-reset):not(.btn-secondary):not(.danger):not(.refresh-btn),
   .btn-save-sm,
   .btn-filter-apply,
   .btn-directory-primary,
@@ -1535,7 +1535,7 @@ body[data-role] :is(
 }
 
 body[data-role] :is(
-  .btn-sm:not(.btn-reset):not(.danger):not(.refresh-btn),
+  .btn-sm:not(.btn-reset):not(.btn-secondary):not(.danger):not(.refresh-btn),
   .btn-save-sm,
   .btn-filter-apply,
   .btn-directory-primary,
@@ -1551,6 +1551,7 @@ body[data-role] :is(
 body[data-role] :is(
   .btn,
   .btn-sm.btn-reset,
+  .btn-secondary,
   .refresh-btn,
   .link-btn,
   .btn-ghost,
@@ -1573,6 +1574,7 @@ body[data-role] :is(
 body[data-role] :is(
   .btn,
   .btn-sm.btn-reset,
+  .btn-secondary,
   .refresh-btn,
   .link-btn,
   .btn-ghost,
@@ -3180,4 +3182,85 @@ body[data-role] button.password-field-toggle:hover { color: var(--status-info-te
 .password-requirements .is-met { color: var(--status-success-text); }
 @media (max-width: 1080px), (any-pointer: coarse) {
   body[data-role] button.password-field-toggle { min-height: 44px; }
+}
+
+
+/* Consistent action placement across registration, visitors, parking and accounts. */
+body[data-role] .standard-form-actions {
+  --ui-control-height: var(--ui-touch-target);
+  --ui-action-font-size: 0.875rem;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--ui-space-2);
+  margin: var(--ui-space-4) 0 0;
+  padding: 0;
+}
+
+body[data-role] .standard-form-actions > :is(button, a) {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+body[data-role] .record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--ui-space-2);
+}
+
+body[data-role] .record-actions > form { margin: 0; }
+body[data-role] .record-actions :is(button, a) {
+  min-height: var(--ui-touch-target);
+  white-space: normal;
+  text-align: center;
+}
+
+.confirm-dialog-card {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.confirm-dialog-copy p { font-size: 0.875rem; }
+.confirm-dialog-note { grid-column: 1 / -1; }
+.confirm-dialog-note[hidden] { display: none; }
+.confirm-dialog-note label { display: block; margin-bottom: var(--ui-space-2); }
+.confirm-dialog-note textarea { width: 100%; min-height: 90px; resize: vertical; font: inherit; font-size: 1rem; }
+.confirm-dialog[data-tone="primary"] .confirm-dialog-icon {
+  color: var(--status-info-text);
+  background: var(--status-info-bg);
+}
+body[data-role] .confirm-dialog-actions { --ui-control-height: var(--ui-touch-target); --ui-action-font-size: 0.875rem; }
+
+@media (max-width: 520px) {
+  body[data-role] .standard-form-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  body[data-role] .standard-form-actions > :is(button, a) { width: 100%; }
+  body[data-role] .visitor-pending-actions.record-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body[data-role] .visitor-pending-actions.record-actions > :is(form, a),
+  body[data-role] .visitor-pending-actions.record-actions button { width: 100%; min-width: 0; }
+  .confirm-dialog-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .confirm-dialog-actions > button { width: 100%; white-space: normal; }
+}
+
+/* Summary cards use the same semantic colors as row badges and parking states. */
+.dashboard-hero .hero-card--success,
+body.page-visitor-passes .visitor-stat-card--active {
+  --metric-accent: var(--status-success-text);
+  border-left-color: var(--status-success-text) !important;
+}
+.dashboard-hero .hero-card--warning,
+body.page-visitor-passes .visitor-stat-card--pending,
+body.page-visitor-passes .visitor-stat-card--expired {
+  --metric-accent: var(--status-warning-text);
+  border-left-color: var(--status-warning-text) !important;
+}
+.dashboard-hero .hero-card--danger {
+  --metric-accent: var(--status-danger-text);
+  border-left-color: var(--status-danger-text) !important;
+}
+body.page-visitor-passes .visitor-stat-card--inside {
+  --metric-accent: var(--status-info-text);
+  border-left-color: var(--status-info-text) !important;
 }

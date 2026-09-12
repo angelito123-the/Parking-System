@@ -64,8 +64,8 @@
           <small class="helper-text">Guards handle gate scanning and visits. Admins manage records, accounts and reports.</small>
         </div>
       </div>
-      <div class="form-actions">
-        <button type="submit">Create User</button>
+      <div class="form-actions standard-form-actions">
+        <button type="submit">Create account</button>
       </div>
     </form>
   </section>
@@ -125,7 +125,7 @@
                       <% } else { %>
                         <form method="post" action="/admin/users/<%= user.id %>/status"><input type="hidden" name="is_active" value="1" /><button type="submit" role="menuitem">Reactivate account</button></form>
                       <% } %>
-                      <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteUserForm_<%= user.id %>" data-confirm-title="Delete user account?" data-confirm-message="Delete the account for <%= user.username %>? They will immediately lose access and this cannot be undone." data-confirm-label="Delete account">Delete user</button>
+                      <button type="button" class="action-menu-danger" role="menuitem" data-destructive-trigger data-form-id="deleteUserForm_<%= user.id %>" data-confirm-title="Delete account?" data-confirm-message="Delete the account for <%= user.username %>? They will immediately lose access and this cannot be undone." data-confirm-label="Delete account">Delete account</button>
                     </div>
                   </div>
                   <% } %>
@@ -154,8 +154,8 @@
                       <input type="password" name="password" minlength="10" autocomplete="new-password" placeholder="Forces a change at next sign-in" />
                     </div>
                   </div>
-                  <div class="edit-form-actions">
-                    <button type="submit" class="btn-save-sm">Save Changes</button>
+                  <div class="edit-form-actions standard-form-actions">
+                    <button type="submit" class="btn-save-sm">Save changes</button>
                     <button
                       type="button"
                       class="btn-cancel-sm"

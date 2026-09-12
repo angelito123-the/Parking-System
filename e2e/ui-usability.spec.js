@@ -117,7 +117,7 @@ test('directory search, optional filters and import controls stay usable', async
   await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
   await expect(page.locator('#directorySort')).toHaveValue('name');
   await expect(page.locator('#directoryDirection')).toHaveValue('asc');
-  await page.getByRole('link', { name: 'Reset', exact: true }).click();
+  await page.getByRole('link', { name: 'Clear filters', exact: true }).click();
   await expect(page.locator('#studentSearch')).toHaveValue('');
   await expect(filters).not.toHaveAttribute('open', '');
   await filters.locator('summary').focus();
@@ -261,4 +261,133 @@ test('backup downloads leave the page usable for another action', async ({ page 
     await expect(form).not.toHaveAttribute('data-loading', 'true');
     await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
   }
+});
+
+
+// Render the same partial used by the visitor queue with an isolated fixture.
+// Intercept mutations so confirmation tests cannot approve or reject real passes.
+async function visitorActionFixture(page) {
+  const ejs = require('ejs');
+  const path = require('node:path');
+  const actions = await ejs.renderFile(path.join(__dirname, '../views/partials/visitor_pass_actions.ejs'), {
+    pass: { id: 999999999, visitor_name: 'Example Visitor', approval_status: 'PENDING', pass_state: 'PENDING', pass_code: 'UI-REVIEW' },
+    inQueue: true, currentRole: 'admin'
+  });
+  await page.route('**/visitor-passes', async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace('</main>', '<section class="panel" id="reviewVisitorActions"><h2>Example visitor request</h2><div class="visitor-pending-actions record-actions">' + actions + '</div></section></main>');
+    await route.fulfill({ response, body });
+  });
+  const submissions = [];
+  await page.route('**/visitor-passes/999999999/*', async route => {
+    submissions.push({ url: route.request().url(), body: route.request().postData() || '' });
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<main>Saved test response</main>' });
+  });
+  await page.goto('/visitor-passes');
+  return { actions: page.locator('#reviewVisitorActions'), submissions };
+}
+
+test('visitor confirmations support keyboard cancellation and preserve the optional reason', async ({ page }) => {
+  await signIn(page, 'admin');
+  const { actions, submissions } = await visitorActionFixture(page);
+  const nativeDialogs = [];
+  page.on('dialog', async dialog => { nativeDialogs.push(dialog.type()); await dialog.dismiss(); });
+  const reject = actions.getByRole('button', { name: 'Reject pass', exact: true });
+  await reject.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Reject visitor pass?');
+  await expect(dialog.getByRole('button', { name: 'Go back' })).toBeFocused();
+  await expect(page.locator('.app-shell')).toHaveAttribute('inert', '');
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#confirmDialogNote')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Reject pass', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#confirmDialogNote')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(reject).toBeFocused();
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert', '');
+  await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
+  expect(submissions).toHaveLength(0);
+  await reject.click();
+  await page.locator('#confirmDialogNote').fill('  Duplicate request  ');
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(audit.violations.filter(item => ['serious', 'critical'].includes(item.impact))).toEqual([]);
+  await dialog.getByRole('button', { name: 'Reject pass', exact: true }).click();
+  await expect(page.getByText('Saved test response')).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(new URLSearchParams(submissions[0].body).get('approval_note')).toBe('Duplicate request');
+  expect(nativeDialogs).toEqual([]);
+});
+
+test('visitor approval and cancellation use matching action labels and distinct tones', async ({ page }) => {
+  await signIn(page, 'admin');
+  const { actions, submissions } = await visitorActionFixture(page);
+  await actions.getByRole('button', { name: 'Cancel pass', exact: true }).click();
+  let dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Cancel visitor pass?');
+  await expect(dialog.getByRole('button', { name: 'Cancel pass', exact: true })).toBeVisible();
+  await expect(page.locator('#confirmDialogNote')).toBeHidden();
+  await dialog.getByRole('button', { name: 'Go back' }).click();
+  expect(submissions).toHaveLength(0);
+  await actions.getByRole('button', { name: 'Approve pass', exact: true }).click();
+  dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Approve visitor pass?');
+  await expect(page.locator('#confirmDialog')).toHaveAttribute('data-tone', 'primary');
+  await dialog.getByRole('button', { name: 'Approve pass', exact: true }).click();
+  await expect(page.getByText('Saved test response')).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].url).toMatch(/\/approve$/);
+});
+
+test('account confirmations return focus and never sign out on cancellation', async ({ page }) => {
+  await signIn(page, 'admin');
+  await signIn(page, 'admin'); // Ensure there is another device session to display.
+  await page.goto('/account/security');
+  const signOut = page.getByRole('button', { name: 'Sign out device', exact: true }).first();
+  await expect(signOut).toBeVisible();
+  await signOut.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Sign out this device?');
+  await expect(dialog.getByRole('button', { name: 'Go back' })).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Sign out device', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Go back' }).click();
+  await expect(signOut).toBeFocused();
+  await expect(page).toHaveURL(/\/account\/security$/);
+  await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
+});
+
+test('primary form actions share sizing and align with their forms', async ({ page }) => {
+  await signIn(page, 'admin');
+  for (const [route, name] of [['/students', 'Register student'], ['/visitor-passes', 'Request visitor pass'], ['/admin/slots', 'Add parking space'], ['/admin/users', 'Create account'], ['/account/security', 'Change password']]) {
+    await page.goto(route);
+    const button = page.getByRole('button', { name, exact: true });
+    await expect(button).toBeVisible();
+    const layout = await button.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      const form = element.closest('form').getBoundingClientRect();
+      return { height: rect.height, font: getComputedStyle(element).fontSize, left: Math.abs(rect.left - form.left) };
+    });
+    expect(layout.height, route).toBeGreaterThanOrEqual(44);
+    expect(layout.font, route).toBe('14px');
+    expect(layout.left, route).toBeLessThan(2);
+  }
+});
+
+
+test('account deletion confirmation returns focus to the closed actions menu', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/admin/users');
+  const menu = page.locator('.action-menu').first();
+  const trigger = menu.locator('[data-action-menu-trigger]');
+  await trigger.click();
+  await menu.getByRole('menuitem', { name: 'Delete account', exact: true }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Delete account?');
+  await expect(dialog.getByRole('button', { name: 'Delete account', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Go back' }).click();
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
 });

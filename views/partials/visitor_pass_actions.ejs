@@ -1,0 +1,21 @@
+<% const pendingPass = pass.approval_status === 'PENDING'; %>
+<% if (pendingPass) { %>
+  <form method="post" action="/visitor-passes/<%= pass.id %>/approve" class="inline-form" data-confirm-form data-confirm-tone="primary" data-confirm-title="Approve visitor pass?" data-confirm-message="Approve the pass for <%= pass.visitor_name %>. It will allow gate access during its validity period." data-confirm-label="Approve pass">
+    <button type="submit" class="btn-sm">Approve pass</button>
+  </form>
+<% } %>
+<a class="btn-sm btn-secondary" href="/visitor-passes/<%= pass.id %>/qr" target="_blank" rel="noopener">View QR</a>
+<% if (!inQueue && String(currentRole || '').toLowerCase() === 'guard') { %>
+  <a class="btn-sm btn-secondary" href="/scanner?q=<%= encodeURIComponent(pass.pass_code || '') %>">Open gate console</a>
+<% } %>
+<% if (pendingPass) { %>
+  <form method="post" action="/visitor-passes/<%= pass.id %>/reject" class="inline-form" data-confirm-form data-confirm-note="true" data-confirm-title="Reject visitor pass?" data-confirm-message="Reject the request for <%= pass.visitor_name %>. This pass will not allow gate access." data-confirm-label="Reject pass">
+    <input type="hidden" name="approval_note" value="" />
+    <button type="submit" class="btn-sm danger">Reject pass</button>
+  </form>
+<% } %>
+<% if ((inQueue && pendingPass) || (pass.approval_status === 'APPROVED' && !['EXPIRED', 'REVOKED'].includes(pass.pass_state))) { %>
+  <form method="post" action="/visitor-passes/<%= pass.id %>/cancel" class="inline-form" data-confirm-form data-confirm-title="Cancel visitor pass?" data-confirm-message="Cancel the pass for <%= pass.visitor_name %> and release any assigned parking space. This pass will no longer allow gate access." data-confirm-label="Cancel pass">
+    <button type="submit" class="btn-sm danger">Cancel pass</button>
+  </form>
+<% } %>
