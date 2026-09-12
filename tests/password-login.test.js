@@ -33,6 +33,11 @@ async function startApp(t, overrides = {}, database = {}) {
       if (/FROM users(?:\s+WHERE id| u)/.test(sql)) return [[user]];
       if (/UPDATE users SET last_login_at/.test(sql)) return [{ affectedRows: 1 }];
       if (/INSERT INTO security_audit_logs/.test(sql)) { audits.push(values); return [{ affectedRows: 1 }]; }
+      if (/SELECT session_id, data FROM sessions/.test(sql)) return [Object.entries(store.sessions).map(([session_id, data]) => ({ session_id, data }))];
+      if (/DELETE FROM sessions WHERE session_id IN/.test(sql)) {
+        for (const id of values[0]) delete store.sessions[id];
+        return [{ affectedRows: values[0].length }];
+      }
       if (/FROM (sessions|security_audit_logs)/.test(sql)) return [[]];
       throw new Error(`Unexpected database query: ${sql}`);
     }
@@ -78,7 +83,7 @@ async function startApp(t, overrides = {}, database = {}) {
   const signIn = (suppliedPassword = password) => request("/login", {
     form: { username: user.username, password: suppliedPassword }
   });
-  return { request, signIn, store, audits };
+  return { request, signIn, store, audits, context, evaluate: code => vm.runInContext(code, context) };
 }
 
 for (const enrolled of [0, 1]) {
@@ -200,3 +205,78 @@ test("offline and metrics batch failures are handled without crashing the proces
   }
   assert.equal((await app.request("/account/security", { cookie })).status, 200);
 });
+
+
+for (const [route, snapshot, registry] of [
+  ['/api/notifications/events', 'getNotificationSummaryForUser', 'notificationSseClients'],
+  ['/api/auto-scan/events', 'getAutoScanHealthSnapshot', 'autoScanSseClients']
+]) {
+  async function openStream(t, pending = false) {
+    const app = await startApp(t, { role: 'guard' });
+    let resolveSnapshot;
+    app.context.testSnapshot = pending ? new Promise(resolve => { resolveSnapshot = resolve; }) : Promise.resolve({});
+    app.evaluate(snapshot + ' = () => testSnapshot');
+    const login = await app.signIn();
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    const response = await app.request(route, { cookie });
+    assert.equal(response.status, 200);
+    const reader = response.body.getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /event: connected/);
+    t.after(async () => {
+      await reader.cancel().catch(() => {});
+      if (resolveSnapshot) resolveSnapshot({});
+      app.evaluate('for (const client of ' + registry + '.values()) client.close()');
+    });
+    return { ...app, cookie, reader, resolveSnapshot, count: () => app.evaluate(registry + '.size') };
+  }
+
+  test(route + ' cleans up when the browser disconnects before its initial query finishes', async t => {
+    const app = await openStream(t, true);
+    await app.reader.cancel();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(app.count(), 0, 'disconnected response must not retain a client or heartbeat timer');
+    app.resolveSnapshot({});
+  });
+
+  test(route + ' closes live connections on logout', async t => {
+    const app = await openStream(t);
+    assert.equal((await app.request('/logout', { cookie: app.cookie })).status, 302);
+    assert.equal(app.count(), 0, 'logging out must end existing streams');
+    while (!(await app.reader.read()).done) { /* Drain the initial snapshot; the socket must end. */ }
+    assert.equal((await app.request(route, { cookie: app.cookie })).status, 401);
+  });
+
+  test(route + ' closes live connections when its session is revoked', async t => {
+    const app = await openStream(t);
+    assert.equal(await app.evaluate('revokeUserSessions(1)'), 1);
+    assert.equal(app.count(), 0, 'revoking a session must end existing streams');
+    while (!(await app.reader.read()).done) { /* Drain the initial snapshot; the socket must end. */ }
+    assert.equal((await app.request(route, { cookie: app.cookie })).status, 401);
+  });
+
+  test(route + ' preserves the current connection when revoking other sessions', async t => {
+    const app = await openStream(t);
+    app.context.keptSession = Object.keys(app.store.sessions)[0];
+    const otherLogin = await app.signIn();
+    const otherCookie = otherLogin.headers.get('set-cookie').split(';')[0];
+    const response = await app.request(route, { cookie: otherCookie });
+    const reader = response.body.getReader();
+    t.after(() => reader.cancel().catch(() => {}));
+    await reader.read();
+    assert.equal(app.count(), 2);
+    assert.equal(await app.evaluate('revokeUserSessions(1, { keepSessionId: keptSession })'), 1);
+    assert.equal(app.count(), 1);
+    assert.equal(Object.keys(app.store.sessions)[0], app.context.keptSession);
+    while (!(await reader.read()).done) { /* Only the other device should disconnect. */ }
+    await app.request('/logout', { cookie: app.cookie });
+    assert.equal(app.count(), 0);
+  });
+
+  test(route + ' closes revoked streams even if their database row is already gone', async t => {
+    const app = await openStream(t);
+    for (const id of Object.keys(app.store.sessions)) delete app.store.sessions[id];
+    assert.equal(await app.evaluate('revokeUserSessions(1)'), 0);
+    assert.equal(app.count(), 0);
+  });
+
+}

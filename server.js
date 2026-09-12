@@ -9,6 +9,7 @@ const multer = require("multer");
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
+const { openEventStream } = require("./lib/event-stream");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
 const {
   MailConfigurationError,
@@ -195,9 +196,7 @@ const VISITOR_OVERSTAY_HOURS = Math.max(
 );
 const VISITOR_OVERSTAY_MINUTES = Math.max(1, Math.round(VISITOR_OVERSTAY_HOURS * 60));
 const autoScanSseClients = new Map();
-let autoScanSseClientCounter = 0;
 const notificationSseClients = new Map();
-let notificationSseClientCounter = 0;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -472,8 +471,11 @@ async function revokeUserSessions(userId, options = {}) {
       // Ignore malformed session records.
     }
   }
-  if (!sessionIds.length) return 0;
-  await pool.query("DELETE FROM sessions WHERE session_id IN (?)", [sessionIds]);
+  if (sessionIds.length) await pool.query("DELETE FROM sessions WHERE session_id IN (?)", [sessionIds]);
+  // Include streams whose session row has already expired or been deleted.
+  closeUserEventStreams(client => client.userId === Number(userId)
+    && client.sessionId !== keepSessionId
+    && (!targetFingerprint || sessionFingerprint(client.sessionId) === targetFingerprint));
   return sessionIds.length;
 }
 
@@ -697,7 +699,9 @@ app.post("/login/2fa", (_req, res) => res.redirect("/login"));
 
 app.get("/logout", async (req, res) => {
   await recordSecurityAudit(req, "LOGOUT");
+  const sessionId = req.sessionID;
   req.session.destroy(() => {
+    closeUserEventStreams(client => client.sessionId === sessionId);
     res.redirect("/login");
   });
 });
@@ -1119,48 +1123,18 @@ async function getAutoScanHealthSnapshot(limit = 12, db = pool) {
   };
 }
 
-function writeSseEvent(res, eventName, payload = {}) {
-  if (!res || res.writableEnded) return;
-  res.write(`event: ${eventName}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-function removeAutoScanSseClient(clientId) {
-  const existing = autoScanSseClients.get(clientId);
-  if (existing?.heartbeatTimer) {
-    clearInterval(existing.heartbeatTimer);
+function closeUserEventStreams(matches) {
+  for (const clients of [autoScanSseClients, notificationSseClients]) {
+    for (const client of clients.values()) if (matches(client)) client.close();
   }
-  autoScanSseClients.delete(clientId);
 }
 
 function broadcastAutoScanSse(eventName, payload = {}) {
-  if (!autoScanSseClients.size) return;
-  for (const [clientId, client] of autoScanSseClients.entries()) {
-    try {
-      writeSseEvent(client.res, eventName, payload);
-    } catch (_error) {
-      removeAutoScanSseClient(clientId);
-    }
-  }
-}
-
-function removeNotificationSseClient(clientId) {
-  const existing = notificationSseClients.get(clientId);
-  if (existing?.heartbeatTimer) {
-    clearInterval(existing.heartbeatTimer);
-  }
-  notificationSseClients.delete(clientId);
+  for (const client of autoScanSseClients.values()) client.send(eventName, payload);
 }
 
 function broadcastNotificationSse(eventName, payload = {}) {
-  if (!notificationSseClients.size) return;
-  for (const [clientId, client] of notificationSseClients.entries()) {
-    try {
-      writeSseEvent(client.res, eventName, payload);
-    } catch (_error) {
-      removeNotificationSseClient(clientId);
-    }
-  }
+  for (const client of notificationSseClients.values()) client.send(eventName, payload);
 }
 
 function broadcastNotificationsUpdated(reason = "updated", payload = {}) {
@@ -7403,43 +7377,27 @@ app.get("/scanner/auto", requireRole(USER_ROLES.GUARD), (req, res) => {
 
 // API: live SSE stream for notification center updates
 app.get("/api/notifications/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GUARD), async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  if (typeof res.flushHeaders === "function") {
-    res.flushHeaders();
-  }
-
-  const clientId = `${Date.now()}-${++notificationSseClientCounter}`;
-  const heartbeatTimer = setInterval(() => {
-    writeSseEvent(res, "ping", { ts: new Date().toISOString() });
-  }, AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000);
-
-  notificationSseClients.set(clientId, {
-    id: clientId,
-    username: req.authUser?.username || "user",
-    role: req.authUser?.role || "guard",
-    userId: req.authUser?.id || null,
-    res,
-    heartbeatTimer
+  const client = openEventStream({
+    req, res, clients: notificationSseClients, sessionStore,
+    keepaliveMs: AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000
   });
+  if (!await client.authorize()) return;
 
-  writeSseEvent(res, "connected", {
+  client.send("connected", {
     ok: true,
-    client_id: clientId,
+    client_id: client.id,
     keepalive_seconds: AUTO_SCAN_SSE_KEEPALIVE_SECONDS,
     server_time: new Date().toISOString()
   });
 
   try {
     const summary = await getNotificationSummaryForUser(req.authUser, pool);
-    writeSseEvent(res, "notifications-summary", {
+    client.send("notifications-summary", {
       summary,
       server_time: new Date().toISOString()
     });
   } catch (error) {
-    writeSseEvent(res, "notifications-summary", {
+    client.send("notifications-summary", {
       summary: {
         total: 0,
         active_total: 0,
@@ -7450,56 +7408,35 @@ app.get("/api/notifications/events", requireRole(USER_ROLES.ADMIN, USER_ROLES.GU
         pending_active: 0,
         suspicious_active: 0
       },
-      message: error.message || "Unable to load notification summary.",
+      message: "Unable to load notification summary. Please try again.",
       server_time: new Date().toISOString()
     });
   }
-
-  const closeHandler = () => {
-    removeNotificationSseClient(clientId);
-  };
-  req.on("close", closeHandler);
-  req.on("aborted", closeHandler);
 });
 
 // API: live SSE stream for guard queue + phone heartbeat updates
 app.get("/api/auto-scan/events", requireRole(USER_ROLES.GUARD), async (req, res) => {
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  if (typeof res.flushHeaders === "function") {
-    res.flushHeaders();
-  }
-
-  const clientId = `${Date.now()}-${++autoScanSseClientCounter}`;
-  const heartbeatTimer = setInterval(() => {
-    writeSseEvent(res, "ping", { ts: new Date().toISOString() });
-  }, AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000);
-
-  autoScanSseClients.set(clientId, {
-    id: clientId,
-    username: req.authUser?.username || "guard",
-    role: req.authUser?.role || "guard",
-    res,
-    heartbeatTimer
+  const client = openEventStream({
+    req, res, clients: autoScanSseClients, sessionStore,
+    keepaliveMs: AUTO_SCAN_SSE_KEEPALIVE_SECONDS * 1000
   });
+  if (!await client.authorize()) return;
 
-  writeSseEvent(res, "connected", {
+  client.send("connected", {
     ok: true,
-    client_id: clientId,
+    client_id: client.id,
     keepalive_seconds: AUTO_SCAN_SSE_KEEPALIVE_SECONDS,
     server_time: new Date().toISOString()
   });
 
   try {
     const snapshot = await getAutoScanHealthSnapshot(5);
-    writeSseEvent(res, "queue-health", {
+    client.send("queue-health", {
       ...snapshot,
       reason: "initial-sync"
     });
   } catch (error) {
-    writeSseEvent(res, "queue-health", {
+    client.send("queue-health", {
       rows: [],
       primary: null,
       total_devices: 0,
@@ -7509,15 +7446,9 @@ app.get("/api/auto-scan/events", requireRole(USER_ROLES.GUARD), async (req, res)
       heartbeat_interval_seconds: AUTO_SCAN_HEARTBEAT_INTERVAL_SECONDS,
       server_time: new Date().toISOString(),
       reason: "initial-sync-error",
-      message: error.message || "Unable to load health snapshot."
+      message: "Unable to load health snapshot. Please try again."
     });
   }
-
-  const closeHandler = () => {
-    removeAutoScanSseClient(clientId);
-  };
-  req.on("close", closeHandler);
-  req.on("aborted", closeHandler);
 });
 
 // API: phone scanner heartbeat for guard queue health

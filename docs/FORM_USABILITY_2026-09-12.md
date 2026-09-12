@@ -20,7 +20,7 @@ New form behavior lives in `public/js/form-feedback.js`, with opt-in annotations
 
 The system still has substantial maintenance debt. `server.js` is approximately 9,300 lines and combines routing, SQL, background workers, reporting, and streaming. Several EJS files combine large templates, styles, and scripts; the student view alone is over 2,000 lines. A staged cleanup should extract services and route groups with behavior tests first, then move page scripts and styles into dedicated assets. This pass does not claim to have untangled the entire application.
 
-Two areas identified by inspection deserve a separate follow-up: the live-event streams register disconnect handlers after awaiting their initial database snapshot, and their lifecycle is not explicitly tied to later session revocation. These paths need dedicated disconnect/revocation integration tests and lifecycle cleanup. They were not changed in this UI-focused pass.
+Two areas identified by inspection deserve a separate follow-up: the live-event streams register disconnect handlers after awaiting their initial database snapshot, and their lifecycle is not explicitly tied to later session revocation. These paths need dedicated disconnect/revocation integration tests and lifecycle cleanup. They were not changed in this UI-focused pass. Both were subsequently reproduced and fixed in the [code review follow-up](CODE_REVIEW_2026-09-12.md).
 
 ## Verification
 

@@ -28,3 +28,14 @@ test("generic limiter records security-sensitive actions", () => {
   limiter.record("admin", 2_000);
   assert.equal(limiter.check("admin", 2_001).allowed, false);
 });
+
+
+test('limiter releases expired entries for clients that never return', () => {
+  const limiter = new SlidingWindowRateLimiter({ limit: 2, windowMs: 1000 });
+  for (let index = 0; index < 200; index += 1) limiter.record('old-' + index, 1000);
+  limiter.record('active', 1900);
+  limiter.record('active', 1950);
+  assert.equal(limiter.check('new-client', 2001).allowed, true);
+  assert.equal(limiter.entries.size, 1);
+  assert.equal(limiter.check('active', 2001).allowed, false, 'cleanup must preserve active rate limits');
+});
