@@ -46,7 +46,7 @@
       <h2>Create a Full Encrypted Backup</h2>
       <p>Includes students, vehicles, stickers, parking spaces, visitor passes, gate records, and the security audit.</p>
     </div>
-    <form method="post" action="/admin/data/backup" class="form-grid backup-create-form">
+    <form method="post" action="/admin/data/backup" class="form-grid backup-create-form" data-native-download>
       <div class="form-row-2">
         <div>
           <label for="backupPassphrase">Backup passphrase</label>
@@ -60,6 +60,7 @@
       </div>
       <div class="important-note"><strong>Keep the passphrase somewhere safe.</strong> It cannot be recovered from the backup file.</div>
       <div class="form-actions"><button type="submit">Create and Download Backup</button></div>
+      <p class="helper-text">Your browser will show the download when the backup is ready.</p>
     </form>
   </section>
 

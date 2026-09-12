@@ -58,7 +58,8 @@
       <p>Register a student. You may also add their vehicle in the same step - vehicle fields are optional.</p>
     </div>
 
-    <form method="post" action="/students" class="form-grid" id="regForm">
+    <form method="post" action="/students" class="form-grid" id="regForm" data-form-feedback>
+      <p class="form-guidance">Fields marked * are required. Vehicle details are optional.</p>
       <!-- Student Fields -->
       <div class="form-group-label">Student Information</div>
       <div class="form-row-2">
@@ -104,7 +105,7 @@
 
       <!-- Vehicle Toggle -->
       <div class="vehicle-toggle-row">
-        <button type="button" class="btn-ghost" id="vehicleToggle" data-ui-action="toggle-registration-vehicle">Add Vehicle Details</button>
+        <button type="button" class="btn-ghost" id="vehicleToggle" aria-controls="vehicleSection" aria-expanded="false" data-ui-action="toggle-registration-vehicle">Add Vehicle Details</button>
       </div>
 
       <!-- Vehicle Fields (hidden by default) -->
@@ -113,17 +114,17 @@
         <div class="form-row-2">
           <div>
             <label for="v_plate">Plate Number</label>
-            <input id="v_plate" name="plate_number" placeholder="e.g. ABC 1234" />
+            <input id="v_plate" name="plate_number" disabled placeholder="e.g. ABC 1234" />
           </div>
           <div>
             <label for="v_model">Vehicle Model</label>
-            <input id="v_model" name="model" placeholder="e.g. Honda Click 125i" />
+            <input id="v_model" name="model" disabled placeholder="e.g. Honda Click 125i" />
           </div>
         </div>
         <div class="form-row-2">
           <div>
             <label for="v_color">Color</label>
-            <input id="v_color" name="color" placeholder="e.g. Black" />
+            <input id="v_color" name="color" disabled placeholder="e.g. Black" />
           </div>
         </div>
       </div>
@@ -1852,7 +1853,10 @@
     const btn = document.getElementById('vehicleToggle');
     const isVisible = !section.hidden;
     section.hidden = isVisible;
-    btn.textContent = isVisible ? 'Add Vehicle Details' : 'Hide Vehicle Details';
+    btn.textContent = isVisible ? 'Add Vehicle Details' : 'Remove vehicle from registration';
+    btn.setAttribute('aria-expanded', String(!isVisible));
+    section.querySelectorAll('input').forEach(input => { input.disabled = isVisible; });
+    if (!isVisible) section.querySelector('input')?.focus();
 
     // Update submit button text
     const submitBtn = document.getElementById('regSubmitBtn');

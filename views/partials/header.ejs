@@ -20,14 +20,16 @@
   <link rel="stylesheet" href="<%= fontStylesheetUrl %>" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
   <link rel="stylesheet" href="/vendor/phosphor/style.css?v=2.1.2" />
-  <link rel="stylesheet" href="/styles.css?v=20260911-interface" />
-  <link rel="stylesheet" href="/design-system.css?v=20260911-interface" />
+  <link rel="stylesheet" href="/styles.css?v=20260912-forms" />
+  <link rel="stylesheet" href="/design-system.css?v=20260912-forms" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <script src="/js/ui-states.js?v=20260826-ui1"></script>
+  <script src="/js/password-policy.js?v=20260912-forms" defer></script>
+  <script src="/js/form-feedback.js?v=20260912-forms" defer></script>
   <% if (needsOfflineScanner) { %>
-  <script src="/offline-sync.js?v=20260909-review1" defer></script>
+  <script src="/offline-sync.js?v=20260912-forms" defer></script>
   <% } %>
   <script nonce="<%= cspNonce %>">
     if ('serviceWorker' in navigator) {

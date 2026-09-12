@@ -285,6 +285,8 @@
         if (event.defaultPrevented) return;
         const form = event.target;
         if (!(form instanceof HTMLFormElement)) return;
+        // File downloads keep this page open; no navigation event will clear a page loader.
+        if (form.hasAttribute("data-native-download")) return;
 
         if (form.dataset.loading === "true") {
           event.preventDefault();

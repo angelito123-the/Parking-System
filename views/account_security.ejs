@@ -26,10 +26,10 @@
       <p>Use at least 10 characters with uppercase, lowercase, and a number.</p>
     </div>
     <% if (account.must_change_password) { %><div class="security-status is-required"><strong>Temporary password must be replaced.</strong><span>Other application pages remain locked until you choose a private password.</span></div><% } %>
-    <form method="post" action="/account/password" class="form-grid security-form">
+    <form method="post" action="/account/password" class="form-grid security-form" data-form-feedback>
       <div><label for="current_password">Current password</label><input id="current_password" name="current_password" type="password" autocomplete="current-password" required /></div>
-      <div><label for="new_password">New password</label><input id="new_password" name="new_password" type="password" minlength="10" autocomplete="new-password" required /></div>
-      <div><label for="confirm_password">Confirm new password</label><input id="confirm_password" name="confirm_password" type="password" minlength="10" autocomplete="new-password" required /></div>
+      <div><label for="new_password">New password</label><input id="new_password" data-password-rules name="new_password" type="password" minlength="10" autocomplete="new-password" required /></div>
+      <div><label for="confirm_password">Confirm new password</label><input id="confirm_password" data-match="new_password" name="confirm_password" type="password" minlength="10" autocomplete="new-password" required /></div>
       <div class="form-actions"><button type="submit">Update Password</button></div>
     </form>
   </section>

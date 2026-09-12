@@ -315,44 +315,45 @@ const OfflineManager = {
           transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Offline queue upgrade was aborted.')); };
         });
       }
-      const response = await fetch('/api/sync-queue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ movements })
-      });
-      if (!response.ok) throw new Error(`Queue sync failed (${response.status}).`);
-      const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Server rejected the offline queue.');
-      const rejected = Array.isArray(data.results) ? data.results.filter(result => result.status === 'rejected') : [];
-      if (rejected.length) {
-        let notice = document.getElementById('offlineSyncWarning');
-        if (!notice) {
-          notice = document.createElement('div');
-          notice.id = 'offlineSyncWarning';
-          notice.className = 'flash flash-error';
-          notice.setAttribute('role', 'alert');
-          (document.querySelector('main') || document.body).prepend(notice);
+      await this.syncQueuedBatches('outbox', movements, '/api/sync-queue', 'movements', data => {
+        const rejected = Array.isArray(data.results) ? data.results.filter(result => result.status === 'rejected') : [];
+        if (rejected.length) {
+          let notice = document.getElementById('offlineSyncWarning');
+          if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'offlineSyncWarning';
+            notice.className = 'flash flash-error';
+            notice.setAttribute('role', 'alert');
+            (document.querySelector('main') || document.body).prepend(notice);
+          }
+          notice.textContent = 'Some offline movements could not be applied because access or entry/exit status changed. Ask an administrator to review the offline sync audit.';
         }
-        notice.textContent = 'Some offline movements could not be applied because access or entry/exit status changed. Ask an administrator to review the offline sync audit.';
-      }
-      const accepted = new Set(Array.isArray(data.accepted_event_ids) ? data.accepted_event_ids : movements.map(item => item.event_id));
-      await this.deleteQueuedItems('outbox', movements.filter(item => accepted.has(item.event_id)));
+      });
     }
 
-    if (metrics.length > 0) {
-      const response = await fetch('/api/scanner-metrics/batch', {
+    await this.syncQueuedBatches('metricsOutbox', metrics, '/api/scanner-metrics/batch', 'metrics');
+    await this.notifyQueueStatus();
+  },
+
+  // Both server endpoints accept at most 100 records per request.
+  async syncQueuedBatches(storeName, items, endpoint, payloadKey, onResult) {
+    for (let offset = 0; offset < items.length; offset += 100) {
+      const batch = items.slice(offset, offset + 100);
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ metrics })
+        body: JSON.stringify({ [payloadKey]: batch })
       });
-      if (!response.ok) throw new Error(`Metric sync failed (${response.status}).`);
+      if (!response.ok) throw new Error('Queue sync failed (' + response.status + ').');
       const data = await response.json();
-      if (!data.ok) throw new Error(data.message || 'Server rejected scanner metrics.');
-      const accepted = new Set(Array.isArray(data.accepted_event_ids) ? data.accepted_event_ids : metrics.map(item => item.event_id));
-      await this.deleteQueuedItems('metricsOutbox', metrics.filter(item => accepted.has(item.event_id)));
+      if (!data.ok || !Array.isArray(data.accepted_event_ids)) {
+        throw new Error(data.message || 'Server did not acknowledge the queued records.');
+      }
+      if (onResult) onResult(data);
+      const accepted = new Set(data.accepted_event_ids);
+      await this.deleteQueuedItems(storeName, batch.filter(item => accepted.has(item.event_id)));
     }
-    await this.notifyQueueStatus();
   },
 
   async deleteQueuedItems(storeName, items) {

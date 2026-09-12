@@ -1,11 +1,11 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v37`;
+const CACHE_NAME = `${CACHE_PREFIX}v38`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
   '/offline.js',
-  '/styles.css?v=20260911-interface',
-  '/design-system.css?v=20260911-interface',
+  '/styles.css?v=20260912-forms',
+  '/design-system.css?v=20260912-forms',
   '/vendor/phosphor/style.css?v=2.1.2',
   '/vendor/phosphor/Phosphor.woff2',
   '/manifest.json',
@@ -14,9 +14,11 @@ const ASSETS_TO_CACHE = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-512.png',
-  '/offline-sync.js?v=20260909-review1',
+  '/offline-sync.js?v=20260912-forms',
   '/js/qr-behavior-classifier.js',
   '/js/ui-states.js?v=20260826-ui1',
+  '/js/password-policy.js?v=20260912-forms',
+  '/js/form-feedback.js?v=20260912-forms',
   '/js/qr-token-parser.js?v=20260826-accuracy1',
   '/js/scan-readiness-model.js?v=20260828-ops1',
   '/js/ml-qr-detector.js?v=20260909-camera1',

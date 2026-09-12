@@ -3147,3 +3147,37 @@ body[data-role] .auto-camera-toggle {
     margin-inline: 0;
   }
 }
+
+/* Shared form guidance and validation feedback. */
+.form-guidance { grid-column: 1 / -1; margin: 0; color: var(--text-secondary); font-size: 0.84rem; line-height: 1.5; }
+.form-error-summary {
+  grid-column: 1 / -1;
+  border: 1px solid var(--status-danger-border);
+  border-left: 4px solid var(--status-danger-text);
+  border-radius: var(--ui-radius-control);
+  padding: 0.85rem 1rem;
+  color: var(--status-danger-text);
+  background: var(--status-danger-bg);
+  font-size: 0.85rem;
+}
+.form-error-summary ul { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.form-error-summary a { color: inherit; text-decoration: underline; line-height: 1.8; }
+.form-field-error { display: block; margin-top: 0.35rem; color: var(--status-danger-text); font-size: 0.8rem; line-height: 1.45; }
+.form-error-summary[hidden], .form-field-error[hidden] { display: none !important; }
+body[data-role] [aria-invalid="true"] { border-color: var(--status-danger-text) !important; }
+.password-field-control { display: flex; align-items: center; position: relative; min-width: 0; width: 100%; }
+.password-field-control input { width: 100%; min-width: 0; padding-right: 4.4rem !important; }
+body[data-role] button.password-field-toggle {
+  position: absolute; right: 0.2rem; top: 50%; transform: translateY(-50%) !important;
+  min-width: 54px; min-height: 36px; padding: 0.4rem; border: 0; border-radius: 6px;
+  color: var(--status-info-text); background: transparent; box-shadow: none;
+  font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+}
+body[data-role] button.password-field-toggle:hover { color: var(--status-info-text); background: var(--status-info-bg) !important; }
+.password-requirements { display: grid; gap: 0.35rem; list-style: none; padding: 0; margin: 0.6rem 0 0; color: var(--text-secondary); font-size: 0.78rem; }
+.password-requirements li { display: flex; gap: 0.45rem; align-items: baseline; line-height: 1.4; }
+.password-requirements li > span { width: 1rem; flex: 0 0 1rem; }
+.password-requirements .is-met { color: var(--status-success-text); }
+@media (max-width: 1080px), (any-pointer: coarse) {
+  body[data-role] button.password-field-toggle { min-height: 44px; }
+}

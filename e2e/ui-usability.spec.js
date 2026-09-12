@@ -168,3 +168,97 @@ test('sign-in works with readable phone fields and password visibility control',
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/admin$/);
 });
+
+test('registration explains errors and excludes a removed optional vehicle', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/students');
+  const form = page.locator('#regForm');
+  await expect(form).toHaveAttribute('novalidate', '');
+  let submitted;
+  await page.route('**/students', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    submitted = new URLSearchParams(route.request().postData());
+    return route.fulfill({ status: 303, headers: { location: '/students?success=1' } });
+  });
+  await form.locator('[type="submit"]').click();
+  await expect(form.locator('.form-error-summary')).toContainText('these 4 fields');
+  await expect(page.locator('#s_student_number')).toBeFocused();
+  expect(submitted).toBeUndefined();
+  await page.locator('#s_student_number').fill('FRIENDLY-REVIEW');
+  await page.locator('#s_full_name').fill('Interface Review');
+  await page.locator('#s_program').selectOption({ index: 1 });
+  await page.locator('#s_year_level').selectOption('1');
+  await page.locator('#s_email').fill('invalid-email');
+  await form.locator('[type="submit"]').click();
+  await expect(page.locator('#s_email-error')).toContainText('complete email address');
+  await expect(page.locator('#s_full_name')).toHaveValue('Interface Review');
+  await page.locator('#s_email').fill('review@example.invalid');
+  await page.locator('#vehicleToggle').click();
+  await expect(page.locator('#v_plate')).toBeFocused();
+  await page.locator('#v_plate').fill('REMOVE-123');
+  await page.locator('#vehicleToggle').click();
+  await expect(page.locator('#v_plate')).toBeDisabled();
+  await expect(page.locator('#vehicleToggle')).toHaveAttribute('aria-expanded', 'false');
+  await form.locator('[type="submit"]').click();
+  await expect(page).toHaveURL(/success=1/);
+  expect(submitted.get('full_name')).toBe('Interface Review');
+  expect(submitted.has('plate_number')).toBe(false);
+});
+
+test('password guidance and matching validation keep mistakes on the form', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/account/security');
+  const form = page.locator('form[action="/account/password"]');
+  await expect(form).toHaveAttribute('novalidate', '');
+  await page.locator('#current_password').fill('TestCurrentAccess2026');
+  await page.locator('#new_password').fill('adminPassword123');
+  await page.locator('#confirm_password').fill('DifferentAccess2026');
+  await form.locator('[type="submit"]').click();
+  await expect(page.locator('#new_password-error')).toContainText('predictable words');
+  await expect(page.locator('#confirm_password-error')).toContainText('do not match');
+  await expect(page.locator('#current_password')).toHaveValue('TestCurrentAccess2026');
+  await page.locator('#new_password').fill('PrivateAccess2026');
+  await page.locator('#confirm_password').fill('PrivateAccess2026');
+  await expect(form.locator('.form-error-summary')).toBeHidden();
+  await expect(form.locator('.password-requirements .is-met')).toHaveCount(5);
+  await page.getByRole('button', { name: 'Show new password', exact: true }).click();
+  await expect(page.locator('#new_password')).toHaveAttribute('type', 'text');
+  await page.getByRole('button', { name: 'Hide new password', exact: true }).click();
+  await expect(page.locator('#new_password')).toHaveAttribute('type', 'password');
+  await expect(form).not.toHaveAttribute('data-loading', 'true');
+  const violations = (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations;
+  expect(violations.map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+});
+
+test('visitor forms reject an end time before the start without losing details', async ({ page }) => {
+  await signIn(page, 'guard');
+  await page.goto('/visitor-passes');
+  const form = page.locator('#visitorRegisterForm');
+  await expect(form).toHaveAttribute('novalidate', '');
+  await form.locator('[name="visitor_name"]').fill('Visitor Review');
+  await page.locator('#visitorValidFrom').fill('2026-10-01T12:00');
+  await page.locator('#visitorValidUntil').fill('2026-10-01T11:00');
+  await form.locator('[type="submit"]').click();
+  await expect(page.locator('#visitorValidUntil-error')).toContainText('after the start time');
+  await expect(form.locator('[name="visitor_name"]')).toHaveValue('Visitor Review');
+  await expect(form).not.toHaveAttribute('data-loading', 'true');
+});
+
+test('backup downloads leave the page usable for another action', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/admin/data');
+  await page.route('**/admin/data/backup', route => route.fulfill({
+    status: 200, contentType: 'application/octet-stream',
+    headers: { 'content-disposition': 'attachment; filename="test.naapbackup"' }, body: 'test-download'
+  }));
+  await page.locator('#backupPassphrase').fill('ReviewPassphrase2026');
+  await page.locator('#backupPassphraseConfirmation').fill('ReviewPassphrase2026');
+  const form = page.locator('.backup-create-form');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const download = page.waitForEvent('download');
+    await form.locator('[type="submit"]').click();
+    expect((await download).suggestedFilename()).toBe('test.naapbackup');
+    await expect(form).not.toHaveAttribute('data-loading', 'true');
+    await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
+  }
+});

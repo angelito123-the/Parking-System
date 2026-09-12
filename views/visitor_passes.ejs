@@ -65,7 +65,7 @@
       <p>Create a pass request, then approve it to allow gate access. Overstay limit: <%= visitorOverstayLimitLabel || "4h" %>.</p>
     </div>
 
-    <form method="POST" action="/visitor-passes/register" class="visitor-form-grid" id="visitorRegisterForm">
+    <form method="POST" action="/visitor-passes/register" class="visitor-form-grid" id="visitorRegisterForm" data-form-feedback>
       <label>
         <span>Visitor Type</span>
         <select name="visitor_type" required>
@@ -87,7 +87,7 @@
 
       <label>
         <span>Contact Number</span>
-        <input type="text" name="contact_number" placeholder="0917..." maxlength="60" />
+        <input type="tel" name="contact_number" placeholder="0917..." maxlength="60" />
       </label>
 
       <label>
@@ -117,7 +117,7 @@
 
       <label>
         <span>Valid Until</span>
-        <input type="datetime-local" name="valid_until" id="visitorValidUntil" required />
+        <input type="datetime-local" name="valid_until" id="visitorValidUntil" data-after="visitorValidFrom" required />
       </label>
 
       <div class="visitor-form-actions">
