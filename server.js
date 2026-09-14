@@ -9,6 +9,7 @@ const multer = require("multer");
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
+const { getMailConfigurationIssue } = require("./lib/mail-transport");
 const { openEventStream } = require("./lib/event-stream");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
 const {
@@ -835,7 +836,8 @@ async function processEmailDeliveryJobs() {
         const cleanError = String(error?.message || "Email delivery failed.").replace(/[\r\n]+/g, " ").slice(0, 500);
         const terminal = attemptNumber >= Number(job.max_attempts || 3)
           || error instanceof MailConfigurationError
-          || error?.code === "MAIL_NOT_CONFIGURED";
+          || error?.code === "MAIL_NOT_CONFIGURED"
+          || error?.retryable === false;
         const retryMinutes = Math.min(30, 2 ** attemptNumber);
         const nextAttemptAt = terminal ? null : new Date(Date.now() + retryMinutes * 60 * 1000);
         const [failedUpdate] = await pool.query(
@@ -7024,6 +7026,7 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       vehicles,
       emailDeliveries,
       emailDeliveryAvailable,
+      emailConfigurationIssue: getMailConfigurationIssue(),
       APP_BASE_URL,
       flash
     });
@@ -7134,6 +7137,7 @@ app.post("/stickers/:id/rotate", requireRole(USER_ROLES.ADMIN), async (req, res)
 });
 
 app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  if (getMailConfigurationIssue()) return res.redirect("/stickers?email=not_configured#email-deliveries");
   const emailRateKey = `admin:${req.authUser.id}`;
   const emailRateState = qrEmailRateLimiter.check(emailRateKey);
   if (!emailRateState.allowed) {
@@ -7199,6 +7203,7 @@ app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) 
 });
 
 app.post("/admin/email-deliveries/:id/retry", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  if (getMailConfigurationIssue()) return res.redirect("/stickers?email=not_configured#email-deliveries");
   const jobId = Number(req.params.id);
   if (!Number.isInteger(jobId) || jobId <= 0) return res.redirect("/stickers?email=not_found");
   try {

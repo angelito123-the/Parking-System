@@ -391,3 +391,63 @@ test('account deletion confirmation returns focus to the closed actions menu', a
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('body')).not.toHaveClass(/page-transitioning/);
 });
+
+
+test('QR controls have consistent gaps and access-changing actions remain separated', async ({ page }, testInfo) => {
+  await signIn(page, 'admin');
+  await page.goto('/stickers');
+  const desktop = !testInfo.project.name.includes('phone');
+  const tools = desktop ? page.locator('.sticker-tools').first() : page.locator('.mobile-button-grid:visible').first();
+  await expect(tools).toBeVisible();
+  const rects = await tools.locator('button, a').evaluateAll(elements => elements.map(element => {
+    const r = element.getBoundingClientRect(); return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, height:r.height };
+  }));
+  for (let i=0; i<rects.length; i++) {
+    expect(rects[i].height).toBeGreaterThanOrEqual(44);
+    for (let j=i+1; j<rects.length; j++) {
+      const a=rects[i], b=rects[j];
+      expect(a.right+7 <= b.left || b.right+7 <= a.left || a.bottom+7 <= b.top || b.bottom+7 <= a.top).toBe(true);
+    }
+  }
+  const management = page.locator('.sticker-management-actions:visible').first();
+  const replace = await management.getByRole('button', { name: 'Replace QR', exact: true }).boundingBox();
+  const revoke = await management.getByRole('button', { name: 'Revoke sticker', exact: true }).boundingBox();
+  expect(revoke.y - replace.y - replace.height).toBeGreaterThanOrEqual(10);
+  if (desktop) {
+    await page.setViewportSize({ width:1200, height:900 });
+    await expect(page.locator('.desktop-only-table')).toBeHidden();
+    await expect(page.locator('.mobile-data-list')).toBeVisible();
+  }
+});
+
+test('email preview keeps the intended recipient and sends only after confirmation', async ({ page }) => {
+  await signIn(page, 'admin');
+  await page.goto('/stickers');
+  const trigger = page.locator('[data-email-preview]:visible').first();
+  const recipient = await trigger.getAttribute('data-recipient');
+  let posts=0;
+  await page.route('**/stickers/*/email', async route => {
+    expect(route.request().method()).toBe('POST');
+    posts++;
+    await route.fulfill({ status:200, contentType:'text/html', body:'<main>Test email accepted</main>' });
+  });
+  await trigger.click();
+  const dialog=page.getByRole('dialog', { name:'Confirm QR email' });
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#emailPreviewRecipient')).toHaveText(recipient);
+  await expect(dialog.getByRole('button',{name:'Cancel',exact:true})).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button',{name:'Send email',exact:true})).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(posts).toBe(0);
+  await trigger.click();
+  await expect(page.locator('#emailPreviewQr')).toBeVisible();
+  await expect.poll(() => page.locator('#emailPreviewQr').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
+  const audit=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  expect(audit.violations.filter(item=>['serious','critical'].includes(item.impact))).toEqual([]);
+  await dialog.getByRole('button',{name:'Send email',exact:true}).click();
+  await expect(page.getByText('Test email accepted')).toBeVisible();
+  expect(posts).toBe(1);
+});

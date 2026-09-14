@@ -3264,3 +3264,34 @@ body.page-visitor-passes .visitor-stat-card--inside {
   --metric-accent: var(--status-info-text);
   border-left-color: var(--status-info-text) !important;
 }
+
+
+/* Give QR tools, delivery status, and access-changing actions their own space. */
+body.page-stickers .sticker-table :is(.sticker-qr-cell, .sticker-management-cell) { vertical-align: top; }
+body.page-stickers .sticker-qr-cell { min-width: 250px; }
+body.page-stickers .mobile-button-grid { --ui-control-height: var(--ui-touch-target); }
+body.page-stickers .sticker-tools {
+  --ui-control-height: var(--ui-touch-target);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 230px;
+  max-width: 280px;
+}
+body.page-stickers .sticker-tools > :is(button, a) { width: 100%; white-space: nowrap; }
+body.page-stickers .sticker-tools > :is(.email-preview-btn, .helper-text) { grid-column: 1 / -1; }
+body.page-stickers .sticker-management-cell { text-align: left; min-width: 160px; }
+body.page-stickers .sticker-management-actions {
+  --ui-control-height: var(--ui-touch-target);
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+body.page-stickers .sticker-management-actions > button { width: 100%; white-space: nowrap; }
+body.page-stickers .sticker-email-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; color: var(--muted); font-size: 0.8rem; }
+body.page-stickers .sticker-activity { margin-top: 12px; max-width: 280px; line-height: 1.6; }
+body.page-stickers .card-actions > .sticker-management-actions { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+@media (max-width: 1280px) {
+  body.page-stickers .desktop-only-table { display: none !important; }
+  body.page-stickers .mobile-data-list { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+}

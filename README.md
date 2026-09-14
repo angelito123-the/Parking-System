@@ -73,10 +73,11 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 
 - Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.
-- QR email delivery requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM` in `.env`. Set `SMTP_SECURE=true` for implicit TLS (normally port 465); port 587 normally uses `false` and upgrades with STARTTLS.
+- On Render Free, QR email delivery uses Brevo over HTTPS. Set `MAIL_PROVIDER=brevo`, `BREVO_API_KEY`, and a verified `MAIL_FROM_EMAIL` in Render Environment; follow [Email setup on Render](./docs/EMAIL_SETUP_RENDER.md). Gmail recipients are supported.
+- For local or paid hosting with SMTP access, set `MAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. Set `SMTP_SECURE=true` for implicit TLS (normally port 465); port 587 normally uses `false` and upgrades with STARTTLS.
 - Production requires unique `ADMIN_PASSWORD`, `GUARD_PASSWORD`, and a `SESSION_SECRET` of at least 32 characters. Never commit real values to Git; rotate any value that was previously committed.
 - `TRUST_PROXY_HOPS=1` is appropriate for the standard Render proxy setup. Change it only when the number of trusted reverse proxies in front of the app changes.
-- Set `BACKUP_ENCRYPTION_KEY` to enable one encrypted backup per day. `BACKUP_EMAIL_TO` can send that encrypted file through the configured SMTP account. Manual encrypted backups remain available without these optional settings.
+- Set `BACKUP_ENCRYPTION_KEY` to enable one encrypted backup per day. `BACKUP_EMAIL_TO` can send that encrypted file through the configured email provider. Manual encrypted backups remain available without these optional settings.
 - Default retention is 30 days for scan snapshots, 365 days for gate records, 90 days for scanner diagnostics, 730 days for security audits, and 14 days for saved encrypted backups. Confirm these periods against the school's approved records policy before production use.
 - Guard accounts are automatically suspended after 120 days without a sign-in in production unless `GUARD_INACTIVITY_DAYS` is changed or set to `0`.
 - For a no-cost online deployment, follow [DEPLOY_FREE.md](./DEPLOY_FREE.md).

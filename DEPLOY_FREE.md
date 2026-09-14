@@ -69,6 +69,9 @@ the Render Environment page and redeploy so newly printed QR codes use it.
 
 ## Free-tier limitations
 
+- Render Free blocks SMTP ports 25, 465, and 587. To send QR emails to Gmail or
+  other inboxes, configure the HTTPS email provider using [Email setup on Render](./docs/EMAIL_SETUP_RENDER.md).
+
 - Render sleeps the service after 15 minutes without traffic. The first request
   after sleep can take about a minute.
 - Render's local filesystem is temporary, but this app stores new scan snapshots
