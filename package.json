@@ -4,7 +4,7 @@
   "description": "Parking management system with QR sticker verification for National Aviation Academy of the Philippines",
   "main": "server.js",
   "engines": {
-    "node": ">=20 <25"
+    "node": "24.x"
   },
   "scripts": {
     "start": "node server.js",

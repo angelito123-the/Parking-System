@@ -297,6 +297,69 @@ test('unconfigured mail cannot create or retry delivery jobs', async t => {
   }
 });
 
+test('database failures do not expose internal details in movement responses', async t => {
+  const detail = 'SQL connection failed for private-db-host; SELECT secret FROM users';
+  const app = await startApp(t, {}, { getConnection: async () => { throw new Error(detail); } });
+  const login = await app.signIn();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  for (const [route, form] of [
+    ['/api/force-exit', { sticker_id: '1' }],
+    ['/api/auto-scan/pending-entries/1/confirm', { slot_id: '1' }],
+    ['/api/auto-scan/pending-entries/1/cancel', {}]
+  ]) {
+    const response = await app.request(route, { cookie, form });
+    assert.ok(response.status >= 400);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.doesNotMatch(body.message, /private-db-host|SELECT secret/);
+    assert.ok(body.message.length > 0);
+  }
+});
+
+test('session-store failures return a generic API error', async t => {
+  const app = await startApp(t);
+  const login = await app.signIn();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  app.store.get = (_id, callback) => callback(new Error('private session database connection failed'));
+  const response = await app.request('/api/notifications/summary', { cookie });
+  assert.equal(response.status, 500);
+  assert.doesNotMatch((await response.json()).message, /private session database/);
+});
+
+test('occupied-space validation still tells the guard what to correct', async t => {
+  const app = await startApp(t, { role: 'guard' });
+  app.context.occupiedSlotDb = {
+    async query(sql) {
+      if (sql.includes('FOR UPDATE')) return [[{ id: 2, zone: 'A', status: 'available', current_sticker_id: 99 }]];
+      if (sql.includes('COUNT(*)')) return [[{ total_slots: 2, available_slots: 1 }]];
+      throw new Error('An occupied slot must never be updated');
+    }
+  };
+  const message = await app.evaluate(`assignParkingSlot(occupiedSlotDb, 1, 2)
+    .then(() => 'unexpected success')
+    .catch(error => getPublicErrorMessage(error, 'Failed to record movement.'))`);
+  assert.equal(message, 'Selected parking slot is already occupied.');
+});
+
+test('dynamic pages and authentication redirects prevent private browser caching', async t => {
+  const app = await startApp(t);
+  const loginPage = await app.request('/login');
+  assert.equal(loginPage.headers.get('cache-control'), 'private, no-store');
+  const login = await app.signIn();
+  assert.equal(login.headers.get('cache-control'), 'private, no-store');
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const account = await app.request('/account/security', { cookie });
+  assert.equal(account.status, 200);
+  assert.equal(account.headers.get('cache-control'), 'private, no-store');
+  await app.request('/logout', { cookie });
+  const signedOut = await app.request('/account/security', { cookie });
+  assert.equal(signedOut.status, 302);
+  assert.equal(signedOut.headers.get('cache-control'), 'private, no-store');
+  const stylesheet = await app.request('/design-system.css');
+  assert.equal(stylesheet.status, 200);
+  assert.doesNotMatch(stylesheet.headers.get('cache-control'), /no-store/);
+});
+
 for (const [name, error, expected] of [
   ['provider accepts the email', null, 'sent'],
   ['provider rejects its credentials', Object.assign(new Error('Invalid API key'), { retryable: false }), 'failed'],

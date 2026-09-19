@@ -46,6 +46,11 @@ const {
 require("dotenv").config();
 
 const app = express();
+// Only deliberately written validation messages may be returned to clients.
+class UserInputError extends Error {}
+function getPublicErrorMessage(error, fallback) {
+  return error instanceof UserInputError ? error.message : fallback;
+}
 const PORT = Number(process.env.PORT || 3000);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const APP_BASE_URL = process.env.APP_BASE_URL
@@ -315,6 +320,12 @@ app.use(express.static(path.join(__dirname, "public"), {
     }
   }
 }));
+// Dynamic responses can contain student records, QR tokens, or account details.
+// Keep their browser cache policy separate from the public assets above.
+app.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
 app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 app.use(express.json({ limit: JSON_BODY_LIMIT }));
 app.use(sessionMiddleware);
@@ -2366,7 +2377,7 @@ async function saveSnapshotDataUrl(snapshotDataUrl, prefix = "scan") {
   const ext = match[1].toLowerCase() === "jpg" ? "jpeg" : match[1].toLowerCase();
   const imageBuffer = Buffer.from(match[2], "base64");
   if (!imageBuffer.length || imageBuffer.length > SNAPSHOT_MAX_BYTES) {
-    throw new Error("Snapshot image is too large. Please keep it under 3MB.");
+    throw new UserInputError("Snapshot image is too large. Please keep it under 3MB.");
   }
 
   const filename = `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
@@ -2783,18 +2794,18 @@ async function assignVisitorParkingSlot(db, visitorPassId, slotId) {
   );
 
   if (slotRows.length === 0) {
-    throw new Error("Selected parking slot does not exist.");
+    throw new UserInputError("Selected parking slot does not exist.");
   }
 
   const slot = slotRows[0];
   if (!isVisitorZone(slot.zone)) {
-    throw new Error("Visitor vehicles can only be assigned to Visitor Zone slots.");
+    throw new UserInputError("Visitor vehicles can only be assigned to Visitor Zone slots.");
   }
   if (slot.status !== "available") {
-    throw new Error("Selected visitor parking slot is disabled.");
+    throw new UserInputError("Selected visitor parking slot is disabled.");
   }
   if (slot.current_sticker_id || slot.current_visitor_pass_id) {
-    throw new Error("Selected visitor parking slot is already occupied.");
+    throw new UserInputError("Selected visitor parking slot is already occupied.");
   }
 
   await db.query(
@@ -4075,7 +4086,7 @@ async function assignParkingSlot(db, stickerId, slotId) {
   );
 
   if (slotRows.length === 0) {
-    throw new Error("Selected parking slot does not exist.");
+    throw new UserInputError("Selected parking slot does not exist.");
   }
 
   const slot = slotRows[0];
@@ -4090,16 +4101,16 @@ async function assignParkingSlot(db, stickerId, slotId) {
     );
     const availableInZone = Number(zoneState?.available_slots || 0);
     if (availableInZone <= 0) {
-      throw new Error(`Zone ${slot.zone || "General"} is already full. Please choose another zone.`);
+      throw new UserInputError(`Zone ${slot.zone || "General"} is already full. Please choose another zone.`);
     }
     if (slot.status !== "available") {
-      throw new Error("Selected parking slot is disabled.");
+      throw new UserInputError("Selected parking slot is disabled.");
     }
     if (slot.current_sticker_id) {
-      throw new Error("Selected parking slot is already occupied.");
+      throw new UserInputError("Selected parking slot is already occupied.");
     }
     if (slot.current_visitor_pass_id) {
-      throw new Error("Selected parking slot is occupied by a visitor pass.");
+      throw new UserInputError("Selected parking slot is occupied by a visitor pass.");
     }
   }
 
@@ -5216,9 +5227,9 @@ function normalizeParkingSlotInput(body) {
   const status = String(body.status || "available") === "disabled" ? "disabled" : "available";
   const reservedFor = slotType === "standard" ? null : String(body.reserved_for || "").trim().slice(0, 120) || null;
   const disabledReason = status === "disabled" ? String(body.disabled_reason || "").trim().slice(0, 255) || null : null;
-  if (!/^[A-Z0-9][A-Z0-9 _-]{0,29}$/.test(slotCode)) throw new Error("Enter a valid slot code.");
-  if (status === "disabled" && !disabledReason) throw new Error("Provide a maintenance reason when disabling a slot.");
-  if (slotType === "reserved" && !reservedFor) throw new Error("Describe who may use this reserved slot.");
+  if (!/^[A-Z0-9][A-Z0-9 _-]{0,29}$/.test(slotCode)) throw new UserInputError("Enter a valid slot code.");
+  if (status === "disabled" && !disabledReason) throw new UserInputError("Provide a maintenance reason when disabling a slot.");
+  if (slotType === "reserved" && !reservedFor) throw new UserInputError("Describe who may use this reserved slot.");
   return { slotCode, zone, slotType, status, reservedFor, disabledReason };
 }
 
@@ -5234,7 +5245,7 @@ app.post("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     await recordSecurityAudit(req, "PARKING_SLOT_CREATED", { targetType: "parking_slot", targetId: result.insertId, metadata: slot });
     return res.redirect("/admin/slots?created=1");
   } catch (error) {
-    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : error.message || "Unable to create parking slot.";
+    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : getPublicErrorMessage(error, "Unable to create parking slot.");
     return res.redirect(`/admin/slots?error=${encodeURIComponent(message)}`);
   }
 });
@@ -5262,7 +5273,7 @@ app.post("/admin/slots/:id(\\d+)", requireRole(USER_ROLES.ADMIN), async (req, re
     await recordSecurityAudit(req, "PARKING_SLOT_UPDATED", { targetType: "parking_slot", targetId: slotId, metadata: slot });
     return res.redirect("/admin/slots?saved=1");
   } catch (error) {
-    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : error.message || "Unable to update parking slot.";
+    const message = error.code === "ER_DUP_ENTRY" ? "That slot code already exists." : getPublicErrorMessage(error, "Unable to update parking slot.");
     return res.redirect(`/admin/slots?error=${encodeURIComponent(message)}`);
   }
 });
@@ -7294,7 +7305,7 @@ app.post("/verify/:token/movement", requireRole(USER_ROLES.GUARD), async (req, r
       } else {
         if (selectedAction === "ENTRY") {
           if (!slotId) {
-            throw new Error("Please choose a parking slot before recording entry.");
+            throw new UserInputError("Please choose a parking slot before recording entry.");
           }
           currentSlot = await assignParkingSlot(connection, sticker.id, slotId);
         } else {
@@ -7361,7 +7372,7 @@ app.post("/verify/:token/movement", requireRole(USER_ROLES.GUARD), async (req, r
         current_slot: currentSlot,
         movement_saved: false,
         duplicate_movement: false,
-        message: error.message || "An error occurred recording movement."
+        message: getPublicErrorMessage(error, "An error occurred recording movement.")
       },
       parkingSlotOverview
     });
@@ -7662,11 +7673,11 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
           }
 
           if (!snapshotDataUrl) {
-            throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+            throw new UserInputError("Snapshot capture failed. Keep the camera active and scan again.");
           }
           const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-entry-pending");
           if (!snapshotPath) {
-            throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+            throw new UserInputError("Snapshot capture failed. Keep the camera active and scan again.");
           }
 
           const queuedEntry = await createPendingAutoEntryWithDb(connection, {
@@ -7727,11 +7738,11 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
 
       const currentSlot = await getCurrentParkingSlotBySticker(sticker.id, connection);
       if (!snapshotDataUrl) {
-        throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+        throw new UserInputError("Snapshot capture failed. Keep the camera active and scan again.");
       }
       const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-exit");
       if (!snapshotPath) {
-        throw new Error("Snapshot capture failed. Keep the camera active and scan again.");
+        throw new UserInputError("Snapshot capture failed. Keep the camera active and scan again.");
       }
 
       const scanLog = await insertScanLogWithDb(
@@ -7797,7 +7808,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
     console.error("Auto detect scan error:", error);
     res.status(500).json({
       ok: false,
-      message: error.message || "Failed to process automatic scan.",
+      message: getPublicErrorMessage(error, "Failed to process automatic scan."),
       behavior_risk: behaviorRisk
     });
   }
@@ -7911,11 +7922,11 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (r
 
       const assignedSlot = await assignParkingSlot(connection, sticker.id, slotId);
       if (!snapshotDataUrl) {
-        throw new Error("Snapshot capture failed. Keep the camera active and confirm again.");
+        throw new UserInputError("Snapshot capture failed. Keep the camera active and confirm again.");
       }
       const snapshotPath = await saveSnapshotDataUrl(snapshotDataUrl, "auto-entry");
       if (!snapshotPath) {
-        throw new Error("Snapshot capture failed. Keep the camera active and confirm again.");
+        throw new UserInputError("Snapshot capture failed. Keep the camera active and confirm again.");
       }
       const scanLog = await insertScanLogWithDb(
         connection,
@@ -7971,7 +7982,7 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (r
     console.error("Auto confirm entry error:", error);
     res.status(400).json({
       ok: false,
-      message: error.message || "Failed to record entry.",
+      message: getPublicErrorMessage(error, "Failed to record entry."),
       behavior_risk: behaviorRisk
     });
   }
@@ -8218,7 +8229,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
   } catch (error) {
     if (connection) await connection.rollback().catch(() => {});
     console.error("Confirm pending auto entry error:", error);
-    return res.status(400).json({ ok: false, message: error.message || "Failed to confirm pending entry." });
+    return res.status(400).json({ ok: false, message: getPublicErrorMessage(error, "Failed to confirm pending entry.") });
   } finally {
     if (connection) connection.release();
   }
@@ -8278,7 +8289,7 @@ app.post("/api/auto-scan/pending-entries/:id/cancel", requireRole(USER_ROLES.GUA
   } catch (error) {
     if (connection) await connection.rollback().catch(() => {});
     console.error("Cancel pending auto entry error:", error);
-    return res.status(400).json({ ok: false, message: error.message || "Failed to cancel pending entry." });
+    return res.status(400).json({ ok: false, message: getPublicErrorMessage(error, "Failed to cancel pending entry.") });
   } finally {
     if (connection) connection.release();
   }
@@ -8729,7 +8740,7 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.GUARD), async (req, res)
     }
   } catch (error) {
     console.error("Manual movement error:", error);
-    res.status(400).json({ ok: false, message: error.message || "Failed to record movement." });
+    res.status(400).json({ ok: false, message: getPublicErrorMessage(error, "Failed to record movement.") });
   }
 });
 
@@ -8785,7 +8796,7 @@ app.post("/api/force-exit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
     }
   } catch (error) {
     console.error("Force exit error:", error);
-    res.status(400).json({ ok: false, message: error.message || "Failed to force exit." });
+    res.status(400).json({ ok: false, message: getPublicErrorMessage(error, "Failed to force exit.") });
   }
 });
 
@@ -9164,7 +9175,7 @@ app.use((err, req, res, next) => {
   if (isApi) {
     return res.status(err.status || 500).json({
       ok: false,
-      message: err.message || "Server error while handling request."
+      message: "Server error while handling request."
     });
   }
   return res.status(err.status || 500).send("An unexpected server error occurred.");

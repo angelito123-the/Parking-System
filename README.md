@@ -12,6 +12,8 @@ Web app for National Aviation Academy of the Philippines student parking with QR
 
 ## Setup
 
+Use Node.js 24 LTS. The package engine range keeps Render on this supported major version.
+
 1. Install dependencies:
    ```bash
    npm install
