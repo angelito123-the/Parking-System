@@ -374,7 +374,7 @@
         if (!acc[zone]) acc[zone] = [];
         acc[zone].push(slot);
         return acc;
-      }, {});
+      }, Object.create(null));
     }
 
     function renderSlotInspectorHistoryItem(item) {
@@ -623,7 +623,7 @@
                   <h4>${escapeHtml(zoneName)}</h4>
                   <span>${zoneAvailable}/${zoneSlots.length} available</span>
                 </div>
-                <div class="parking-zone-grid">
+                <div class="parking-zone-grid" data-parking-zone="${escapeHtml(zoneName)}">
                   ${zoneSlots.map(renderParkingSlotCard).join("")}
                 </div>
               </section>
@@ -632,6 +632,7 @@
         }
       }
 
+      parkingSlotsListEl?.querySelectorAll(".parking-zone-grid").forEach(window.NaapParkingLayout.apply);
       attachParkingSlotHandlers();
       renderSlotInspector();
       const selectedCode = normalizeSlotCode(selectedSlotCode);

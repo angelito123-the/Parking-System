@@ -560,16 +560,16 @@ async function ensureParkingSlotMigrations() {
 
     await pool.query(`
       INSERT IGNORE INTO parking_slots (slot_code, zone) VALUES
-        ('A-01', 'Zone A'),
-        ('A-02', 'Zone A'),
-        ('A-03', 'Zone A'),
-        ('A-04', 'Zone A'),
-        ('A-05', 'Zone A'),
-        ('A-06', 'Zone A'),
-        ('A-07', 'Zone A'),
-        ('A-08', 'Zone A'),
-        ('A-09', 'Zone A'),
-        ('A-10', 'Zone A'),
+        ('A-01', 'Basketball Area Parking'),
+        ('A-02', 'Basketball Area Parking'),
+        ('A-03', 'Basketball Area Parking'),
+        ('A-04', 'Basketball Area Parking'),
+        ('A-05', 'Basketball Area Parking'),
+        ('A-06', 'Basketball Area Parking'),
+        ('A-07', 'Basketball Area Parking'),
+        ('A-08', 'Basketball Area Parking'),
+        ('A-09', 'Basketball Area Parking'),
+        ('A-10', 'Basketball Area Parking'),
         ('B-01', 'Zone B'),
         ('B-02', 'Zone B'),
         ('B-03', 'Zone B'),
@@ -579,8 +579,34 @@ async function ensureParkingSlotMigrations() {
         ('B-07', 'Zone B'),
         ('B-08', 'Zone B'),
         ('B-09', 'Zone B'),
-        ('B-10', 'Zone B')
+        ('B-10', 'Zone B'),
+        ('H-01', 'Hangar Parking Zone'),
+        ('H-02', 'Hangar Parking Zone'),
+        ('H-03', 'Hangar Parking Zone'),
+        ('H-04', 'Hangar Parking Zone'),
+        ('H-05', 'Hangar Parking Zone'),
+        ('H-06', 'Hangar Parking Zone'),
+        ('H-07', 'Hangar Parking Zone'),
+        ('H-08', 'Hangar Parking Zone'),
+        ('H-09', 'Hangar Parking Zone'),
+        ('H-10', 'Hangar Parking Zone'),
+        ('H-11', 'Hangar Parking Zone'),
+        ('H-12', 'Hangar Parking Zone'),
+        ('H-13', 'Hangar Parking Zone'),
+        ('H-14', 'Hangar Parking Zone'),
+        ('H-15', 'Hangar Parking Zone'),
+        ('H-16', 'Hangar Parking Zone'),
+        ('H-17', 'Hangar Parking Zone'),
+        ('H-18', 'Hangar Parking Zone'),
+        ('H-19', 'Hangar Parking Zone'),
+        ('H-20', 'Hangar Parking Zone')
     `);
+    // Rename the original zone on existing installations as well as fresh ones.
+    // Updating only the label preserves slot IDs, assignments, and gate history.
+    await pool.query(
+      "UPDATE parking_slots SET zone = ? WHERE zone = ?",
+      ["Basketball Area Parking", "Zone A"]
+    );
   } finally {
     await pool.query("SET FOREIGN_KEY_CHECKS = 1");
   }

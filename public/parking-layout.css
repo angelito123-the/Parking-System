@@ -1,0 +1,128 @@
+/* Shared physical layout; each zone supplies its parking arrangement. */
+.parking-plan[data-parking-zone] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: clamp(10px, 2vw, 20px);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #172231;
+  color: #f8fafc;
+}
+
+.parking-plan-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-bottom: 14px;
+  color: #e2e8f0;
+  font-size: 0.73rem;
+}
+
+.parking-plan-key > span { display: inline-flex; align-items: center; gap: 7px; }
+.parking-plan-key i { width: 19px; height: 12px; border-radius: 2px; }
+.parking-plan-key-bay { border: 2px solid #ff7569; }
+.parking-plan-key-divider { border: 2px solid #f8fafc; background: #475569; }
+.parking-plan-heading { text-align: center; color: #cbd5e1; font-size: 0.72rem; padding-bottom: 10px; }
+
+.parking-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(36px, 22%) minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+}
+
+.parking-plan-lane {
+  justify-self: center;
+  width: 2px;
+  background: repeating-linear-gradient(to bottom, #94a3b8 0 12px, transparent 12px 24px);
+  opacity: 0.65;
+}
+
+/* Scope these rules to the map, including the standalone verification page. */
+.parking-plan .parking-plan-row button.parking-plan-bay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  min-height: 94px;
+  margin: 6px 0;
+  padding: 10px 8px;
+  border: 3px solid #ff7569;
+  border-radius: 5px;
+  background: #1d3040;
+  color: #f8fafc;
+  text-align: center;
+  text-shadow: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+}
+
+.parking-plan .parking-plan-row button.parking-plan-bay > :first-child {
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.parking-plan .parking-plan-row button.parking-plan-bay :is(small, .tile-meta, .slot-option-zone) {
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  opacity: 1;
+}
+
+.parking-plan .parking-plan-row button.parking-plan-bay [hidden] { display: none; }
+.parking-plan .parking-plan-row button.parking-plan-bay[data-parking-state="occupied"] { background: #3b3023; }
+.parking-plan .parking-plan-row button.parking-plan-bay[data-parking-state="disabled"] { background: #303846; }
+.parking-plan .parking-plan-row button.parking-plan-bay:disabled { cursor: not-allowed; }
+
+.parking-plan .parking-plan-row button.parking-plan-bay > .parking-plan-state {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #163d35;
+  color: #a7f3d0;
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.parking-plan .parking-plan-row button[data-parking-state="occupied"] > .parking-plan-state { color: #fde68a; background: #504019; }
+.parking-plan .parking-plan-row button[data-parking-state="disabled"] > .parking-plan-state { color: #e2e8f0; background: #475569; }
+.parking-plan .parking-plan-row button.parking-plan-bay:not(:disabled):hover { background: #30445a; }
+.parking-plan .parking-plan-row button.parking-plan-bay:is(.selected, .is-selected) {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+  background: #193d60;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+.parking-plan-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin: 12px 0;
+  border: 3px solid #f8fafc;
+  border-radius: 3px;
+  background: repeating-linear-gradient(135deg, #475569 0 7px, #273648 7px 14px);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-shadow: 0 1px 2px #172231;
+}
+
+@media (max-width: 480px) {
+  .parking-plan[data-parking-zone] { padding: 9px; }
+  .parking-plan .parking-plan-row button.parking-plan-bay { min-height: 86px; padding: 8px 5px; }
+  .parking-plan .parking-plan-row button.parking-plan-bay > :first-child { font-size: 0.83rem; }
+  .parking-plan-key { font-size: 0.68rem; gap: 8px 12px; }
+}

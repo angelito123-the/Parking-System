@@ -83,16 +83,16 @@ CREATE TABLE IF NOT EXISTS parking_slots (
 );
 
 INSERT IGNORE INTO parking_slots (slot_code, zone) VALUES
-  ('A-01', 'Zone A'),
-  ('A-02', 'Zone A'),
-  ('A-03', 'Zone A'),
-  ('A-04', 'Zone A'),
-  ('A-05', 'Zone A'),
-  ('A-06', 'Zone A'),
-  ('A-07', 'Zone A'),
-  ('A-08', 'Zone A'),
-  ('A-09', 'Zone A'),
-  ('A-10', 'Zone A'),
+  ('A-01', 'Basketball Area Parking'),
+  ('A-02', 'Basketball Area Parking'),
+  ('A-03', 'Basketball Area Parking'),
+  ('A-04', 'Basketball Area Parking'),
+  ('A-05', 'Basketball Area Parking'),
+  ('A-06', 'Basketball Area Parking'),
+  ('A-07', 'Basketball Area Parking'),
+  ('A-08', 'Basketball Area Parking'),
+  ('A-09', 'Basketball Area Parking'),
+  ('A-10', 'Basketball Area Parking'),
   ('B-01', 'Zone B'),
   ('B-02', 'Zone B'),
   ('B-03', 'Zone B'),
@@ -102,7 +102,29 @@ INSERT IGNORE INTO parking_slots (slot_code, zone) VALUES
   ('B-07', 'Zone B'),
   ('B-08', 'Zone B'),
   ('B-09', 'Zone B'),
-  ('B-10', 'Zone B');
+  ('B-10', 'Zone B'),
+  ('H-01', 'Hangar Parking Zone'),
+  ('H-02', 'Hangar Parking Zone'),
+  ('H-03', 'Hangar Parking Zone'),
+  ('H-04', 'Hangar Parking Zone'),
+  ('H-05', 'Hangar Parking Zone'),
+  ('H-06', 'Hangar Parking Zone'),
+  ('H-07', 'Hangar Parking Zone'),
+  ('H-08', 'Hangar Parking Zone'),
+  ('H-09', 'Hangar Parking Zone'),
+  ('H-10', 'Hangar Parking Zone'),
+  ('H-11', 'Hangar Parking Zone'),
+  ('H-12', 'Hangar Parking Zone'),
+  ('H-13', 'Hangar Parking Zone'),
+  ('H-14', 'Hangar Parking Zone'),
+  ('H-15', 'Hangar Parking Zone'),
+  ('H-16', 'Hangar Parking Zone'),
+  ('H-17', 'Hangar Parking Zone'),
+  ('H-18', 'Hangar Parking Zone'),
+  ('H-19', 'Hangar Parking Zone'),
+  ('H-20', 'Hangar Parking Zone');
+
+UPDATE parking_slots SET zone = 'Basketball Area Parking' WHERE zone = 'Zone A';
 
 CREATE TABLE IF NOT EXISTS scan_logs (
   id INT PRIMARY KEY AUTO_INCREMENT,

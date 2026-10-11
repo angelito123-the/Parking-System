@@ -370,6 +370,7 @@
 
     let pendingEntries = [];
     let activeEntryId = null;
+    let entryModalRequestId = 0;
     let latestEntryId = 0;
     let didInitialLoad = false;
     let lastAutoOpenedEntryId = 0;
@@ -910,7 +911,7 @@
         if (!acc[zone]) acc[zone] = [];
         acc[zone].push(slot);
         return acc;
-      }, {});
+      }, Object.create(null));
     }
 
     function renderQuickSlotStrip(overview) {
@@ -978,10 +979,10 @@
           return `
             <section class="guard-zone-block">
               <header class="guard-zone-head">
-                <h4>Zone ${escapeHtml(zone)}</h4>
+                <h4>${escapeHtml(zone)}</h4>
                 <span>${zoneAvailable}/${zoneSlots.length} available</span>
               </header>
-              <div class="guard-zone-grid">
+              <div class="guard-zone-grid" data-parking-zone="${escapeHtml(zone)}">
                 ${zoneSlots.map((slot) => {
                   const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
                   const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
@@ -1014,6 +1015,7 @@
         }).join("")}
       `;
 
+      guardSlotMap.querySelectorAll(".guard-zone-grid").forEach(window.NaapParkingLayout.apply);
       guardSlotMap.querySelectorAll(".guard-slot-btn[data-selectable='1']").forEach((btn) => {
         btn.addEventListener("click", () => {
           selectedSlotId = Number(btn.dataset.slotId);
@@ -1030,6 +1032,7 @@
 
     function closeGuardEntryModal() {
       if (!guardEntryModal) return;
+      entryModalRequestId += 1;
       guardEntryModal.classList.remove("open");
       guardEntryModal.setAttribute("aria-hidden", "true");
       document.body.classList.remove("modal-open");
@@ -1061,6 +1064,7 @@
       const entry = pendingEntries.find((row) => String(row.id) === String(entryId));
       if (!entry) return;
 
+      const requestId = ++entryModalRequestId;
       activeEntryId = entry.id;
       selectedSlotId = null;
       guardEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) - ${entry.plate_number || "-"} - ${entry.gate_id || "Main Gate"} - ${formatQueuedAt(entry.created_at)}`;
@@ -1088,7 +1092,10 @@
       document.body.classList.add("modal-open");
 
       try {
-        slotOverview = await loadSlotOverview();
+        const overview = await loadSlotOverview();
+        // A response from a closed dialog must not replace a newer slot map.
+        if (requestId !== entryModalRequestId) return;
+        slotOverview = overview;
         const slots = Array.isArray(slotOverview.slots) ? slotOverview.slots : [];
         const hasAvailable = slots.some((slot) => slot.occupancy === "available");
         if (!slots.length) {
@@ -1106,8 +1113,8 @@
         guardEntryHint.textContent = hasAvailable
           ? "Select an available slot to continue."
           : "No available slots right now.";
-        guardEntryConfirmBtn.disabled = !hasAvailable;
       } catch (error) {
+        if (requestId !== entryModalRequestId) return;
         if (guardSlotMap) {
           guardSlotMap.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
             title: navigator.onLine ? "Slots unavailable" : "You are offline",
@@ -1183,6 +1190,7 @@
 
     async function confirmEntry() {
       if (!activeEntryId) return;
+      const requestId = entryModalRequestId;
       const slotId = Number(selectedSlotId);
       if (!Number.isInteger(slotId) || slotId <= 0) {
         guardEntryHint.textContent = "Please select a parking slot.";
@@ -1209,12 +1217,13 @@
         }
 
         showLiveAlert(`ENTRY confirmed for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`, "success", 5200);
-        closeGuardEntryModal();
+        if (requestId === entryModalRequestId) closeGuardEntryModal();
         await Promise.all([
           fetchPendingEntries({ silent: true }),
           fetchCurrentOccupancy({ silent: true })
         ]);
       } catch (error) {
+        if (requestId !== entryModalRequestId) return;
         guardEntryHint.textContent = error.message || "Unable to confirm entry.";
         guardEntryConfirmBtn.disabled = false;
         guardEntryCancelBtn.disabled = false;
@@ -1223,6 +1232,7 @@
 
     async function cancelEntry() {
       if (!activeEntryId) return;
+      const requestId = entryModalRequestId;
       guardEntryHint.textContent = "Cancelling request...";
       guardEntryConfirmBtn.disabled = true;
       guardEntryCancelBtn.disabled = true;
@@ -1239,14 +1249,15 @@
           throw new Error(data.message || `Unable to cancel request (${resp.status})`);
         }
         showLiveAlert("Pending request cancelled.", "warning", 4200);
-        closeGuardEntryModal();
+        if (requestId === entryModalRequestId) closeGuardEntryModal();
         await Promise.all([
           fetchPendingEntries({ silent: true }),
           fetchCurrentOccupancy({ silent: true })
         ]);
       } catch (error) {
+        if (requestId !== entryModalRequestId) return;
         guardEntryHint.textContent = error.message || "Unable to cancel request.";
-        guardEntryConfirmBtn.disabled = false;
+        guardEntryConfirmBtn.disabled = !selectedSlotId;
         guardEntryCancelBtn.disabled = false;
       }
     }

@@ -788,7 +788,7 @@
         if (!acc[zone]) acc[zone] = [];
         acc[zone].push(slot);
         return acc;
-      }, {});
+      }, Object.create(null));
     }
 
     function renderSlotMap() {
@@ -824,7 +824,7 @@
         ${Object.keys(grouped).map((zone) => `
           <div class="auto-zone-block">
             <p class="auto-zone-title">${escapeHtml(zone)}</p>
-            <div class="auto-zone-grid">
+            <div class="auto-zone-grid" data-parking-zone="${escapeHtml(zone)}">
               ${grouped[zone].map((slot) => {
                 const selected = String(selectedSlotId || "") === String(slot.id);
                 const requestedOccupancy = String(slot.occupancy || "available").toLowerCase();
@@ -856,6 +856,7 @@
         `).join("")}
       `;
 
+      autoSlotMap.querySelectorAll(".auto-zone-grid").forEach(window.NaapParkingLayout.apply);
       autoSlotMap.querySelectorAll(".auto-slot-btn.available").forEach((button) => {
         button.addEventListener("click", () => {
           selectedSlotId = button.dataset.slotId;

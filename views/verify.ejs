@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="/vendor/phosphor/style.css?v=2.1.2" />
   <link rel="stylesheet" href="/styles.css?v=20260914-email" />
   <link rel="stylesheet" href="/design-system.css?v=20260914-email" />
+  <link rel="stylesheet" href="/parking-layout.css?v=20261008-hangar" />
+  <script src="/js/parking-layout.js?v=20261008-hangar"></script>
   <style>
     body {
       margin: 0;
@@ -426,7 +428,7 @@
       if (!acc[key]) acc[key] = [];
       acc[key].push(slot);
       return acc;
-    }, {});
+    }, Object.create(null));
   %>
 
   <div class="verify-shell">
@@ -500,7 +502,7 @@
             <% Object.keys(grouped).forEach(zone => { %>
               <div class="zone-block">
                 <p class="zone-title"><%= zone %></p>
-                <div class="slot-grid">
+                <div class="slot-grid" data-parking-zone="<%= zone %>">
                   <% grouped[zone].forEach(slot => { %>
                     <button
                       type="button"
@@ -553,6 +555,7 @@
       const form = document.getElementById("movementForm");
       if (!form) return;
 
+      document.querySelectorAll(".slot-grid").forEach(window.NaapParkingLayout.apply);
       const slotButtons = Array.from(document.querySelectorAll(".slot-btn.available"));
       const slotIdField = document.getElementById("slotIdField");
       const entryBtn = document.getElementById("entryBtn");
@@ -562,8 +565,12 @@
 
       slotButtons.forEach((btn) => {
         btn.addEventListener("click", () => {
-          slotButtons.forEach((item) => item.classList.remove("selected"));
+          slotButtons.forEach((item) => {
+            item.classList.remove("selected");
+            item.setAttribute("aria-pressed", "false");
+          });
           btn.classList.add("selected");
+          btn.setAttribute("aria-pressed", "true");
           slotIdField.value = btn.dataset.slotId || "";
           selectedSlotCode = btn.dataset.slotCode || "";
           if (movementHint) {

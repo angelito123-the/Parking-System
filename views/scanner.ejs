@@ -542,7 +542,7 @@
         if (!acc[zone]) acc[zone] = [];
         acc[zone].push(slot);
         return acc;
-      }, {});
+      }, Object.create(null));
       const zoneNames = Object.keys(grouped);
       const rawSummary = overview?.summary || {};
       const summary = {
@@ -567,13 +567,14 @@
           ${zoneNames.map(zone => `
             <div class="scanner-zone-block">
               <div class="scanner-zone-title">${escapeHtml(zone)}</div>
-              <div class="scanner-slot-grid">
+              <div class="scanner-slot-grid" data-parking-zone="${escapeHtml(zone)}">
                 ${grouped[zone].map(renderSlotButton).join("")}
               </div>
             </div>
           `).join("")}
         </div>
       `;
+      slotMap.querySelectorAll(".scanner-slot-grid").forEach(window.NaapParkingLayout.apply);
       attachSlotHandlers();
     }
 
