@@ -17,8 +17,10 @@ async function signIn(page, baseURL, role) {
 async function expectParkingLayouts(page) {
   const basketball = page.locator('.parking-plan[data-parking-zone="Basketball Area Parking"]');
   const hangar = page.locator('.parking-plan[data-parking-zone="Hangar Parking Zone"]');
-  await expect(basketball.locator('.parking-plan-bay')).toHaveCount(10);
-  await expect(basketball.locator('.parking-plan-divider')).toHaveCount(4);
+  await expect(basketball.locator('.parking-plan-bay')).toHaveCount(20);
+  await expect(basketball.locator('.parking-plan-divider')).toHaveCount(8);
+  const basketballCodes = await basketball.locator('.parking-plan-bay').evaluateAll(buttons => buttons.map(button => button.dataset.slotCode));
+  expect(basketballCodes).toEqual(Array.from({ length: 20 }, (_, index) => `A-${String(index + 1).padStart(2, '0')}`));
   await expect(hangar.locator('.parking-plan-bay')).toHaveCount(20);
   await expect(hangar.locator('.parking-plan-divider')).toHaveCount(0);
   const arrangement = await hangar.locator('.parking-plan-row').evaluateAll(rows => rows.map(row => {
@@ -35,7 +37,7 @@ async function expectParkingLayouts(page) {
   expect(codes).toEqual(Array.from({ length: 20 }, (_, index) => `H-${String(index + 1).padStart(2, '0')}`));
 }
 
-test('administrator sees basketball dividers and 20 left-side Hangar spaces', async ({ page, baseURL }) => {
+test('administrator sees 20 basketball spaces with dividers and 20 left-side Hangar spaces', async ({ page, baseURL }) => {
   await signIn(page, baseURL, 'admin');
   await page.goto('/admin/slots');
   await expectParkingLayouts(page);
@@ -56,5 +58,10 @@ test('guard entry selection uses the same parking layouts', async ({ page, baseU
   const selected = page.locator('.parking-plan[data-parking-zone="Hangar Parking Zone"] .parking-plan-bay').first();
   await selected.click();
   await expect(selected).toHaveClass(/selected/);
+  await expect(page.locator('#guardEntryConfirmBtn')).toBeEnabled();
+  const added = page.locator('.parking-plan[data-parking-zone="Basketball Area Parking"] .parking-plan-bay[data-slot-code="A-20"]');
+  await added.click();
+  await expect(added).toHaveClass(/selected/);
+  await expect(selected).not.toHaveClass(/selected/);
   await expect(page.locator('#guardEntryConfirmBtn')).toBeEnabled();
 });
