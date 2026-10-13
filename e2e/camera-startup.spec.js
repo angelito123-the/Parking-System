@@ -62,6 +62,11 @@ for (const mode of ["", "?mode=remote"]) {
     const { errors, externalRequests } = await serveScanner(page);
     await page.goto(`${origin}/scanner/auto${mode}`);
     await expectLiveCamera(page);
+    await expect(page.locator('#autoGateSelect option')).toHaveText(['Gate 1', 'Gate 2', 'Gate 3', 'Gate 4', 'Gate 5']);
+    const heartbeat = page.waitForRequest(request => request.url().endsWith('/api/auto-scan/heartbeat') && request.postDataJSON()?.gate === 'Gate 5');
+    await page.locator('#autoGateSelect').selectOption('Gate 5');
+    await heartbeat;
+    expect(await page.evaluate(() => localStorage.getItem('naap_scanner_gate'))).toBe('Gate 5');
     await page.getByRole("button", { name: "Stop Camera", exact: true }).click();
     await expect(page.locator("#chipCameraState")).toHaveText("Camera Stopped");
     await expect(page.locator("#autoQrReader video")).toHaveCount(0);
@@ -130,12 +135,14 @@ test("the backup scanner opens when the enhanced decoder is unavailable", async 
 test("camera readiness waits for permission and video playback", async ({ page }) => {
   await serveScanner(page);
   await page.addInitScript(() => {
+    localStorage.setItem("naap_scanner_gate", "Side Gate");
     const realGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = constraints => new Promise((resolve, reject) => {
       window.allowTestCamera = () => realGetUserMedia(constraints).then(resolve, reject);
     });
   });
   await page.goto(`${origin}/scanner/auto?mode=remote`);
+  await expect(page.locator("#autoGateSelect")).toHaveValue("Gate 2");
   await expect(page.locator("#chipCameraState")).toHaveText("Opening Camera");
   await expect(page.locator("#chipAutoState")).not.toHaveClass(/state-live/);
   await page.waitForFunction(() => typeof window.allowTestCamera === "function");
@@ -146,6 +153,7 @@ test("camera readiness waits for permission and video playback", async ({ page }
 test("manual camera tools also load without external QR scripts", async ({ page }) => {
   const { errors, externalRequests } = await serveScanner(page);
   await page.goto(`${origin}/scanner`);
+  await expect(page.locator("#gateNameSelect option")).toHaveText(["Gate 1", "Gate 2", "Gate 3", "Gate 4", "Gate 5"]);
   await page.locator("#toggleCameraBtn").click();
   await expect.poll(() => page.locator("#qr-reader video").evaluateAll(videos => (
     videos.length === 1 && videos[0].videoWidth > 0 && !videos[0].paused

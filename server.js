@@ -904,8 +904,15 @@ function normalizeAutoScanDeviceId(rawDeviceId) {
 
 function normalizeGateId(rawGateId) {
   const gateId = String(rawGateId || "").trim();
-  if (!gateId) return "Main Gate";
-  return gateId.slice(0, 80);
+  if (!gateId) return "Gate 1";
+  // Accept older scanner clients without rewriting historical gate records.
+  const legacyGateNames = new Map([
+    ["Main Gate", "Gate 1"],
+    ["Side Gate", "Gate 2"],
+    ["North Gate", "Gate 3"],
+    ["South Gate", "Gate 4"]
+  ]);
+  return legacyGateNames.get(gateId) || gateId.slice(0, 80);
 }
 
 function toIsoStringOrNull(value) {
@@ -1601,7 +1608,7 @@ async function createInvalidQrAlert(db, payload = {}) {
     MISMATCH: "QR Mismatch"
   };
   const resultCode = String(payload.result || "INVALID").toUpperCase();
-  const title = `${typeLabelMap[resultCode] || "Invalid QR Attempt"} at ${payload.gate || "Main Gate"}`;
+  const title = `${typeLabelMap[resultCode] || "Invalid QR Attempt"} at ${payload.gate || "Gate 1"}`;
   return createOrRefreshAlertWithDb(db, {
     type: ALERT_TYPES.INVALID_QR_ATTEMPT,
     title,
@@ -4116,7 +4123,7 @@ async function getLastValidMovement(stickerId, db = pool) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-async function resolveScan(token, gate = "Main Gate") {
+async function resolveScan(token, gate = "Gate 1") {
   const verification = await getVerificationState(token);
   if (!verification.ok && verification.result === "INVALID") {
     const scanLog = await insertScanLog(null, "INVALID", "VERIFY", gate, "Token not found", {
@@ -4351,7 +4358,7 @@ function normalizeScannerMetricPayload(payload, req) {
   return {
     eventId: normalizeClientEventId(data.event_id, "metric"),
     deviceId: String(data.device_id || "").slice(0, 120) || null,
-    gateId: normalizeGateId(data.gate_id || data.gate || "Main Gate"),
+    gateId: normalizeGateId(data.gate_id || data.gate || "Gate 1"),
     outcome: SCANNER_METRIC_OUTCOMES.has(rawOutcome) ? rawOutcome : "ERROR",
     movementAction: ["ENTRY", "EXIT", "VERIFY"].includes(action) ? action : null,
     detectionModel: String(data.detection_model || data.model || "").slice(0, 80) || null,
@@ -7022,7 +7029,7 @@ app.get("/verify/:token", async (req, res) => {
 
 app.post("/verify/:token/movement", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const selectedAction = String(req.body.action || "").toUpperCase();
-  const gate = req.body.gate || "Manual Verification";
+  const gate = normalizeGateId(req.body.gate);
   const slotId = req.body.slot_id ? Number(req.body.slot_id) : null;
 
   if (!["ENTRY", "EXIT"].includes(selectedAction)) {
@@ -7222,7 +7229,7 @@ app.get("/api/auto-scan/events", requireRole(USER_ROLES.GUARD), async (req, res)
 
 // API: phone scanner heartbeat for guard queue health
 app.post("/api/auto-scan/heartbeat", requireRole(USER_ROLES.GUARD), async (req, res) => {
-  const gate = normalizeGateId(req.body.gate || req.body.gate_id || "Main Gate");
+  const gate = normalizeGateId(req.body.gate || req.body.gate_id || "Gate 1");
   const deviceId = normalizeAutoScanDeviceId(
     req.body.device_id || req.body.deviceId || req.headers["x-device-id"]
   );
@@ -7269,7 +7276,7 @@ app.get("/api/auto-scan/health", requireRole(USER_ROLES.GUARD), async (req, res)
 // API: phone camera auto-detection (ENTRY requires guard confirmation, EXIT is auto-recorded)
 app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
-  const gate = normalizeGateId(req.body.gate || "Main Gate");
+  const gate = normalizeGateId(req.body.gate || "Gate 1");
   const deviceId = normalizeAutoScanDeviceId(
     req.body.device_id || req.body.deviceId || req.headers["x-device-id"]
   );
@@ -7570,7 +7577,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
 // API: guard confirms ENTRY after auto-detection and slot selection
 app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (req, res) => {
   const token = normalizeQrTokenInput(req.body.token);
-  const gate = String(req.body.gate || "Main Gate").trim() || "Main Gate";
+  const gate = normalizeGateId(req.body.gate);
   const slotId = Number(req.body.slot_id);
   const behaviorRisk = normalizeBehaviorRiskPayload(req.body);
   const riskNote = buildRiskSummaryNote(behaviorRisk);
@@ -7836,14 +7843,14 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
         result: verification.result || "INVALID",
         reason: verification.message || "Pending entry was rejected: sticker no longer valid.",
         qrValue: pendingEntry.qr_value,
-        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        gate: pendingEntry.gate_id || requestedGate || "Gate 1",
         source: pendingEntry.scan_source || "camera_phone",
         actorName: guardName,
         relatedVehicleId: pendingEntry.vehicle_id || null
       });
       await evaluateSuspiciousScanSignals(connection, {
         qrValue: pendingEntry.qr_value,
-        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        gate: pendingEntry.gate_id || requestedGate || "Gate 1",
         source: pendingEntry.scan_source || "camera_phone",
         actorName: guardName,
         result: verification.result || "INVALID",
@@ -7881,7 +7888,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
       await resolvePendingApprovalAlert(connection, entryId, guardName);
       await evaluateSuspiciousScanSignals(connection, {
         qrValue: pendingEntry.qr_value,
-        gate: pendingEntry.gate_id || requestedGate || "Main Gate",
+        gate: pendingEntry.gate_id || requestedGate || "Gate 1",
         source: pendingEntry.scan_source || "camera_phone",
         actorName: guardName,
         result: "VALID",
@@ -7906,7 +7913,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
     }
 
     const assignedSlot = await assignParkingSlot(connection, sticker.id, slotId);
-    const finalGate = requestedGate || pendingEntry.gate_id || "Main Gate";
+    const finalGate = normalizeGateId(requestedGate || pendingEntry.gate_id);
     const scanLog = await insertScanLogWithDb(
       connection,
       sticker.id,
@@ -8199,7 +8206,7 @@ app.post("/api/manual-movement", requireRole(USER_ROLES.GUARD), async (req, res)
   const slotId = slot_id ? Number(slot_id) : null;
   const entityType = String(req.body.entity_type || "student").trim().toLowerCase();
   const actorName = getAuthActorName(req);
-  const gateName = gate || "Manual Gate";
+  const gateName = normalizeGateId(gate);
 
   if (!token) return res.status(400).json({ ok: false, message: "Missing sticker token." });
   if (!["ENTRY", "EXIT"].includes(selectedAction)) {
@@ -8672,7 +8679,7 @@ app.post("/api/scan", requireRole(USER_ROLES.GUARD), async (req, res) => {
   if (!token) return res.status(400).json({ ok: false, message: "Missing token" });
 
   try {
-    const result = await resolveScan(token, gate || "Main Gate");
+    const result = await resolveScan(token, normalizeGateId(gate));
     res.json(result);
   } catch (error) {
     console.error("Scan API error:", error);

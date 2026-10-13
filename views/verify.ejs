@@ -291,7 +291,8 @@
       gap: 0.75rem;
     }
 
-    .movement-form input {
+    .movement-form input,
+    .movement-form select {
       width: 100%;
       box-sizing: border-box;
       color: var(--text);
@@ -400,6 +401,7 @@
 
     @media (max-width: 768px), (any-pointer: coarse) {
       .movement-form input,
+      .movement-form select,
       .movement-btn,
       .privacy-login-link,
       .slot-btn {
@@ -496,7 +498,13 @@
         <% if (result.ok && !result.movement_saved && canRecordMovement) { %>
           <form method="post" action="/verify/<%= result.sticker.qr_token %>/movement" id="movementForm" class="movement-form" style="margin-top:0.95rem;">
             <label class="verify-label" for="gateField" style="margin-bottom:0;">Gate Name</label>
-            <input id="gateField" name="gate" value="Main Gate" />
+            <select id="gateField" name="gate">
+              <option value="Gate 1">Gate 1</option>
+              <option value="Gate 2">Gate 2</option>
+              <option value="Gate 3">Gate 3</option>
+              <option value="Gate 4">Gate 4</option>
+              <option value="Gate 5">Gate 5</option>
+            </select>
             <input type="hidden" name="slot_id" id="slotIdField" value="" />
 
             <% Object.keys(grouped).forEach(zone => { %>

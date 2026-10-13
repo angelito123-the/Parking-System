@@ -89,7 +89,7 @@ for (const action of ['confirm', 'cancel']) {
     const request = page.waitForRequest(url);
     await page.locator(action === 'confirm' ? '#guardEntryConfirmBtn' : '#guardEntryCancelBtn').click();
     expect((await request).postDataJSON()).toEqual(action === 'confirm'
-      ? { slot_id: 1, gate: 'Main Gate' }
+      ? { slot_id: 1, gate: 'Gate 1' }
       : { reason: 'Cancelled by guard dashboard.' });
     await expect(page.locator('#guardEntryModal')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#guardQueueLiveAlert')).toContainText(action === 'confirm' ? 'ENTRY confirmed' : 'Pending request cancelled');

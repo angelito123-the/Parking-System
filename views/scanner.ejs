@@ -50,9 +50,11 @@
       <div>
         <label for="gateNameSelect">Current Gate</label>
         <select id="gateNameSelect">
-          <option value="Main Gate">Main Gate</option>
-          <option value="Side Gate">Side Gate</option>
-          <option value="Manual Verification">Manual Verification</option>
+          <option value="Gate 1">Gate 1</option>
+          <option value="Gate 2">Gate 2</option>
+          <option value="Gate 3">Gate 3</option>
+          <option value="Gate 4">Gate 4</option>
+          <option value="Gate 5">Gate 5</option>
         </select>
       </div>
       <button type="button" id="gateSearchBtn" class="gate-search-btn">Search Record</button>
@@ -317,7 +319,7 @@
 
       activeRemoteEntryId = entry.id;
       setGateStage("record");
-      remoteEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) | ${entry.plate_number || "-"} | ${entry.gate_id || "Main Gate"} | ${formatQueuedAt(entry.created_at)}`;
+      remoteEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) | ${entry.plate_number || "-"} | ${entry.gate_id || "Gate 1"} | ${formatQueuedAt(entry.created_at)}`;
       remoteEntryHint.textContent = "Loading available parking slots...";
       remoteEntrySlotSelect.innerHTML = '<option value="">Loading slots...</option>';
 
@@ -410,7 +412,7 @@
             <div class="remote-queue-main">
               <h4>${escapeHtml(entry.full_name || "Unknown Student")}</h4>
               <p>${escapeHtml(entry.student_number || "-")} | ${escapeHtml(entry.plate_number || "-")}</p>
-              <p>${escapeHtml(entry.gate_id || "Main Gate")} | ${formatQueuedAt(entry.created_at)}</p>
+              <p>${escapeHtml(entry.gate_id || "Gate 1")} | ${formatQueuedAt(entry.created_at)}</p>
             </div>
             <div class="remote-queue-actions">
               <span class="badge badge-warning">Pending</span>
@@ -436,7 +438,7 @@
       }
 
       const entry = remotePendingEntries.find((row) => String(row.id) === String(activeRemoteEntryId));
-      const gateValue = gateSelect?.value || entry?.gate_id || "Main Gate";
+      const gateValue = gateSelect?.value || entry?.gate_id || "Gate 1";
       remoteEntryHint.textContent = "Saving entry...";
       remoteEntryConfirmBtn.disabled = true;
       remoteEntryCancelBtn.disabled = true;
@@ -900,7 +902,7 @@
     // --- Record Logic ---
     async function recordMovement(action) {
       if (!selectedToken) return;
-      const gate = gateSelect.value || "Main Gate";
+      const gate = gateSelect.value || "Gate 1";
       if (action === "ENTRY" && !selectedSlotId) {
         logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Choose a parking slot on the map before recording entry.</div>`;
         return;

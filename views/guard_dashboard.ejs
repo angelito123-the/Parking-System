@@ -1067,7 +1067,7 @@
       const requestId = ++entryModalRequestId;
       activeEntryId = entry.id;
       selectedSlotId = null;
-      guardEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) - ${entry.plate_number || "-"} - ${entry.gate_id || "Main Gate"} - ${formatQueuedAt(entry.created_at)}`;
+      guardEntryMeta.textContent = `${entry.full_name || "-"} (${entry.student_number || "-"}) - ${entry.plate_number || "-"} - ${entry.gate_id || "Gate 1"} - ${formatQueuedAt(entry.created_at)}`;
       guardEntryHint.textContent = "Loading available parking slots...";
       guardEntryConfirmBtn.disabled = true;
       guardEntryCancelBtn.disabled = false;
@@ -1171,7 +1171,7 @@
             <div class="remote-queue-main">
               <h4>${escapeHtml(entry.full_name || "Unknown Student")}</h4>
               <p>${escapeHtml(entry.student_number || "-")} - ${escapeHtml(entry.plate_number || "-")}</p>
-              <p>${escapeHtml(entry.gate_id || "Main Gate")} - ${formatQueuedAt(entry.created_at)}</p>
+              <p>${escapeHtml(entry.gate_id || "Gate 1")} - ${formatQueuedAt(entry.created_at)}</p>
             </div>
             <div class="remote-queue-actions">
               <span class="badge badge-warning">Pending</span>
@@ -1198,7 +1198,7 @@
       }
 
       const entry = pendingEntries.find((row) => String(row.id) === String(activeEntryId));
-      const gateValue = entry?.gate_id || "Main Gate";
+      const gateValue = entry?.gate_id || "Gate 1";
 
       guardEntryHint.textContent = "Saving entry...";
       guardEntryConfirmBtn.disabled = true;

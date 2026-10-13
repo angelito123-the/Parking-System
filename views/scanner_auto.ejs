@@ -31,10 +31,11 @@
         <div>
           <label for="autoGateSelect">Gate</label>
           <select id="autoGateSelect">
-            <option value="Main Gate">Main Gate</option>
-            <option value="Side Gate">Side Gate</option>
-            <option value="North Gate">North Gate</option>
-            <option value="South Gate">South Gate</option>
+            <option value="Gate 1">Gate 1</option>
+            <option value="Gate 2">Gate 2</option>
+            <option value="Gate 3">Gate 3</option>
+            <option value="Gate 4">Gate 4</option>
+            <option value="Gate 5">Gate 5</option>
           </select>
         </div>
         <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Start Camera</button>
@@ -244,12 +245,21 @@
     const scanInfoPopupMeta = document.getElementById("scanInfoPopupMeta");
 
     try {
-      const savedGate = localStorage.getItem(GATE_STORAGE_KEY);
+      // Preserve the selected physical gate when restoring an older camera preference.
+      const legacyGateNames = new Map([
+        ["Main Gate", "Gate 1"],
+        ["Side Gate", "Gate 2"],
+        ["North Gate", "Gate 3"],
+        ["South Gate", "Gate 4"]
+      ]);
+      const storedGate = localStorage.getItem(GATE_STORAGE_KEY);
+      const savedGate = legacyGateNames.get(storedGate) || storedGate;
       if (savedGate && Array.from(gateSelect?.options || []).some((option) => option.value === savedGate)) {
         gateSelect.value = savedGate;
+        if (savedGate !== storedGate) localStorage.setItem(GATE_STORAGE_KEY, savedGate);
       }
     } catch (_storageError) {
-      // Continue with Main Gate when browser storage is unavailable.
+      // Continue with Gate 1 when browser storage is unavailable.
     }
 
     if (deferEntryConfirmation && entryConfirmPanel) {
@@ -482,7 +492,7 @@
           credentials: "same-origin",
           body: JSON.stringify({
             device_id: scannerDeviceId,
-            gate: gateSelect?.value || "Main Gate",
+            gate: gateSelect?.value || "Gate 1",
             mark_scan_received: markScanReceived ? 1 : 0
           })
         });
@@ -684,7 +694,7 @@
       const metric = {
         outcome,
         device_id: scannerDeviceId,
-        gate_id: gateSelect?.value || "Main Gate",
+        gate_id: gateSelect?.value || "Gate 1",
         movement_action: options.action || null,
         detection_model: latestMlMeta?.model || (enhancedScannerAvailable ? "MLQrCodeScanner" : "html5-qrcode"),
         detection_confidence: Number(latestMlMeta?.confidence ?? latestMlMeta?.ml_confidence ?? 0),
