@@ -284,7 +284,7 @@ for (const [route, snapshot, registry] of [
 }
 
 
-test('unconfigured mail cannot create or retry delivery jobs', async t => {
+test('retired QR email routes cannot create or retry delivery jobs', async t => {
   const app = await startApp(t, {}, { getConnection() { throw new Error('No email job should reach the database'); } }, {
     './lib/mail-transport': { getMailConfigurationIssue: () => 'Missing email settings' }
   });
@@ -292,8 +292,8 @@ test('unconfigured mail cannot create or retry delivery jobs', async t => {
   const cookie = login.headers.get('set-cookie').split(';')[0];
   for (const route of ['/stickers/1/email', '/admin/email-deliveries/1/retry']) {
     const response = await app.request(route, { cookie, form: {} });
-    assert.equal(response.status, 302);
-    assert.equal(response.headers.get('location'), '/stickers?email=not_configured#email-deliveries');
+    assert.equal(response.status, 410);
+    assert.match((await response.json()).message, /QR email delivery has been removed/);
   }
 });
 
@@ -360,43 +360,12 @@ test('dynamic pages and authentication redirects prevent private browser caching
   assert.doesNotMatch(stylesheet.headers.get('cache-control'), /no-store/);
 });
 
-for (const [name, error, expected] of [
-  ['provider accepts the email', null, 'sent'],
-  ['provider rejects its credentials', Object.assign(new Error('Invalid API key'), { retryable: false }), 'failed'],
-  ['provider is temporarily unavailable', Object.assign(new Error('Try later'), { retryable: true }), 'retrying']
-]) {
-  test('email worker records the correct outcome when ' + name, async t => {
-    const updates = [];
-    let sendCount = 0;
-    const app = await startApp(t, {}, {
-      query(sql, values) {
-        if (sql.includes('FROM email_delivery_jobs')) return [[{ id: 11, sticker_id: 42, recipient: 'student@gmail.com', attempts: 0, max_attempts: 3, requested_by_user_id: 1 }]];
-        if (sql.includes('FROM stickers st')) return [[{ id: 42, status: 'active', expires_at: '2099-01-01', email: 'student@gmail.com', qr_token: 'example-token', sticker_code: 'QR-42', full_name: 'Example Student', student_number: '2026-001' }]];
-        if (sql.includes('UPDATE email_delivery_jobs')) {
-          if (sql.includes("SET status = 'sent'")) updates.push({ status: 'sent', values });
-          if (sql.includes('SET status = ?, last_error')) updates.push({ status: values[0], values });
-          return [{ affectedRows: 1 }];
-        }
-        if (sql.includes('INSERT INTO email_delivery_attempts')) return [{ affectedRows: 1 }];
-      }
-    }, {
-      './lib/student-qr-email': {
-        ...localRequire('./lib/student-qr-email'),
-        async sendStudentQrEmail(details) {
-          sendCount++;
-          assert.equal(details.to, 'student@gmail.com');
-          assert.equal(details.qrPng.subarray(1, 4).toString(), 'PNG');
-          if (error) throw error;
-          return { messageId: '<accepted-message>' };
-        }
-      }
-    });
-    await Promise.all([app.evaluate('processEmailDeliveryJobs()'), app.evaluate('processEmailDeliveryJobs()')]);
-    assert.equal(sendCount, 1);
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].status, expected);
-    if (expected === 'sent') assert.equal(updates[0].values[0], '<accepted-message>');
-    if (expected === 'failed') assert.equal(updates[0].values[2], null);
-    if (expected === 'retrying') assert.ok(new Date(updates[0].values[2]).getTime() > Date.now());
-  });
-}
+test('retired QR email routes remain restricted to administrators', async t => {
+  const app = await startApp(t, { role: 'guard' });
+  const login = await app.signIn();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  for (const route of ['/stickers/1/email', '/admin/email-deliveries/1/retry']) {
+    assert.equal((await app.request(route, { cookie, form: {} })).status, 403);
+    assert.equal((await app.request(route, { form: {} })).status, 302);
+  }
+});

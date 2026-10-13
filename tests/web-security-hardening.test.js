@@ -47,12 +47,11 @@ test("reverse proxy and mutation-source validation cannot trust arbitrary forwar
   assert.match(server, /Request origin is required/);
 });
 
-test("login and QR email actions have independent abuse controls", () => {
+test("login attempts retain both account and client abuse controls", () => {
   const server = read("server.js");
   assert.match(server, /loginAccountRateLimiter/);
   assert.match(server, /loginAccountRateLimiter\.recordFailure\(accountRateKey\)/);
-  assert.match(server, /qrEmailRateLimiter\.check\(emailRateKey\)/);
-  assert.match(server, /STICKER_QR_EMAIL_RATE_LIMITED/);
+  assert.match(server, /loginRateLimiter\.recordFailure\(rateKey\)/);
 });
 
 test("production seed credentials must be explicitly configured", () => {

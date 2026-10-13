@@ -9,14 +9,11 @@ const multer = require("multer");
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
 const { pool, ensureDatabaseSchema } = require("./db");
-const { getMailConfigurationIssue } = require("./lib/mail-transport");
 const { openEventStream } = require("./lib/event-stream");
 const { generateBrandedQrPng } = require("./lib/branded-qr");
 const {
-  MailConfigurationError,
   normalizeEmailAddress,
-  sendBackupArchiveEmail,
-  sendStudentQrEmail
+  sendBackupArchiveEmail
 } = require("./lib/student-qr-email");
 const {
   BackupValidationError,
@@ -123,9 +120,6 @@ const SESSION_SECRET = configuredSessionSecret || "naap-parking-local-developmen
 const loginRateLimiter = new SlidingWindowRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
 const loginAccountRateLimiter = new SlidingWindowRateLimiter({ limit: 15, windowMs: 15 * 60 * 1000 });
 const accountSecurityRateLimiter = new SlidingWindowRateLimiter({ limit: 8, windowMs: 15 * 60 * 1000 });
-const qrEmailRateLimiter = new SlidingWindowRateLimiter({ limit: 10, windowMs: 10 * 60 * 1000 });
-const EMAIL_WORKER_INTERVAL_MS = Math.max(5000, Number(process.env.EMAIL_WORKER_INTERVAL_MS || 15000) || 15000);
-let emailWorkerRunning = false;
 const SNAPSHOT_DIR = path.join(__dirname, "storage", "snapshots");
 const LEGACY_PUBLIC_SNAPSHOT_DIR = path.join(__dirname, "public", "snapshots");
 const SNAPSHOT_MAX_BYTES = Number(process.env.SCAN_SNAPSHOT_MAX_BYTES || 3 * 1024 * 1024);
@@ -773,110 +767,6 @@ async function recordBackgroundAudit(eventType, options = {}) {
     );
   } catch (error) {
     console.warn("Background audit warning (non-fatal):", error.message);
-  }
-}
-
-async function processEmailDeliveryJobs() {
-  if (emailWorkerRunning) return;
-  emailWorkerRunning = true;
-  try {
-    await pool.query(
-      `UPDATE email_delivery_jobs
-       SET status = 'queued', last_error = 'Recovered after interrupted delivery.'
-       WHERE status = 'sending' AND updated_at < NOW() - INTERVAL 10 MINUTE`
-    );
-    const [jobs] = await pool.query(
-      `SELECT id, sticker_id, recipient, attempts, max_attempts, requested_by_user_id
-       FROM email_delivery_jobs
-       WHERE status IN ('queued', 'retrying')
-         AND attempts < max_attempts
-         AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-       ORDER BY created_at ASC
-       LIMIT 5`
-    );
-
-    for (const job of jobs) {
-      const [claim] = await pool.query(
-        `UPDATE email_delivery_jobs
-         SET status = 'sending', attempts = attempts + 1
-         WHERE id = ? AND status IN ('queued', 'retrying')`,
-        [job.id]
-      );
-      if (!claim.affectedRows) continue;
-      const attemptNumber = Number(job.attempts || 0) + 1;
-      try {
-        const sticker = await getStickerEmailDetails(job.sticker_id);
-        if (!isStickerEmailEligible(sticker)) throw new Error("Sticker is no longer active or has expired.");
-        const currentRecipient = normalizeEmailAddress(sticker.email);
-        if (!currentRecipient || currentRecipient !== normalizeEmailAddress(job.recipient)) {
-          throw new Error("Student email changed or is no longer valid. Queue a new delivery.");
-        }
-        const verifyUrl = `${APP_BASE_URL.replace(/\/+$/, "")}/verify/${sticker.qr_token}`;
-        const qrPng = await generateBrandedQrPng(verifyUrl);
-        const result = await sendStudentQrEmail({
-          to: currentRecipient,
-          studentName: sticker.full_name,
-          studentNumber: sticker.student_number,
-          stickerCode: sticker.sticker_code,
-          plateNumber: sticker.plate_number,
-          verifyUrl,
-          qrPng
-        });
-        const messageId = String(result?.messageId || "").slice(0, 255) || null;
-        const [sentUpdate] = await pool.query(
-          `UPDATE email_delivery_jobs
-           SET status = 'sent', sent_at = NOW(), next_attempt_at = NULL,
-               last_error = NULL, message_id = ?
-           WHERE id = ? AND status = 'sending'`,
-          [messageId, job.id]
-        );
-        if (!sentUpdate.affectedRows) continue;
-        await pool.query(
-          `INSERT INTO email_delivery_attempts
-             (job_id, attempt_number, outcome, provider_message_id)
-           VALUES (?, ?, 'sent', ?)`,
-          [job.id, attemptNumber, messageId]
-        );
-        await recordBackgroundAudit("STICKER_QR_EMAILED", {
-          actorUserId: job.requested_by_user_id,
-          targetType: "sticker",
-          targetId: sticker.id,
-          metadata: { job_id: job.id, student_id: sticker.student_id }
-        });
-      } catch (error) {
-        const cleanError = String(error?.message || "Email delivery failed.").replace(/[\r\n]+/g, " ").slice(0, 500);
-        const terminal = attemptNumber >= Number(job.max_attempts || 3)
-          || error instanceof MailConfigurationError
-          || error?.code === "MAIL_NOT_CONFIGURED"
-          || error?.retryable === false;
-        const retryMinutes = Math.min(30, 2 ** attemptNumber);
-        const nextAttemptAt = terminal ? null : new Date(Date.now() + retryMinutes * 60 * 1000);
-        const [failedUpdate] = await pool.query(
-          `UPDATE email_delivery_jobs
-           SET status = ?, last_error = ?, next_attempt_at = ?
-           WHERE id = ? AND status = 'sending'`,
-          [terminal ? "failed" : "retrying", cleanError, nextAttemptAt, job.id]
-        );
-        if (!failedUpdate.affectedRows) continue;
-        await pool.query(
-          `INSERT INTO email_delivery_attempts
-             (job_id, attempt_number, outcome, error_message)
-           VALUES (?, ?, 'failed', ?)`,
-          [job.id, attemptNumber, cleanError]
-        );
-        await recordBackgroundAudit("STICKER_QR_EMAIL_FAILED", {
-          actorUserId: job.requested_by_user_id,
-          targetType: "sticker",
-          targetId: job.sticker_id,
-          outcome: "failed",
-          metadata: { job_id: job.id, attempt: attemptNumber, terminal }
-        });
-      }
-    }
-  } catch (error) {
-    console.error("Email delivery worker error:", error.message);
-  } finally {
-    emailWorkerRunning = false;
   }
 }
 
@@ -6932,7 +6822,7 @@ async function getStickerManagementData() {
     )
   ]);
 
-  const [scanStats, qrHistory, latestEmailJobs, emailHistory] = await Promise.all([
+  const [scanStats, qrHistory] = await Promise.all([
     loadOptionalStickerRows(
       "scan history",
       `SELECT sticker_id, MAX(scanned_at) AS last_scanned_at,
@@ -6946,46 +6836,17 @@ async function getStickerManagementData() {
       `SELECT sticker_id, COUNT(*) AS qr_rotation_count
        FROM sticker_qr_history
        GROUP BY sticker_id`
-    ),
-    loadOptionalStickerRows(
-      "latest email status",
-      `SELECT ej.id, ej.sticker_id, ej.status, ej.attempts, ej.last_error, ej.sent_at
-       FROM email_delivery_jobs ej
-       JOIN (
-         SELECT sticker_id, MAX(id) AS latest_id
-         FROM email_delivery_jobs
-         GROUP BY sticker_id
-       ) latest ON latest.latest_id = ej.id`
-    ),
-    loadOptionalStickerRows(
-      "email history",
-      `SELECT ej.id, ej.sticker_id, ej.recipient, ej.status, ej.attempts,
-              ej.max_attempts, ej.last_error, ej.created_at, ej.sent_at,
-              st.sticker_code, s.full_name
-       FROM email_delivery_jobs ej
-       JOIN stickers st ON st.id = ej.sticker_id
-       JOIN vehicles v ON v.id = st.vehicle_id
-       JOIN students s ON s.id = v.student_id
-       ORDER BY ej.id DESC
-       LIMIT 30`
     )
   ]);
 
   const scanStatsBySticker = new Map(scanStats.rows.map((row) => [Number(row.sticker_id), row]));
   const qrHistoryBySticker = new Map(qrHistory.rows.map((row) => [Number(row.sticker_id), row]));
-  const latestEmailBySticker = new Map(latestEmailJobs.rows.map((row) => [Number(row.sticker_id), row]));
   const stickers = stickerResult[0].map((sticker) => {
     const stickerId = Number(sticker.id);
     const scan = scanStatsBySticker.get(stickerId);
     const rotation = qrHistoryBySticker.get(stickerId);
-    const email = latestEmailBySticker.get(stickerId);
     return {
       ...sticker,
-      email_job_id: email?.id || null,
-      email_status: email?.status || null,
-      email_attempts: Number(email?.attempts || 0),
-      email_last_error: email?.last_error || null,
-      email_sent_at: email?.sent_at || null,
       last_scanned_at: scan?.last_scanned_at || null,
       rejected_scan_count: Number(scan?.rejected_scan_count || 0),
       qr_rotation_count: Number(rotation?.qr_rotation_count || 0)
@@ -6994,15 +6855,13 @@ async function getStickerManagementData() {
 
   return {
     vehicles: vehicleResult[0],
-    stickers,
-    emailDeliveries: emailHistory.rows,
-    emailDeliveryAvailable: latestEmailJobs.available && emailHistory.available
+    stickers
   };
 }
 
 app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   try {
-    const { vehicles, stickers, emailDeliveries, emailDeliveryAvailable } = await getStickerManagementData();
+    const { vehicles, stickers } = await getStickerManagementData();
     const flash = req.query.success
       ? { type: "success", message: "Sticker issued successfully." }
       : req.query.revoked
@@ -7013,31 +6872,10 @@ app.get("/stickers", requireRole(USER_ROLES.ADMIN), async (req, res) => {
       ? { type: "error", message: "Only an active, unexpired sticker can receive a replacement QR." }
       : req.query.rotate
       ? { type: "error", message: "The QR code could not be replaced." }
-      : req.query.email === "queued"
-      ? { type: "success", message: "QR email queued. Delivery continues safely in the background." }
-      : req.query.email === "already_queued"
-      ? { type: "success", message: "A QR email for this sticker is already queued." }
-      : req.query.email === "retry_queued"
-      ? { type: "success", message: "Email delivery was queued for another attempt." }
-      : req.query.email === "no_email"
-      ? { type: "error", message: "This student does not have a valid email address. Add one in Student Management first." }
-      : req.query.email === "inactive"
-      ? { type: "error", message: "Only an active, unexpired sticker QR code can be emailed." }
-      : req.query.email === "not_configured"
-      ? { type: "error", message: "Email delivery is not ready yet. Ask the system administrator to connect a mail service." }
-      : req.query.email === "failed"
-      ? { type: "error", message: "The email could not be sent. Check the mail server settings and try again." }
-      : req.query.email === "not_found"
-      ? { type: "error", message: "Sticker not found." }
-      : req.query.email === "rate_limited"
-      ? { type: "error", message: "Too many QR emails were requested. Wait a few minutes and try again." }
       : null;
     res.render("stickers", {
       stickers,
       vehicles,
-      emailDeliveries,
-      emailDeliveryAvailable,
-      emailConfigurationIssue: getMailConfigurationIssue(),
       APP_BASE_URL,
       flash
     });
@@ -7147,94 +6985,9 @@ app.post("/stickers/:id/rotate", requireRole(USER_ROLES.ADMIN), async (req, res)
   }
 });
 
-app.post("/stickers/:id/email", requireRole(USER_ROLES.ADMIN), async (req, res) => {
-  if (getMailConfigurationIssue()) return res.redirect("/stickers?email=not_configured#email-deliveries");
-  const emailRateKey = `admin:${req.authUser.id}`;
-  const emailRateState = qrEmailRateLimiter.check(emailRateKey);
-  if (!emailRateState.allowed) {
-    res.setHeader("Retry-After", String(emailRateState.retryAfterSeconds));
-    await recordSecurityAudit(req, "STICKER_QR_EMAIL_RATE_LIMITED", {
-      targetType: "sticker",
-      targetId: req.params.id,
-      outcome: "blocked"
-    });
-    return res.redirect("/stickers?email=rate_limited");
-  }
-  qrEmailRateLimiter.record(emailRateKey);
-  let connection;
-  try {
-    connection = await pool.getConnection();
-    await connection.beginTransaction();
-    const [lockedRows] = await connection.query("SELECT id FROM stickers WHERE id = ? FOR UPDATE", [req.params.id]);
-    if (!lockedRows.length) {
-      await connection.rollback();
-      return res.redirect("/stickers?email=not_found");
-    }
-    const sticker = await getStickerEmailDetails(req.params.id, connection);
-    if (!isStickerEmailEligible(sticker)) {
-      await connection.rollback();
-      return res.redirect("/stickers?email=inactive");
-    }
-
-    const recipient = normalizeEmailAddress(sticker.email);
-    if (!recipient) {
-      await connection.rollback();
-      return res.redirect("/stickers?email=no_email");
-    }
-    const [existingRows] = await connection.query(
-      `SELECT id FROM email_delivery_jobs
-       WHERE sticker_id = ? AND status IN ('queued', 'retrying', 'sending')
-       LIMIT 1`,
-      [sticker.id]
-    );
-    if (existingRows.length) {
-      await connection.rollback();
-      return res.redirect("/stickers?email=already_queued");
-    }
-    const [jobResult] = await connection.query(
-      `INSERT INTO email_delivery_jobs (sticker_id, recipient, requested_by_user_id)
-       VALUES (?, ?, ?)`,
-      [sticker.id, recipient, req.authUser.id]
-    );
-    await connection.commit();
-    await recordSecurityAudit(req, "STICKER_QR_EMAIL_QUEUED", {
-      targetType: "sticker",
-      targetId: sticker.id,
-      metadata: { student_id: sticker.student_id, job_id: jobResult.insertId }
-    });
-    setImmediate(() => processEmailDeliveryJobs());
-    return res.redirect("/stickers?email=queued");
-  } catch (error) {
-    try { await connection.rollback(); } catch (_rollbackError) {}
-    console.error("QR email queue error:", error);
-    return res.redirect("/stickers?email=failed");
-  } finally {
-    connection?.release();
-  }
-});
-
-app.post("/admin/email-deliveries/:id/retry", requireRole(USER_ROLES.ADMIN), async (req, res) => {
-  if (getMailConfigurationIssue()) return res.redirect("/stickers?email=not_configured#email-deliveries");
-  const jobId = Number(req.params.id);
-  if (!Number.isInteger(jobId) || jobId <= 0) return res.redirect("/stickers?email=not_found");
-  try {
-    const [result] = await pool.query(
-      `UPDATE email_delivery_jobs
-       SET status = 'queued', attempts = 0, next_attempt_at = NOW(), last_error = NULL, sent_at = NULL
-       WHERE id = ? AND status = 'failed'`,
-      [jobId]
-    );
-    if (!result.affectedRows) return res.redirect("/stickers?email=not_found");
-    await recordSecurityAudit(req, "STICKER_QR_EMAIL_RETRY_QUEUED", {
-      targetType: "email_delivery",
-      targetId: jobId
-    });
-    setImmediate(() => processEmailDeliveryJobs());
-    return res.redirect("/stickers?email=retry_queued#email-deliveries");
-  } catch (error) {
-    console.error("Email retry error:", error);
-    return res.redirect("/stickers?email=failed#email-deliveries");
-  }
+// Retired QR-email URLs reject old forms without changing stored delivery records.
+app.post(["/stickers/:id/email", "/admin/email-deliveries/:id/retry"], requireRole(USER_ROLES.ADMIN), (_req, res) => {
+  res.status(410).json({ ok: false, message: "QR email delivery has been removed. Download or print the QR code instead." });
 });
 
 app.get("/verify/:token", async (req, res) => {
@@ -9190,12 +8943,10 @@ async function startServer() {
     await ensureDatabaseSchema();
     await sessionStore.onReady();
     setImmediate(() => {
-      processEmailDeliveryJobs();
       suspendInactiveGuards().catch((error) => console.error("Inactive guard cleanup error:", error.message));
       runDataRetentionCleanup();
       ensureAutomatedRecoveryBackup().catch((error) => console.error("Automated backup error:", error.message));
     });
-    const emailTimer = setInterval(processEmailDeliveryJobs, EMAIL_WORKER_INTERVAL_MS);
     const maintenanceTimer = setInterval(() => {
       suspendInactiveGuards().catch((error) => console.error("Inactive guard cleanup error:", error.message));
       runDataRetentionCleanup();
@@ -9203,7 +8954,6 @@ async function startServer() {
     const backupTimer = setInterval(() => {
       ensureAutomatedRecoveryBackup().catch((error) => console.error("Automated backup error:", error.message));
     }, 60 * 60 * 1000);
-    emailTimer.unref();
     maintenanceTimer.unref();
     backupTimer.unref();
     app.listen(PORT, () => {

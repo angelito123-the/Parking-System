@@ -1,4 +1,6 @@
-# Email setup on Render Free
+# Email setup on Render Free (historical QR-delivery guide)
+
+> QR-email sending was removed on 13 October 2026. The QR-email buttons, queue worker, and retry actions described below are no longer available. Provider settings may still be used for optional encrypted backup delivery. This guide is retained for configuration history.
 
 The app sends QR emails through Brevo's HTTPS API on Render Free. Gmail recipients
 work with this approach. Render Free blocks outbound SMTP ports 25, 465, and 587,

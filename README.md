@@ -1,5 +1,7 @@
 # NAAP Parking Management System
 
+QR-email sending has been removed. Use **View QR**, **Download**, or **Print card** on the Stickers page. Existing delivery records are retained; old email-send and retry URLs return HTTP 410. Email provider settings are still used for optional encrypted backup delivery.
+
 Web app for National Aviation Academy of the Philippines student parking with QR sticker identity verification.
 
 ## Stack
@@ -42,7 +44,6 @@ Use Node.js 24 LTS. The package engine range keeps Render on this supported majo
 - Register student vehicles
 - Issue parking stickers with unique QR token
 - View printable QR image per sticker
-- Preview and queue an active sticker QR code for delivery to the student's registered email address, with retry history
 - Camera-based scanner page for gate officers
 - Automatic phone camera QR detection mode with guard slot assignment
 - Auto log each scan with result and entry/exit action
@@ -60,7 +61,6 @@ Use Node.js 24 LTS. The package engine range keeps Render on this supported majo
 - `/guard` Guard dashboard
 - `/students` Manage students (Admin)
 - `/stickers` Issue/revoke stickers and view QR links (Admin)
-- `POST /stickers/:id/email` Queue an active sticker QR image for email delivery (Admin)
 - `/admin/slots` Configure parking spaces and capacity-warning thresholds (Admin)
 - `/admin/data` Create, download, check, and restore encrypted backups (Admin)
 - `/scanner` Live camera QR scanner (Guard/Admin)
@@ -75,7 +75,6 @@ Use Node.js 24 LTS. The package engine range keeps Render on this supported majo
 
 - Default users are seeded from `.env` values on startup.
 - You can print stickers by opening each `/stickers/:id/qr` image and sending it to a label printer.
-- On Render Free, QR email delivery uses Brevo over HTTPS. Set `MAIL_PROVIDER=brevo`, `BREVO_API_KEY`, and a verified `MAIL_FROM_EMAIL` in Render Environment; follow [Email setup on Render](./docs/EMAIL_SETUP_RENDER.md). Gmail recipients are supported.
 - For local or paid hosting with SMTP access, set `MAIL_PROVIDER=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. Set `SMTP_SECURE=true` for implicit TLS (normally port 465); port 587 normally uses `false` and upgrades with STARTTLS.
 - Production requires unique `ADMIN_PASSWORD`, `GUARD_PASSWORD`, and a `SESSION_SECRET` of at least 32 characters. Never commit real values to Git; rotate any value that was previously committed.
 - `TRUST_PROXY_HOPS=1` is appropriate for the standard Render proxy setup. Change it only when the number of trusted reverse proxies in front of the app changes.

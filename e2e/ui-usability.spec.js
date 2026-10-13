@@ -420,34 +420,17 @@ test('QR controls have consistent gaps and access-changing actions remain separa
   }
 });
 
-test('email preview keeps the intended recipient and sends only after confirmation', async ({ page }) => {
+test('QR email controls are removed and QR downloads and print cards remain available', async ({ page }) => {
   await signIn(page, 'admin');
   await page.goto('/stickers');
-  const trigger = page.locator('[data-email-preview]:visible').first();
-  const recipient = await trigger.getAttribute('data-recipient');
-  let posts=0;
-  await page.route('**/stickers/*/email', async route => {
-    expect(route.request().method()).toBe('POST');
-    posts++;
-    await route.fulfill({ status:200, contentType:'text/html', body:'<main>Test email accepted</main>' });
-  });
-  await trigger.click();
-  const dialog=page.getByRole('dialog', { name:'Confirm QR email' });
-  await expect(dialog).toBeVisible();
-  await expect(page.locator('#emailPreviewRecipient')).toHaveText(recipient);
-  await expect(dialog.getByRole('button',{name:'Cancel',exact:true})).toBeFocused();
-  await page.keyboard.press('Shift+Tab');
-  await expect(dialog.getByRole('button',{name:'Send email',exact:true})).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-  await expect(trigger).toBeFocused();
-  expect(posts).toBe(0);
-  await trigger.click();
-  await expect(page.locator('#emailPreviewQr')).toBeVisible();
-  await expect.poll(() => page.locator('#emailPreviewQr').evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
-  const audit=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
-  expect(audit.violations.filter(item=>['serious','critical'].includes(item.impact))).toEqual([]);
-  await dialog.getByRole('button',{name:'Send email',exact:true}).click();
-  await expect(page.getByText('Test email accepted')).toBeVisible();
-  expect(posts).toBe(1);
+  await expect(page.locator('[data-email-preview], #emailPreviewModal, #email-deliveries')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Email QR', exact: true })).toHaveCount(0);
+  const qrLink = page.getByRole('link', { name: 'View QR', exact: true }).first();
+  const qrResponse = await page.request.get(await qrLink.getAttribute('href'));
+  expect(qrResponse.status()).toBe(200);
+  expect(qrResponse.headers()['content-type']).toContain('image/png');
+  const printLink = page.getByRole('link', { name: 'Print card', exact: true }).first();
+  expect((await page.request.get(await printLink.getAttribute('href'))).status()).toBe(200);
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  expect(audit.violations.filter(item => ['serious','critical'].includes(item.impact))).toEqual([]);
 });

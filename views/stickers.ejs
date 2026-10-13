@@ -4,9 +4,6 @@
     ? requestBaseUrl
     : APP_BASE_URL;
   const pageFlash = typeof flash !== 'undefined' ? flash : null;
-  const safeEmailDeliveries = Array.isArray(emailDeliveries) ? emailDeliveries : [];
-  const emailSetupIssue = typeof emailConfigurationIssue === "string" ? emailConfigurationIssue : null;
-  const canDeliverEmail = typeof emailDeliveryAvailable !== 'boolean' || emailDeliveryAvailable;
 
   function calendarDateKey(value) {
     const date = new Date(value);
@@ -121,19 +118,8 @@
                 <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">Download</a>
                 <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn">Print card</a>
                 <button type="button" class="link-btn copy-sticker-link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>">Copy link</button>
-                <% if (canDeliverEmail && displayStatus === "active" && sticker.email) { %>
-                  <button type="button" class="link-btn email-preview-btn"
-                    data-email-preview data-sticker-id="<%= sticker.id %>"
-                    data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
-                    data-plate-number="<%= sticker.plate_number %>" data-sticker-code="<%= sticker.sticker_code %>"
-                    data-recipient="<%= sticker.email %>">Email QR</button>
-                <% } else if (canDeliverEmail && displayStatus === "active") { %>
-                  <span class="helper-text" title="Add an email address in Student Management first">No email</span>
-                <% } else if (!canDeliverEmail && displayStatus === "active") { %>
-                  <span class="helper-text">Email temporarily unavailable</span>
-                <% } %>
+
               </div>
-              <% if (sticker.email_status) { %><div class="sticker-email-status"><span>Email:</span> <span class="badge badge-<%= ({ sent: 'valid', queued: 'warning', sending: 'inside', retrying: 'warning', failed: 'invalid' })[sticker.email_status] || 'soft' %>"><%= sticker.email_status %></span></div><% } %>
               <div class="sticker-activity helper-text">Last used: <%= sticker.last_scanned_at ? new Date(sticker.last_scanned_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Never' %> · QR replacements: <%= Number(sticker.qr_rotation_count || 0) %><% if (Number(sticker.rejected_scan_count || 0) > 0) { %> · Rejected scans: <%= sticker.rejected_scan_count %><% } %></div>
             </td>
             <td class="table-actions-cell sticker-management-cell">
@@ -181,20 +167,9 @@
             <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="btn btn-mobile-touch">View QR</a>
             <a href="/stickers/<%= sticker.id %>/qr" download class="btn btn-mobile-touch">Download</a>
             <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="btn btn-mobile-touch">Print card</a>
-            <% if (canDeliverEmail && displayStatus === "active" && sticker.email) { %>
-              <button type="button" class="btn btn-mobile-touch email-preview-btn"
-                data-email-preview data-sticker-id="<%= sticker.id %>"
-                data-student-name="<%= sticker.full_name %>" data-student-number="<%= sticker.student_number %>"
-                data-plate-number="<%= sticker.plate_number %>" data-sticker-code="<%= sticker.sticker_code %>"
-                data-recipient="<%= sticker.email %>">Email QR</button>
-            <% } %>
+
           </div>
-          <% if (canDeliverEmail && displayStatus === "active" && !sticker.email) { %>
-            <span class="helper-text">Add the student's email address to enable email delivery.</span>
-          <% } else if (!canDeliverEmail && displayStatus === "active") { %>
-            <span class="helper-text">Email delivery is temporarily unavailable.</span>
-          <% } %>
-          <% if (sticker.email_status) { %><div class="sticker-email-status"><span>Email:</span> <span class="badge badge-<%= ({ sent: 'valid', queued: 'warning', sending: 'inside', retrying: 'warning', failed: 'invalid' })[sticker.email_status] || 'soft' %>"><%= sticker.email_status %></span></div><% } %>
+
           <% if (sticker.status === "active") { %>
           <div class="sticker-management-actions">
             <button type="button" class="btn-sm btn-mobile-touch" data-destructive-trigger data-form-id="rotateStickerMobile_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR will stop working immediately." data-confirm-label="Replace QR">Replace QR</button>
@@ -209,56 +184,6 @@
   </div>
   </section>
 
-  <section class="panel" id="email-deliveries">
-    <div class="section-head">
-      <h2>QR Email Delivery</h2>
-      <p>Messages are sent in the background. Sent means the email service accepted the message; check its delivery logs if the email is missing.</p>
-    </div>
-    <% if (!canDeliverEmail) { %>
-      <div class="flash flash-error">Email history is temporarily unavailable. Sticker issuing, QR viewing, printing, replacement, and revocation remain available.</div>
-    <% } %>
-    <% if (emailSetupIssue) { %><div class="flash flash-error"><strong>Email sending needs setup.</strong> <%= emailSetupIssue %></div><% } %>
-    <div class="email-delivery-list">
-      <% safeEmailDeliveries.forEach((delivery) => { %>
-        <article class="email-delivery-item">
-          <div>
-            <strong><%= delivery.sticker_code %> · <%= delivery.full_name %></strong>
-            <span><%= delivery.recipient %> · Requested <%= new Date(delivery.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) %></span>
-            <% if (delivery.last_error) { %><span class="email-delivery-error"><%= delivery.last_error %></span><% } %>
-          </div>
-          <div class="email-delivery-actions">
-            <span class="badge badge-<%= delivery.status === 'sent' ? 'valid' : delivery.status === 'failed' ? 'invalid' : 'soft' %>"><%= delivery.status %></span>
-            <span class="helper-text"><%= delivery.attempts %>/<%= delivery.max_attempts %> attempt(s)</span>
-            <% if (delivery.status === 'failed') { %>
-              <form method="post" action="/admin/email-deliveries/<%= delivery.id %>/retry" class="inline-form"><button type="submit" class="btn-sm">Retry</button></form>
-            <% } %>
-          </div>
-        </article>
-      <% }) %>
-      <% if (!safeEmailDeliveries.length) { %><div class="empty-state"><p>No QR email deliveries have been requested.</p></div><% } %>
-    </div>
-  </section>
-</div>
-
-<div class="modal-shell" id="emailPreviewModal" hidden aria-hidden="true">
-  <button type="button" class="modal-backdrop" data-email-preview-close tabindex="-1" aria-label="Close email preview"></button>
-  <section class="modal-card email-preview-card" role="dialog" aria-modal="true" aria-labelledby="emailPreviewTitle">
-    <div class="section-head"><h2 id="emailPreviewTitle">Confirm QR email</h2><p>Review the recipient and QR before adding it to the delivery queue.</p></div>
-    <div class="email-preview-layout">
-      <img id="emailPreviewQr" width="180" height="180" alt="QR code that will be emailed" />
-      <div class="email-preview-details">
-        <p><span>Student</span><strong id="emailPreviewStudent">-</strong></p>
-        <p><span>Student number</span><strong id="emailPreviewNumber">-</strong></p>
-        <p><span>Vehicle</span><strong id="emailPreviewPlate">-</strong></p>
-        <p><span>Sticker</span><strong id="emailPreviewCode">-</strong></p>
-        <p><span>Recipient</span><strong id="emailPreviewRecipient">-</strong></p>
-      </div>
-    </div>
-    <div class="form-actions">
-      <button type="button" class="btn-cancel-sm" data-email-preview-close>Cancel</button>
-      <form method="post" id="emailPreviewForm"><button type="submit">Send email</button></form>
-    </div>
-  </section>
 </div>
 
 <script nonce="<%= cspNonce %>">
@@ -277,66 +202,6 @@
     }
   });
 
-  (() => {
-    const modal = document.getElementById("emailPreviewModal");
-    const qr = document.getElementById("emailPreviewQr");
-    const form = document.getElementById("emailPreviewForm");
-    let lastTrigger = null;
-    const appShell = document.querySelector(".app-shell");
-    const cancelButton = modal.querySelector("section [data-email-preview-close]");
-    // Keep the dialog outside the page region that becomes inert while it is open.
-    document.body.append(modal);
-    let wasInert = false;
-    const fields = {
-      student: document.getElementById("emailPreviewStudent"),
-      number: document.getElementById("emailPreviewNumber"),
-      plate: document.getElementById("emailPreviewPlate"),
-      code: document.getElementById("emailPreviewCode"),
-      recipient: document.getElementById("emailPreviewRecipient")
-    };
-    const close = () => {
-      modal.hidden = true;
-      modal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("modal-open");
-      if (appShell) appShell.inert = wasInert;
-      lastTrigger?.focus({ preventScroll: true });
-      lastTrigger = null;
-    };
-    document.addEventListener("click", (event) => {
-      const openButton = event.target instanceof Element ? event.target.closest("[data-email-preview]") : null;
-      if (openButton) {
-        const stickerId = Number(openButton.dataset.stickerId);
-        if (!Number.isInteger(stickerId) || stickerId <= 0) return;
-        lastTrigger = openButton;
-        fields.student.textContent = openButton.dataset.studentName || "-";
-        fields.number.textContent = openButton.dataset.studentNumber || "-";
-        fields.plate.textContent = openButton.dataset.plateNumber || "-";
-        fields.code.textContent = openButton.dataset.stickerCode || "-";
-        fields.recipient.textContent = openButton.dataset.recipient || "-";
-        qr.src = `/stickers/${stickerId}/qr`;
-        form.action = `/stickers/${stickerId}/email`;
-        modal.hidden = false;
-        modal.setAttribute("aria-hidden", "false");
-        document.body.classList.add("modal-open");
-        wasInert = Boolean(appShell?.inert);
-        cancelButton?.focus({ preventScroll: true });
-        if (appShell) appShell.inert = true;
-        return;
-      }
-      if (event.target instanceof Element && event.target.closest("[data-email-preview-close]")) close();
-    });
-    document.addEventListener("keydown", (event) => {
-      if (modal.hidden) return;
-      if (event.key === "Escape") { event.preventDefault(); close(); }
-      if (event.key === "Tab") {
-        const controls = [...modal.querySelectorAll('section button:not([disabled])')].filter(control => control.getClientRects().length);
-        const first = controls[0];
-        const last = controls[controls.length - 1];
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      }
-    });
-  })();
 </script>
 
 <%- include("partials/footer") %>

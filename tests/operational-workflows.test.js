@@ -8,20 +8,18 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const server = read("server.js");
 const database = read("db.js");
 
-test("QR email delivery is queued, audited, retried, and shown to administrators", () => {
+test("QR email controls and sending are removed while stored history is retained", () => {
   assert.match(database, /CREATE TABLE IF NOT EXISTS email_delivery_jobs/);
   assert.match(database, /CREATE TABLE IF NOT EXISTS email_delivery_attempts/);
-  assert.match(server, /async function processEmailDeliveryJobs/);
-  assert.match(server, /STICKER_QR_EMAIL_QUEUED/);
-  assert.match(server, /\/admin\/email-deliveries\/:id\/retry/);
-  assert.match(read("views/stickers.ejs"), /Confirm QR email/);
+  assert.doesNotMatch(server, /processEmailDeliveryJobs|sendStudentQrEmail|qrEmailRateLimiter/);
+  assert.doesNotMatch(read("views/stickers.ejs"), /data-email-preview|emailPreviewModal|QR Email Delivery|Email QR/);
 });
 
 test("sticker management remains available when optional history data is unavailable", () => {
   assert.match(server, /async function loadOptionalStickerRows/);
   assert.match(server, /Sticker dashboard \$\{label\} unavailable/);
-  assert.match(server, /emailDeliveryAvailable: latestEmailJobs\.available && emailHistory\.available/);
-  assert.match(read("views/stickers.ejs"), /Sticker issuing, QR viewing, printing, replacement, and revocation remain available/);
+  assert.doesNotMatch(server, /latestEmailJobs|emailHistory/);
+  assert.match(read("views/stickers.ejs"), /Print card/);
 });
 
 test("administrator and guard account controls enforce practical security", () => {
