@@ -2,6 +2,8 @@
 
 QR-email sending has been removed. Use **View QR**, **Download**, or **Print card** on the Stickers page. Existing delivery records are retained; old email-send and retry URLs return HTTP 410. Email provider settings are still used for optional encrypted backup delivery.
 
+Administrators can close parking for a school event from **Parking Slots → Disable all parking slots**. The confirmation accepts an optional reason and applies to every zone, regardless of map filters. Current student and visitor assignments are retained, vehicles can still exit, and existing maintenance reasons are preserved. Closed spaces remain disabled after exit. Use **Edit selected space → Status → Available → Save changes** to reopen a space when appropriate. The bulk action is recorded in the security audit log and does not change the database schema.
+
 Web app for National Aviation Academy of the Philippines student parking with QR sticker identity verification.
 
 ## Stack

@@ -43,6 +43,36 @@ test('administrator sees 20 basketball spaces with dividers and 20 left-side Han
   await expectParkingLayouts(page);
 });
 
+test('bulk parking closure confirms the full scope and supports keyboard cancellation', async ({ page, baseURL }) => {
+  await signIn(page, baseURL, 'admin');
+  const submissions = [];
+  await page.route('**/admin/slots/disable-all', route => {
+    submissions.push(new URLSearchParams(route.request().postData()));
+    return route.fulfill({ contentType: 'text/html', body: '<p>Saved test response</p>' });
+  });
+  await page.goto('/admin/slots');
+  // A filtered map must not silently narrow an action that says "all".
+  await page.locator('#parkingSlotSearch').fill('A-01');
+  const trigger = page.getByRole('button', { name: 'Disable all parking slots', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Disable all parking slots?');
+  await expect(dialog).toContainText('every zone, including slots hidden by filters');
+  await expect(dialog).toContainText('can still exit');
+  await expect(dialog.getByRole('button', { name: 'Go back' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(submissions).toHaveLength(0);
+  await trigger.click();
+  await page.locator('#confirmDialogNote').fill('  School foundation day  ');
+  await dialog.getByRole('button', { name: 'Disable all parking slots', exact: true }).click();
+  await expect(page.getByText('Saved test response')).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].get('confirm_disable_all')).toBe('yes');
+  expect(submissions[0].get('approval_note')).toBe('School foundation day');
+});
+
 test('guard entry selection uses the same parking layouts', async ({ page, baseURL }) => {
   await page.addInitScript(() => {
     window.EventSource = class extends EventTarget { close() {} };

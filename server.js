@@ -5095,7 +5095,9 @@ app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          ORDER BY pzs.zone`
       )
     ]);
-    const flash = req.query.saved
+    const flash = req.query.disabled_all === "1"
+      ? { type: "success", message: "All parking slots are disabled for new entries. Vehicles already parked can still exit." }
+      : req.query.saved
       ? { type: "success", message: "Parking slot settings saved." }
       : req.query.created
         ? { type: "success", message: "Parking slot created." }
@@ -5113,6 +5115,34 @@ app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
   } catch (error) {
     console.error("Admin slots page error:", error);
     res.status(500).send("An error occurred loading available slots.");
+  }
+});
+
+// One atomic update closes every enabled space without clearing assignments or maintenance reasons.
+app.post("/admin/slots/disable-all", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  if (req.body.confirm_disable_all !== "yes") {
+    return res.redirect("/admin/slots?error=Confirm+disabling+all+parking+slots+before+continuing.");
+  }
+  const note = req.body.approval_note;
+  if (note !== undefined && (typeof note !== "string" || note.trim().length > 255)) {
+    return res.redirect("/admin/slots?error=Enter+a+reason+of+255+characters+or+fewer.");
+  }
+  const reason = (note || "").trim() || "School event or temporary closure";
+  try {
+    const [result] = await pool.query(
+      `UPDATE parking_slots
+       SET status = 'disabled', disabled_reason = ?
+       WHERE status = 'available'`,
+      [reason]
+    );
+    await recordSecurityAudit(req, "PARKING_SLOTS_DISABLED_ALL", {
+      targetType: "parking_slot",
+      metadata: { affected_slots: result.affectedRows, reason }
+    });
+    return res.redirect("/admin/slots?disabled_all=1");
+  } catch (error) {
+    console.error("Disable all parking slots error:", error);
+    return res.redirect("/admin/slots?error=Unable+to+disable+parking+slots.+Please+try+again.");
   }
 });
 

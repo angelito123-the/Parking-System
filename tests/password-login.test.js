@@ -88,6 +88,85 @@ async function startApp(t, overrides = {}, database = {}, services = {}) {
   return { request, signIn, store, audits, context, evaluate: code => vm.runInContext(code, context) };
 }
 
+test("bulk parking closure requires an administrator and explicit confirmation", async t => {
+  const app = await startApp(t, { role: "guard" });
+  const form = { confirm_disable_all: "yes" };
+  assert.equal((await app.request("/admin/slots/disable-all", { form })).headers.get("location"), "/login");
+  const login = await app.signIn();
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  assert.equal((await app.request("/admin/slots/disable-all", { cookie, form })).status, 403);
+  const admin = await startApp(t);
+  const adminCookie = (await admin.signIn()).headers.get("set-cookie").split(";")[0];
+  const unconfirmed = await admin.request("/admin/slots/disable-all", { cookie: adminCookie, form: {} });
+  assert.match(unconfirmed.headers.get("location"), /error=Confirm/);
+  assert.equal(admin.audits.some(values => values.includes("PARKING_SLOTS_DISABLED_ALL")), false);
+});
+
+for (const note of [undefined, "  School foundation day  "]) {
+  test(`bulk parking closure records the administrator and ${note ? "custom" : "default"} reason`, async t => {
+    const updates = [];
+    const app = await startApp(t, {}, {
+      query(sql, values) {
+        if (/UPDATE parking_slots/.test(sql)) {
+          updates.push({ sql, values: Array.from(values) });
+          return [{ affectedRows: updates.length === 1 ? 4 : 0 }];
+        }
+      }
+    });
+    const cookie = (await app.signIn()).headers.get("set-cookie").split(";")[0];
+    const form = { confirm_disable_all: "yes", ...(note === undefined ? {} : { approval_note: note }) };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await app.request("/admin/slots/disable-all", { cookie, form });
+      assert.equal(response.headers.get("location"), "/admin/slots?disabled_all=1");
+    }
+    assert.equal(updates.length, 2);
+    for (const { sql, values } of updates) {
+      assert.match(sql, /SET status = 'disabled', disabled_reason = \?/);
+      assert.match(sql, /WHERE status = 'available'/);
+      assert.doesNotMatch(sql, /current_sticker_id\s*=|current_visitor_pass_id\s*=/);
+      assert.deepEqual(values, [note ? note.trim() : "School event or temporary closure"]);
+    }
+    const audit = app.audits.filter(values => values.includes("PARKING_SLOTS_DISABLED_ALL"));
+    assert.equal(audit.length, 2);
+    assert.equal(JSON.parse(audit[0].at(-1)).affected_slots, 4);
+    assert.equal(JSON.parse(audit[1].at(-1)).affected_slots, 0);
+  });
+}
+
+for (const note of ["x".repeat(256), { unexpected: "object" }, ["array"]]) {
+  test(`bulk parking closure rejects invalid reasons: ${Array.isArray(note) ? "array" : typeof note}`, async t => {
+    const app = await startApp(t);
+    const cookie = (await app.signIn()).headers.get("set-cookie").split(";")[0];
+    const response = await app.request("/admin/slots/disable-all", {
+      cookie, data: { confirm_disable_all: "yes", approval_note: note }
+    });
+    assert.match(response.headers.get("location"), /error=Enter\+a\+reason/);
+    assert.equal(app.audits.some(values => values.includes("PARKING_SLOTS_DISABLED_ALL")), false);
+  });
+}
+
+test("bulk parking closure hides database failures and does not report success", async t => {
+  const app = await startApp(t, {}, { query(sql) {
+    if (/UPDATE parking_slots/.test(sql)) throw new Error("private-db-host SELECT secret");
+  } });
+  const cookie = (await app.signIn()).headers.get("set-cookie").split(";")[0];
+  const response = await app.request("/admin/slots/disable-all", { cookie, form: { confirm_disable_all: "yes" } });
+  assert.match(response.headers.get("location"), /error=Unable\+to\+disable/);
+  assert.doesNotMatch(response.headers.get("location"), /private-db-host|SELECT|disabled_all=1/);
+});
+
+test("bulk parking closure rejects cross-site requests", async t => {
+  const app = await startApp(t);
+  const login = await app.signIn();
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const response = await fetch(new URL("/admin/slots/disable-all", login.url), {
+    method: "POST", redirect: "manual",
+    headers: { cookie, origin: "https://untrusted.example", "x-forwarded-proto": "https", "content-type": "application/x-www-form-urlencoded" },
+    body: "confirm_disable_all=yes"
+  });
+  assert.equal(response.status, 403);
+});
+
 for (const enrolled of [0, 1]) {
   test(`admin password sign-in reaches protected pages with legacy enrollment=${enrolled}`, async t => {
     const { request, signIn, audits } = await startApp(t, { totp_enabled: enrolled });

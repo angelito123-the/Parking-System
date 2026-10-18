@@ -75,6 +75,15 @@
       <h2>Parking Slot Monitoring</h2>
       <p>See which vehicle is parked in each occupied slot. Click any slot to review history.</p>
     </div>
+    <form method="post" action="/admin/slots/disable-all" id="disableAllSlotsForm"
+      class="standard-form-actions" style="margin-bottom:1rem;" data-confirm-form
+      data-confirm-title="Disable all parking slots?"
+      data-confirm-message="This closes parking in every zone, including slots hidden by filters. Vehicles already parked remain assigned and can still exit. Existing maintenance reasons are kept. Slots stay disabled until you enable them again."
+      data-confirm-label="Disable all parking slots" data-confirm-note="true">
+      <input type="hidden" name="confirm_disable_all" value="yes" />
+      <input type="hidden" name="approval_note" value="" />
+      <button type="submit" id="disableAllSlotsBtn" class="btn-confirm-danger">Disable all parking slots</button>
+    </form>
     <div class="refresh-row" style="margin-bottom:0.8rem;">
       <span id="slotsLastUpdated" class="helper-text">Last updated: --</span>
       <button type="button" id="slotsRefreshBtn" class="refresh-btn btn-sm">Refresh</button>
@@ -285,7 +294,9 @@
         ? (slot.occupied_by_plate || "Occupied")
         : occupancy === "available"
           ? (slot.slot_type === "standard" ? "Available" : `${slot.slot_type || "special"} space`)
-          : (slot.disabled_reason || "Unavailable");
+          : slot.occupied_by_type
+            ? `Vehicle still parked: ${slot.occupied_by_plate || "Assigned"}`
+            : (slot.disabled_reason || "Unavailable");
 
       return `<button
         type="button"
@@ -418,7 +429,9 @@
         ? "This slot is open and ready for a new entry assignment."
         : occupancy === "occupied"
           ? "This slot is currently occupied. Review current assignment and activity."
-          : "This slot is currently disabled and cannot be assigned.";
+          : slot.occupied_by_type
+            ? "Closed to new parking. The current vehicle remains assigned and can still exit."
+            : "This slot is currently disabled and cannot be assigned.";
 
       slotInspectorDetailsEl.innerHTML = `
         <div class="parking-inspector-detail"><span>Zone</span><strong>${escapeHtml(slot.zone || "General")}</strong></div>
