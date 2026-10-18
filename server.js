@@ -2,6 +2,8 @@ process.env.TZ = "Asia/Manila";
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const gateLogging = require("./lib/parking/gate-logging");
+const registerGateRoutes = require("./lib/parking/gate-routes");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const compression = require("compression");
@@ -46,7 +48,7 @@ const app = express();
 // Only deliberately written validation messages may be returned to clients.
 class UserInputError extends Error {}
 function getPublicErrorMessage(error, fallback) {
-  return error instanceof UserInputError ? error.message : fallback;
+  return error instanceof UserInputError || error instanceof gateLogging.GateLoggingError ? error.message : fallback;
 }
 const PORT = Number(process.env.PORT || 3000);
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -2640,6 +2642,9 @@ async function getLastVisitorMovement(visitorPassId, db = pool) {
 }
 
 async function insertVisitorScanLogWithDb(db, visitorPassId, result, action, gate, reason, options = {}) {
+  if (result === "VALID" && ["ENTRY", "EXIT"].includes(action)) {
+    gateLogging.assertGateDirection(await gateLogging.resolveGate(db, options.gateId || gate), action);
+  }
   const [insertResult] = await db.query(
     `INSERT INTO visitor_scan_logs (
        visitor_pass_id,
@@ -3966,7 +3971,7 @@ async function getCurrentParkingSlotBySticker(stickerId, db = pool) {
   const [rows] = await db.query(
     `SELECT id, slot_code, zone
      FROM parking_slots
-     WHERE current_sticker_id = ?
+     WHERE current_sticker_id IN (SELECT id FROM stickers WHERE vehicle_id = (SELECT vehicle_id FROM stickers WHERE id = ?))
      LIMIT 1`,
     [stickerId]
   );
@@ -4014,7 +4019,7 @@ async function assignParkingSlot(db, stickerId, slotId) {
   await db.query(
     `UPDATE parking_slots
      SET current_sticker_id = NULL
-     WHERE current_sticker_id = ?`,
+     WHERE current_sticker_id IN (SELECT id FROM stickers WHERE vehicle_id = (SELECT vehicle_id FROM stickers WHERE id = ?))`,
     [stickerId]
   );
   await db.query(
@@ -4031,7 +4036,7 @@ async function releaseParkingSlot(db, stickerId) {
   const [rows] = await db.query(
     `SELECT id, slot_code, zone
      FROM parking_slots
-     WHERE current_sticker_id = ?
+     WHERE current_sticker_id IN (SELECT id FROM stickers WHERE vehicle_id = (SELECT vehicle_id FROM stickers WHERE id = ?))
      FOR UPDATE`,
     [stickerId]
   );
@@ -4054,6 +4059,11 @@ async function insertScanLog(stickerId, result, action, gate, notes, options = {
 }
 
 async function insertScanLogWithDb(db, stickerId, result, action, gate, notes, options = {}) {
+  const movement = result === "VALID" && ["ENTRY", "EXIT"].includes(action)
+    ? await gateLogging.validateMovement(db, { stickerId, action, gate: options.gateId || gate,
+        cooldownSeconds: SCAN_COOLDOWN_SECONDS, scannedAt: options.scannedAt,
+        administrativeOverride: options.administrativeOverride === true })
+    : null;
   const slotId = options.slotId || null;
   const gateId = options.gateId || gate || null;
   const qrValue = options.qrValue || null;
@@ -4105,25 +4115,24 @@ async function insertScanLogWithDb(db, stickerId, result, action, gate, notes, o
     [insertResult.insertId]
   );
 
-  return logRows.length > 0 ? logRows[0] : null;
+  const log = logRows[0] || null;
+  if (log && options.scannedAt) {
+    await db.query("UPDATE scan_logs SET scanned_at = ? WHERE id = ?", [options.scannedAt, log.id]);
+    log.scanned_at = options.scannedAt;
+  }
+  if (movement && log) {
+    const recorded = await gateLogging.recordMovement(db, { movement, scanLog: log, action,
+      guardName: assignedByGuard, gateName: gate, scannedAt: options.scannedAt });
+    Object.assign(log, { vehicle_log_id: recorded.id, gate_id: recorded.gate_id,
+      gate_name: recorded.gate_name, scan_type: recorded.scan_type });
+  }
+  return log;
 }
 
 async function getLastValidMovement(stickerId, db = pool) {
-  const [rows] = await db.query(
-    `SELECT id, action, scanned_at, slot_id
-     FROM scan_logs
-     WHERE sticker_id = ?
-       AND result = 'VALID'
-       AND action IN ('ENTRY', 'EXIT')
-     ORDER BY scanned_at DESC, id DESC
-     LIMIT 1`,
-    [stickerId]
-  );
-
-  return rows.length > 0 ? rows[0] : null;
+  return gateLogging.lastMovement(db, stickerId, db !== pool);
 }
-
-async function resolveScan(token, gate = "Gate 1") {
+async function resolveScan(token, gate = "Gate 1", actorName = null) {
   const verification = await getVerificationState(token);
   if (!verification.ok && verification.result === "INVALID") {
     const scanLog = await insertScanLog(null, "INVALID", "VERIFY", gate, "Token not found", {
@@ -4301,6 +4310,7 @@ async function resolveScan(token, gate = "Gate 1") {
         studentId: sticker.student_id_ref || null,
         vehicleId: sticker.vehicle_id_ref || sticker.vehicle_id || null,
         assignedArea: slot?.zone || null,
+        assignedByGuard: actorName,
         scanSource: "scanner",
         status: "AUTHORIZED"
       }
@@ -4922,6 +4932,11 @@ async function runDataRetentionCleanup() {
     );
     [results.studentLogs] = await pool.query(
       `DELETE FROM scan_logs WHERE scanned_at < NOW() - INTERVAL ${SCAN_LOG_RETENTION_DAYS} DAY`
+    );
+    // Gate history follows the same retention period as the original scan logs.
+    [results.vehicleGateLogs] = await pool.query(
+      "DELETE FROM vehicle_logs WHERE scanned_at < UTC_TIMESTAMP() - INTERVAL ? DAY",
+      [SCAN_LOG_RETENTION_DAYS]
     );
     [results.visitorLogs] = await pool.query(
       `DELETE FROM visitor_scan_logs WHERE scanned_at < NOW() - INTERVAL ${SCAN_LOG_RETENTION_DAYS} DAY`
@@ -7027,6 +7042,19 @@ app.post(["/stickers/:id/email", "/admin/email-deliveries/:id/retry"], requireRo
   res.status(410).json({ ok: false, message: "QR email delivery has been removed. Download or print the QR code instead." });
 });
 
+registerGateRoutes(app, {
+  pool, requireRole, roles: USER_ROLES, logger: console, audit: recordSecurityAudit,
+  normalizeToken: normalizeQrTokenInput, verify: getVerificationState,
+  lastMovement: getLastValidMovement, duplicateInfo: getDuplicateScanInfo,
+  assignSlot: assignParkingSlot, currentSlot: getCurrentParkingSlotBySticker,
+  releaseSlot: releaseParkingSlot, insertLog: insertScanLogWithDb, overview: getParkingSlotOverview,
+  publicError: getPublicErrorMessage, isExpired,
+  afterMovement: async (action, gate, stickerId, actor) => {
+    broadcastNotificationsUpdated("movement-recorded", { movement_action: action, gate_id: gate, sticker_id: stickerId });
+    await evaluateZoneCapacityAlerts(pool, actor);
+  }
+});
+
 app.get("/verify/:token", async (req, res) => {
   try {
     const verification = await getVerificationState(req.params.token);
@@ -7440,6 +7468,7 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
       }
 
       const action = lastMovement && lastMovement.action === "ENTRY" ? "EXIT" : "ENTRY";
+      gateLogging.assertGateDirection(await gateLogging.resolveGate(connection, gate), action);
 
       if (action === "ENTRY") {
         if (deferEntryConfirmation) {
@@ -7579,8 +7608,8 @@ app.post("/api/auto-scan/detect", requireRole(USER_ROLES.GUARD), async (req, res
         movement_saved: true,
         requires_confirmation: false,
         message: currentSlot
-          ? `EXIT recorded. Released slot ${currentSlot.slot_code}.`
-          : "EXIT recorded successfully.",
+          ? `Exit recorded at ${gate}. Released slot ${currentSlot.slot_code}.`
+          : `Exit recorded at ${gate}.`,
         released_slot: currentSlot?.slot_code || null,
         sticker: getAutoStickerPayload(sticker),
         behavior_risk: behaviorRisk,
@@ -7751,7 +7780,7 @@ app.post("/api/auto-scan/confirm-entry", requireRole(USER_ROLES.GUARD), async (r
         movement_saved: true,
         result: "VALID",
         action: "ENTRY",
-        message: `ENTRY recorded. Assigned slot ${assignedSlot.slot_code}.`,
+        message: `Entry recorded at ${gate}. Assigned slot ${assignedSlot.slot_code}.`,
         sticker: getAutoStickerPayload(sticker),
         behavior_risk: behaviorRisk,
         parking_slot: assignedSlot.slot_code,
@@ -7943,7 +7972,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
     }
 
     const assignedSlot = await assignParkingSlot(connection, sticker.id, slotId);
-    const finalGate = normalizeGateId(requestedGate || pendingEntry.gate_id);
+    const finalGate = normalizeGateId(pendingEntry.gate_id || requestedGate);
     const scanLog = await insertScanLogWithDb(
       connection,
       sticker.id,
@@ -8006,7 +8035,7 @@ app.post("/api/auto-scan/pending-entries/:id/confirm", requireRole(USER_ROLES.GU
       movement_saved: true,
       action: "ENTRY",
       pending_entry_id: entryId,
-      message: `ENTRY recorded. Assigned slot ${assignedSlot.slot_code}.`,
+      message: `Entry recorded at ${finalGate}. Assigned slot ${assignedSlot.slot_code}.`,
       sticker: getAutoStickerPayload(sticker),
       parking_slot: assignedSlot.slot_code,
       assigned_area: assignedSlot.zone,
@@ -8102,7 +8131,7 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.GUARD), async (req, res) => {
          v.color,
          st.full_name,
          st.student_number,
-         s.status AS sticker_status,
+         CASE WHEN s.status = 'active' AND s.expires_at < DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) THEN 'expired' ELSE s.status END AS sticker_status,
          s.sticker_code,
          s.qr_token,
          s.expires_at,
@@ -8110,12 +8139,7 @@ app.get("/api/gate-lookup", requireRole(USER_ROLES.GUARD), async (req, res) => {
          NULL AS visitor_type,
          NULL AS approval_status,
          (
-           SELECT sl2.action
-           FROM scan_logs sl2
-           WHERE sl2.sticker_id = s.id
-             AND sl2.result = 'VALID'
-             AND sl2.action IN ('ENTRY', 'EXIT')
-           ORDER BY sl2.scanned_at DESC, sl2.id DESC
+           SELECT UPPER(sl2.scan_type) FROM vehicle_logs sl2 WHERE sl2.vehicle_id = v.id ORDER BY sl2.scanned_at DESC, sl2.id DESC
            LIMIT 1
          ) AS last_action,
          (
@@ -8553,6 +8577,7 @@ app.post("/api/force-exit", requireRole(USER_ROLES.ADMIN), async (req, res) => {
         gate || "Admin Console",
         "Forced Exit by Admin",
         {
+          administrativeOverride: true,
           gateId: gate || "Admin Console",
           slotId: currentSlot?.id || null,
           assignedArea: currentSlot?.zone || null,
@@ -8709,11 +8734,11 @@ app.post("/api/scan", requireRole(USER_ROLES.GUARD), async (req, res) => {
   if (!token) return res.status(400).json({ ok: false, message: "Missing token" });
 
   try {
-    const result = await resolveScan(token, normalizeGateId(gate));
+    const result = await resolveScan(token, normalizeGateId(gate), getAuthActorName(req));
     res.json(result);
   } catch (error) {
     console.error("Scan API error:", error);
-    res.status(500).json({ ok: false, message: "Scan processing failed. Please try again." });
+    res.status(error instanceof gateLogging.GateLoggingError ? error.status : 500).json({ ok: false, message: getPublicErrorMessage(error, "Scan processing failed. Please try again.") });
   }
 });
 
@@ -8766,9 +8791,7 @@ app.get("/api/sync-roster", requireRole(USER_ROLES.GUARD), async (req, res) => {
         st.full_name,
         st.student_number,
         (
-          SELECT sl.action FROM scan_logs sl
-          WHERE sl.sticker_id = s.id AND sl.result = 'VALID' AND sl.action IN ('ENTRY', 'EXIT')
-          ORDER BY sl.scanned_at DESC, sl.id DESC LIMIT 1
+          SELECT UPPER(sl.scan_type) FROM vehicle_logs sl WHERE sl.vehicle_id = v.id ORDER BY sl.scanned_at DESC, sl.id DESC LIMIT 1
         ) AS last_action,
         (
           SELECT ps.slot_code FROM parking_slots ps
@@ -8846,10 +8869,21 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
         continue;
       }
       const action = requestedAction;
-      const gate = normalizeGateId(movement.gate || "Offline Scan");
+      let gate = normalizeGateId(movement.gate_id || movement.gate || "Gate 1");
       let scannedAt = new Date();
       if (!Number.isNaN(offlineDate.getTime()) && Math.abs(Date.now() - offlineDate.getTime()) <= 30 * 24 * 60 * 60 * 1000) {
         scannedAt = offlineDate;
+      }
+      try {
+        const validated = await gateLogging.validateMovement(connection, { stickerId: sticker.id, action, gate,
+          cooldownSeconds: SCAN_COOLDOWN_SECONDS, scannedAt });
+        gate = validated.gate.name;
+      } catch (error) {
+        if (!(error instanceof gateLogging.GateLoggingError)) throw error;
+        await connection.query("INSERT INTO offline_sync_receipts (event_id, sticker_id, action, synced_by_user_id, occurred_at) VALUES (?, ?, 'REJECTED', ?, NOW())", [eventId, sticker.id, req.authUser.id]);
+        acceptedEventIds.push(eventId);
+        results.push({ event_id: eventId, status: "rejected", reason: error.message });
+        continue;
       }
       let currentSlot = action === "EXIT" ? await getCurrentParkingSlotBySticker(sticker.id, connection) : null;
       if (action === "ENTRY") {
@@ -8884,11 +8918,11 @@ app.post("/api/sync-queue", requireRole(USER_ROLES.GUARD), async (req, res) => {
           vehicleId: sticker.vehicle_id,
           assignedArea: currentSlot?.zone || null,
           assignedByGuard: getAuthActorName(req),
+          scannedAt,
           scanSource: "offline_sync",
           status: "AUTHORIZED"
         }
       );
-      await connection.query("UPDATE scan_logs SET scanned_at = ? WHERE id = ?", [scannedAt, scanLog.id]);
       if (action === "EXIT") await releaseParkingSlot(connection, sticker.id);
       await connection.query(
         `INSERT INTO offline_sync_receipts (event_id, sticker_id, action, scan_log_id, synced_by_user_id, occurred_at)

@@ -448,3 +448,44 @@ test('retired QR email routes remain restricted to administrators', async t => {
     assert.equal((await app.request(route, { form: {} })).status, 302);
   }
 });
+
+// Gate APIs share the application's actual session authentication and role rules.
+for (const role of ['admin', 'guard']) {
+  test('gate logging permissions for ' + role, async t => {
+    const app = await startApp(t, { role }, { query(sql) {
+      if (/FROM gates/.test(sql)) return [[{ id: 4, name: 'Gate 4', type: 'exit' }]];
+    } });
+    for (const route of ['/api/gates', '/api/logs', '/api/vehicle-sessions', '/api/vehicles/1/latest-session']) {
+      assert.equal((await app.request(route)).status, 401);
+    }
+    assert.equal((await app.request('/api/scans', { data: { qr_data: 'test', gate_id: 4 } })).status, 401);
+    const cookie = (await app.signIn()).headers.get('set-cookie').split(';')[0];
+    const gates = await app.request('/api/gates', { cookie });
+    assert.equal(gates.status, 200);
+    assert.equal((await gates.json()).gates[0].type, 'exit');
+    assert.equal((await app.request('/api/logs?limit=101', { cookie })).status, 400);
+    assert.equal((await app.request('/api/vehicle-sessions?date_from=bad', { cookie })).status, 400);
+    if (role === 'admin') {
+      assert.equal((await app.request('/api/scans', { cookie, data: { qr_data: 'test', gate_id: 4 } })).status, 403);
+      assert.equal((await app.request('/api/gates/4', { cookie, data: { type: 'invalid' } })).status, 400);
+    } else {
+      assert.equal((await app.request('/api/gates/4', { cookie, data: { type: 'both' } })).status, 403);
+      assert.equal((await app.request('/api/scans', { cookie, data: { qr_data: {}, gate_id: 4 } })).status, 400);
+    }
+  });
+}
+
+test('gate history uses the existing scan log retention period', async t => {
+  const queries = [];
+  const app = await startApp(t, {}, { query(sql, values) {
+    if (/^\s*(DELETE FROM|UPDATE scan_logs|UPDATE auto_scan_queue)/.test(sql)) {
+      queries.push({ sql, values });
+      return [{ affectedRows: 0 }];
+    }
+  } });
+  await app.evaluate('runDataRetentionCleanup()');
+  const cleanup = queries.find(query => /DELETE FROM vehicle_logs/.test(query.sql));
+  assert.ok(cleanup);
+  assert.match(cleanup.sql, /INTERVAL \? DAY/);
+  assert.equal(cleanup.values[0], app.evaluate('SCAN_LOG_RETENTION_DAYS'));
+});

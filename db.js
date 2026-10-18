@@ -63,6 +63,7 @@ async function ensureDatabaseSchema() {
   await ensureSecurityMigrations();
   await ensureOperationalWorkflowMigrations();
   await ensurePerformanceIndexes();
+  await require("./lib/parking/gate-logging").migrate(pool, path.join(__dirname, "sql/migrations/20261018-gate-logging.sql"));
 }
 
 async function ensureSnapshotStorageMigrations() {
