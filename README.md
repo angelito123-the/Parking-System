@@ -85,3 +85,7 @@ Use Node.js 24 LTS. The package engine range keeps Render on this supported majo
 - Guard accounts are automatically suspended after 120 days without a sign-in in production unless `GUARD_INACTIVITY_DAYS` is changed or set to `0`.
 - For a no-cost online deployment, follow [DEPLOY_FREE.md](./DEPLOY_FREE.md).
 - Before using a phone or tablet at a gate, follow the [scanner device test checklist](./docs/SCANNER_DEVICE_TESTING.md).
+
+## Gate-aware entry and exit
+
+See [Gate logging and manual-entry guide](docs/GATE_LOGGING.md) for gate configuration, the additive migration, protected APIs, a Gate 1 entry / Gate 4 exit example, and verification steps. The existing scanner confirmation and parking closure rules still apply.

@@ -1,0 +1,28 @@
+<section class="panel gate-history-panel" id="vehicleGateHistory" data-admin="<%= typeof currentUser !== 'undefined' && currentUser?.role === 'admin' ? 'true' : 'false' %>" style="margin-top:1.25rem;">
+  <div class="section-head">
+    <h2>Vehicle gate history</h2>
+    <p>See where each registered vehicle entered and exited. Times and date filters use Philippine time.</p>
+  </div>
+  <form id="gateHistoryFilters" class="form-grid">
+    <div class="form-row-3">
+      <div><label for="gateHistoryView">View</label><select id="gateHistoryView" name="view"><option value="sessions">Entry and exit sessions</option><option value="logs">Individual scans</option></select></div>
+      <div><label for="gateHistoryGate">Gate</label><select id="gateHistoryGate" name="gate_id"><option value="">All gates</option></select></div>
+      <div><label for="gateHistoryVehicle">Vehicle plate</label><input id="gateHistoryVehicle" name="vehicle" maxlength="30" placeholder="Search by plate" /></div>
+    </div>
+    <div class="form-row-3">
+      <div><label for="gateHistoryFrom">From date</label><input id="gateHistoryFrom" name="date_from" type="date" /></div>
+      <div><label for="gateHistoryTo">To date</label><input id="gateHistoryTo" name="date_to" type="date" /></div>
+      <div><label for="gateHistoryType">Scan type</label><select id="gateHistoryType" name="scan_type" disabled><option value="">All types</option><option value="entry">Entry</option><option value="exit">Exit</option></select></div>
+    </div>
+    <div class="standard-form-actions"><button type="submit">Apply filters</button><button type="button" id="gateHistoryRefresh" class="btn-sm btn-reset">Refresh</button></div>
+  </form>
+  <p id="gateHistoryStatus" class="helper-text" role="status" aria-live="polite" style="margin:1rem 0;">Loading gate history...</p>
+  <div class="table-wrap ops-table-shell" tabindex="0" role="region" aria-label="Vehicle gate history table" style="overflow-x:auto;">
+    <table id="gateHistoryTable" style="min-width:780px;"><caption class="sr-only">Vehicle entry and exit gate records</caption><thead></thead><tbody></tbody></table>
+  </div>
+  <div class="standard-form-actions"><button type="button" id="gateHistoryPrevious" class="btn-sm btn-reset" disabled>Previous</button><span id="gateHistoryPage" class="helper-text"></span><button type="button" id="gateHistoryNext" class="btn-sm btn-reset" disabled>Next</button></div>
+  <% if (typeof currentUser !== 'undefined' && currentUser?.role === 'admin') { %>
+    <details style="margin-top:1rem;"><summary>Configure gate directions</summary><p class="helper-text">Changes apply to future scans and pending entry confirmations. Saved history keeps its original gate information.</p><div id="gateDirectionSettings" class="form-grid"></div><p id="gateDirectionStatus" class="helper-text" role="status" aria-live="polite"></p></details>
+  <% } %>
+</section>
+<script src="/js/gate-history.js?v=20261018-gates" defer></script>

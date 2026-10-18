@@ -30,12 +30,10 @@
       <div class="auto-gate-controls">
         <div>
           <label for="autoGateSelect">Gate</label>
-          <select id="autoGateSelect">
-            <option value="Gate 1">Gate 1</option>
-            <option value="Gate 2">Gate 2</option>
-            <option value="Gate 3">Gate 3</option>
-            <option value="Gate 4">Gate 4</option>
-            <option value="Gate 5">Gate 5</option>
+          <select data-gate-select id="autoGateSelect">
+            <% (typeof gates !== "undefined" ? gates : []).forEach((gate) => { %>
+            <option value="<%= gate.name %>" data-gate-id="<%= gate.id %>" data-gate-type="<%= gate.type %>"><%= gate.name %></option>
+            <% }) %>
           </select>
         </div>
         <button type="button" id="toggleAutoCameraBtn" class="auto-camera-toggle">Start Camera</button>
@@ -288,6 +286,7 @@
 
     let selectedSlotId = null;
     let pendingToken = null;
+    let pendingGateValue = null;
     let pendingSticker = null;
     let pendingSlotOverview = null;
 
@@ -1021,6 +1020,7 @@
     }
 
     async function processStableToken(token, decodedText, decodeMeta = null) {
+      const scannedGate = gateSelect.value;
       processingScan = true;
       setProcessingOverlay(true);
       setChip(chipAutoState, "Processing", "warning");
@@ -1058,7 +1058,7 @@
       try {
         const payload = {
           token,
-          gate: gateSelect.value,
+          gate: scannedGate,
           device_id: scannerDeviceId,
           defer_entry_confirmation: deferEntryConfirmation,
           snapshot_data_url: captureSnapshotDataUrl(),
@@ -1102,7 +1102,7 @@
               ${popupMetaRow("Student", data.sticker?.full_name || "-")}
               ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
               ${popupMetaRow("Cooldown", `${waitSeconds}s`)}
-              ${popupMetaRow("Gate", gateSelect.value)}
+              ${popupMetaRow("Gate", scannedGate)}
             `,
             autoHideMs: 3200
           });
@@ -1130,7 +1130,7 @@
             metaHtml: `
               ${popupMetaRow("Student", data.sticker?.full_name || "-")}
               ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
-              ${popupMetaRow("Gate", gateSelect.value)}
+              ${popupMetaRow("Gate", scannedGate)}
             `,
             autoHideMs: 4200
           });
@@ -1154,7 +1154,7 @@
               ${renderRiskMeta(lastRiskAssessment)}
             `
           );
-          pushSessionEvent("EXIT", "ok", "Exit saved", `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`);
+          pushSessionEvent("EXIT", "ok", "Exit saved", `${data.sticker?.plate_number || "Unknown plate"} at ${scannedGate}`);
           showScanInfoPopup({
             tone: "success",
             kicker: "Exit recorded",
@@ -1164,7 +1164,7 @@
               ${popupMetaRow("Student", data.sticker?.full_name || "-")}
               ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
               ${popupMetaRow("Released Slot", data.released_slot || "N/A")}
-              ${popupMetaRow("Gate", gateSelect.value)}
+              ${popupMetaRow("Gate", scannedGate)}
             `
           });
           playTone("ok");
@@ -1182,7 +1182,7 @@
             `
               ${resultMetaRow("Student", data.sticker?.full_name || "-")}
               ${resultMetaRow("Plate", data.sticker?.plate_number || "-")}
-              ${resultMetaRow("Gate", gateSelect.value)}
+              ${resultMetaRow("Gate", scannedGate)}
               ${resultMetaRow("Queue ID", data.pending_entry_id || "-")}
               ${renderMlMeta(decodeMeta)}
               ${renderRiskMeta(lastRiskAssessment)}
@@ -1193,7 +1193,7 @@
             "ENTRY",
             "ok",
             "Entry queued for laptop guard",
-            `${data.sticker?.plate_number || "Unknown plate"} at ${gateSelect.value}`
+            `${data.sticker?.plate_number || "Unknown plate"} at ${scannedGate}`
           );
           showScanInfoPopup({
             tone: "success",
@@ -1204,7 +1204,7 @@
               ${popupMetaRow("Student", data.sticker?.full_name || "-")}
               ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
               ${popupMetaRow("Queue ID", data.pending_entry_id || "-")}
-              ${popupMetaRow("Gate", gateSelect.value)}
+              ${popupMetaRow("Gate", scannedGate)}
             `
           });
           playTone("ok");
@@ -1214,6 +1214,7 @@
 
         if (data.action === "ENTRY" && data.requires_confirmation) {
           pendingToken = token;
+          pendingGateValue = scannedGate;
           pendingSticker = data.sticker || null;
           pendingSlotOverview = data.parkingSlotOverview || { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
           selectedSlotId = null;
@@ -1253,7 +1254,7 @@
           kicker: "Review",
           title: "Scan completed",
           message: data.message || "No action was recorded for this QR.",
-          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          metaHtml: `${popupMetaRow("Gate", scannedGate)}`,
           autoHideMs: 3200
         });
         await resumeScanner(900);
@@ -1263,17 +1264,22 @@
             const offlineVerification = await window.OfflineManager.verifyOfflineToken(token);
             if (offlineVerification?.ok) {
               const offlineAction = offlineVerification.sticker?.last_action === "ENTRY" ? "EXIT" : "ENTRY";
-              await window.OfflineManager.queueMovement(token, offlineAction, gateSelect.value, Date.now());
+              if (window.NaapGateSelector && !window.NaapGateSelector.allows(gateSelect, offlineAction)) {
+                setResultState("warning", "Gate direction mismatch", scannedGate + " does not allow " + offlineAction.toLowerCase() + ".");
+                await resumeScanner(900);
+                return;
+              }
+              await window.OfflineManager.queueMovement(token, offlineAction, scannedGate, Date.now());
               hideEntryPanel();
               setResultState("warning", `${offlineAction} queued offline`, "The record will synchronize automatically when internet access returns.");
               setChip(chipAutoState, "Saved Offline", "warning");
-              pushSessionEvent(offlineAction, "warning", `${offlineAction} queued offline`, offlineVerification.sticker?.plate_number || gateSelect.value);
+              pushSessionEvent(offlineAction, "warning", `${offlineAction} queued offline`, offlineVerification.sticker?.plate_number || scannedGate);
               showScanInfoPopup({
                 tone: "warning",
                 kicker: "Saved offline",
                 title: `${offlineAction} queued`,
                 message: "Safe to continue scanning. This record will sync automatically.",
-                metaHtml: `${popupMetaRow("Plate", offlineVerification.sticker?.plate_number || "-")}${popupMetaRow("Gate", gateSelect.value)}`,
+                metaHtml: `${popupMetaRow("Plate", offlineVerification.sticker?.plate_number || "-")}${popupMetaRow("Gate", scannedGate)}`,
                 autoHideMs: 4200
               });
               playTone("ok");
@@ -1295,7 +1301,7 @@
           kicker: "Scan error",
           title: "Unable to process QR",
           message: error.message || "Unable to process this scan right now.",
-          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          metaHtml: `${popupMetaRow("Gate", scannedGate)}`,
           autoHideMs: 4200
         });
         playTone("warn");
@@ -1599,6 +1605,7 @@
     });
 
     confirmEntryBtn.addEventListener("click", async () => {
+      const confirmedGate = pendingGateValue || gateSelect.value;
       if (!pendingToken) {
         entryConfirmHint.textContent = "No pending entry to confirm.";
         return;
@@ -1616,7 +1623,7 @@
       try {
         const payload = {
           token: pendingToken,
-          gate: gateSelect.value,
+          gate: confirmedGate,
           device_id: scannerDeviceId,
           slot_id: selectedSlotId,
           snapshot_data_url: captureSnapshotDataUrl(),
@@ -1660,7 +1667,7 @@
             ${popupMetaRow("Student", data.sticker?.full_name || "-")}
             ${popupMetaRow("Plate", data.sticker?.plate_number || "-")}
             ${popupMetaRow("Assigned Slot", data.parking_slot || "-")}
-            ${popupMetaRow("Gate", gateSelect.value)}
+            ${popupMetaRow("Gate", confirmedGate)}
           `
         });
 
@@ -1681,7 +1688,7 @@
           kicker: "Entry failed",
           title: "Unable to save entry",
           message: error.message || "Failed to save entry.",
-          metaHtml: `${popupMetaRow("Gate", gateSelect.value)}`,
+          metaHtml: `${popupMetaRow("Gate", confirmedGate)}`,
           autoHideMs: 4200
         });
         playTone("warn");
@@ -1724,4 +1731,5 @@
   })();
 </script>
 
+<script src="/js/gate-selector.js?v=20261018-gates" defer></script>
 <%- include("partials/footer") %>

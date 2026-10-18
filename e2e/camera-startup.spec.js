@@ -26,6 +26,7 @@ async function serveScanner(page, options = {}) {
     if (url.pathname === "/scanner/auto" || url.pathname === "/scanner") {
       const template = url.pathname === "/scanner" ? "scanner.ejs" : "scanner_auto.ejs";
       const html = ejs.render(fs.readFileSync(path.join(root, "views", template), "utf8"), {
+        gates: Array.from({ length: 5 }, (_, index) => ({ id: index + 1, name: `Gate ${index + 1}`, type: index === 3 ? "exit" : "both" })),
         deferEntryConfirmation: url.searchParams.get("mode") === "remote",
         currentRole: "guard", scanCooldownSeconds: 10, cspNonce: "camera-test",
         include: name => name === "partials/header"

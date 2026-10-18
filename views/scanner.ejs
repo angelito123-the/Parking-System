@@ -49,12 +49,10 @@
       </div>
       <div>
         <label for="gateNameSelect">Current Gate</label>
-        <select id="gateNameSelect">
-          <option value="Gate 1">Gate 1</option>
-          <option value="Gate 2">Gate 2</option>
-          <option value="Gate 3">Gate 3</option>
-          <option value="Gate 4">Gate 4</option>
-          <option value="Gate 5">Gate 5</option>
+        <select data-gate-select id="gateNameSelect">
+          <% (typeof gates !== "undefined" ? gates : []).forEach((gate) => { %>
+          <option value="<%= gate.name %>" data-gate-id="<%= gate.id %>" data-gate-type="<%= gate.type %>"><%= gate.name %></option>
+          <% }) %>
         </select>
       </div>
       <button type="button" id="gateSearchBtn" class="gate-search-btn">Search Record</button>
@@ -167,11 +165,12 @@
     const toggleCameraBtn = document.getElementById("toggleCameraBtn");
     const cameraWrapper = document.getElementById("cameraWrapper");
     const cameraStatus = document.getElementById("cameraStatus");
-    const scannerGuidance = new window.ScannerGuidance({
+    // Camera helpers must not prevent manual lookup if an optional script fails.
+    const scannerGuidance = typeof window.ScannerGuidance === "function" ? new window.ScannerGuidance({
       cameraContainer: "qr-reader",
       guidanceElement: "scannerGuidance",
       torchButton: "scannerTorchBtn"
-    });
+    }) : { start() {}, stop() {}, update() {}, detected() {}, unreadableFrame() {} };
 
     const remoteQueueStatus = document.getElementById("remoteQueueStatus");
     const remoteQueueList = document.getElementById("remoteQueueList");
@@ -189,6 +188,7 @@
     const remoteEntryCancelBtn = document.getElementById("remoteEntryCancelBtn");
 
     let selectedToken = null;
+    let movementSaving = false;
     let selectedLabel = "";
     let selectedEntityType = "student";
     let selectedSlotId = null;
@@ -456,7 +456,7 @@
         }
 
         playBeep("success");
-        statusEl.textContent = `Confirmed ENTRY for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`;
+        statusEl.textContent = data.message || `Entry recorded at ${data.gate_id || "the selected gate"}.`;
         closeRemoteEntryModal();
         await fetchRemotePendingEntries({ silent: true });
         await loadParkingSlots().catch(() => null);
@@ -576,13 +576,16 @@
           `).join("")}
         </div>
       `;
-      slotMap.querySelectorAll(".scanner-slot-grid").forEach(window.NaapParkingLayout.apply);
+      if (window.NaapParkingLayout?.apply) {
+        slotMap.querySelectorAll(".scanner-slot-grid").forEach(window.NaapParkingLayout.apply);
+      }
       attachSlotHandlers();
     }
 
     async function loadParkingSlots(scope = "all") {
       if (!slotPickerStatus) return;
       slotPickerStatus.textContent = "Loading parking map...";
+      entryBtn.disabled = true;
       selectedSlotId = null;
       const selectedScope = String(scope || "all").toLowerCase();
 
@@ -598,6 +601,12 @@
         const totalCount = parkingOverview.summary?.total || parkingOverview.slots.length || 0;
         slotPickerStatus.textContent = `${availableCount} available out of ${totalCount} slots`;
         renderParkingMap(parkingOverview);
+        entryBtn.disabled = availableCount <= 0;
+        if (availableCount <= 0) {
+          logFeedback.textContent = totalCount > 0 && Number(parkingOverview.summary.disabled) === Number(totalCount)
+            ? "All parking spaces are disabled. Ask an administrator to reopen a space before recording entry."
+            : "No parking spaces are available. Entry cannot be recorded until a space is available.";
+        }
       } catch (error) {
         parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
         slotPickerStatus.textContent = "Unable to load parking map";
@@ -743,7 +752,7 @@
       const restrictedReason = statusRaw === "pending"
         ? "Pending approval - cannot record movement yet."
         : statusRaw === "expired"
-          ? "Visitor pass has expired."
+          ? isVisitor ? "Visitor pass has expired." : "Vehicle sticker has expired. Ask an administrator to renew it."
           : statusRaw === "revoked"
             ? "Access denied for this pass."
             : "No active QR token available.";
@@ -808,7 +817,7 @@
           slotPickerPanel.style.display = "none";
           if (lastAction === "ENTRY") {
              entryBtn.style.display = "none";
-          } else if (lastAction === "EXIT") {
+          } else {
              exitBtn.style.display = "none";
           }
 
@@ -901,8 +910,12 @@
 
     // --- Record Logic ---
     async function recordMovement(action) {
-      if (!selectedToken) return;
+      if (!selectedToken || movementSaving) return;
       const gate = gateSelect.value || "Gate 1";
+      if (window.NaapGateSelector && !window.NaapGateSelector.allows(gateSelect, action)) {
+        logFeedback.textContent = gate + " does not allow " + action.toLowerCase() + ". Select a gate that allows this movement.";
+        return;
+      }
       if (action === "ENTRY" && !selectedSlotId) {
         logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Choose a parking slot on the map before recording entry.</div>`;
         return;
@@ -934,7 +947,10 @@
         setGateStage("scan");
         setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
       } else {
-        // Direct Online Request
+        // Block repeated clicks while the movement request is in flight.
+        movementSaving = true;
+        entryBtn.disabled = true;
+        exitBtn.disabled = true;
         try {
           const resp = await fetch("/api/manual-movement", {
             method: "POST",
@@ -957,8 +973,8 @@
               selectedSlotId = null;
               slotPickerPanel.style.display = "none";
             }
-            logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">${action} recorded to main database.</div>`;
-            statusEl.textContent = `${action} recorded successfully. Ready for next scan.`;
+            logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">${action === "ENTRY" ? "Entry" : "Exit"} recorded at ${escapeHtml(gate)}.</div>`;
+            statusEl.textContent = `${action === "ENTRY" ? "Entry" : "Exit"} recorded at ${gate}. Ready for next scan.`;
             setGateStage("scan");
             selectedToken = null;
             selectedLabel = "";
@@ -974,7 +990,11 @@
           setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
         } catch (err) {
           playBeep('error');
-          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Network error. Start app in true offline mode.</div>`;
+          logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Unable to save movement. Check your connection and retry.</div>`;
+        } finally {
+          movementSaving = false;
+          entryBtn.disabled = !parkingOverview.slots.some(slot => slot.occupancy === "available");
+          exitBtn.disabled = false;
         }
       }
     }
@@ -1042,4 +1062,5 @@
 </section>
 </div> <!-- end overlap-wrapper -->
 
+<script src="/js/gate-selector.js?v=20261018-gates" defer></script>
 <%- include("partials/footer") %>

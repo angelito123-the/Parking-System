@@ -1112,7 +1112,9 @@
         renderSlotMap(slotOverview);
         guardEntryHint.textContent = hasAvailable
           ? "Select an available slot to continue."
-          : "No available slots right now.";
+          : slots.every(slot => slot.occupancy === "disabled")
+            ? "All parking spaces are disabled. Ask an administrator to reopen a space before confirming entry."
+            : "No available slots right now.";
       } catch (error) {
         if (requestId !== entryModalRequestId) return;
         if (guardSlotMap) {
@@ -1216,7 +1218,7 @@
           throw new Error(data.message || `Unable to confirm entry (${resp.status})`);
         }
 
-        showLiveAlert(`ENTRY confirmed for ${data.sticker?.plate_number || "vehicle"} at ${data.parking_slot || "-"}.`, "success", 5200);
+        showLiveAlert(data.message || `Entry recorded at ${data.gate_id || "the selected gate"}.`,  "success", 5200);
         if (requestId === entryModalRequestId) closeGuardEntryModal();
         await Promise.all([
           fetchPendingEntries({ silent: true }),
@@ -1337,5 +1339,7 @@
     }, 20000);
   })();
 </script>
+
+<%- include("partials/gate-history") %>
 
 <%- include("partials/footer") %>
