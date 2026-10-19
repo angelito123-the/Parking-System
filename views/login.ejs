@@ -32,6 +32,8 @@
       --danger: #a11b3c;
       --danger-bg: #fff1f3;
       --success: #22c55e;
+      --login-enter-ease: cubic-bezier(0.16, 1, 0.3, 1);
+      --login-control-ease: cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     html { min-height: 100%; }
@@ -76,7 +78,6 @@
       top: 12%;
       border: 72px solid rgba(59, 130, 246, 0.07);
       border-radius: 50%;
-      animation: orbFloat 10s ease-in-out infinite alternate;
     }
 
     .login-shell {
@@ -93,7 +94,6 @@
       background: var(--surface);
       box-shadow: none;
       transform-origin: center;
-      animation: shellEnter 620ms cubic-bezier(0.2, 0.76, 0.22, 1) both;
       transition: transform 180ms ease, opacity 180ms ease, filter 180ms ease;
     }
 
@@ -130,7 +130,6 @@
         transparent 66px 130px
       );
       background-size: 300% 100%;
-      animation: laneDrift 18s linear infinite;
     }
 
     .brand-panel::after {
@@ -149,7 +148,38 @@
       font-size: 6.8rem;
       font-weight: 700;
       line-height: 1;
-      animation: markRotate 24s linear infinite;
+    }
+
+    /* Decorative glows move independently behind the readable brand content. */
+    .brand-orb {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      pointer-events: none;
+      opacity: 0.24;
+      background: radial-gradient(circle, #60a5fa, transparent 70%);
+      animation: brandOrbDrift 14s ease-in-out infinite;
+    }
+
+    .brand-orb--one { top: -180px; right: -120px; }
+    .brand-orb--two {
+      width: 400px;
+      height: 400px;
+      bottom: -120px;
+      left: -100px;
+      background: radial-gradient(circle, #ffffff, transparent 70%);
+      animation-duration: 18s;
+      animation-direction: reverse;
+    }
+    .brand-orb--three {
+      width: 250px;
+      height: 250px;
+      top: 45%;
+      left: 45%;
+      background: radial-gradient(circle, #818cf8, transparent 70%);
+      animation-duration: 10s;
+      animation-delay: 2s;
     }
 
     .brand-top,
@@ -163,7 +193,7 @@
       display: flex;
       align-items: center;
       gap: 0.9rem;
-      animation: contentEnter 500ms 160ms ease-out both;
+      animation: contentEnter 600ms 100ms var(--login-enter-ease) backwards;
     }
 
     .brand-logo {
@@ -172,7 +202,7 @@
       flex: 0 0 auto;
       border-radius: 15px;
       box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
-      animation: logoSettle 700ms 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      animation: logoFloat 5s ease-in-out infinite;
     }
 
     .brand-name {
@@ -206,7 +236,7 @@
       font-weight: 800;
       letter-spacing: 0.11em;
       text-transform: uppercase;
-      animation: contentEnter 500ms 230ms ease-out both;
+      animation: contentEnter 600ms 100ms var(--login-enter-ease) backwards;
     }
 
     .brand-kicker::before {
@@ -224,7 +254,7 @@
       line-height: 1.08;
       letter-spacing: -0.025em;
       text-wrap: balance;
-      animation: contentEnter 540ms 290ms ease-out both;
+      animation: contentEnter 600ms 100ms var(--login-enter-ease) backwards;
     }
 
     .brand-copy {
@@ -233,7 +263,7 @@
       color: rgba(219, 234, 254, 0.78);
       font-size: 0.9rem;
       line-height: 1.65;
-      animation: contentEnter 540ms 350ms ease-out both;
+      animation: contentEnter 600ms 100ms var(--login-enter-ease) backwards;
     }
 
     .brand-features {
@@ -244,14 +274,23 @@
       font-size: 0.76rem;
       font-weight: 650;
       list-style: none;
-      animation: contentEnter 540ms 390ms ease-out both;
     }
 
     .brand-features li {
       display: flex;
       align-items: center;
       gap: 0.62rem;
+      padding: 0.75rem;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      animation: contentEnter 600ms var(--login-enter-ease) backwards;
+      transition: transform 300ms var(--login-control-ease), background-color 300ms ease, border-color 300ms ease;
     }
+
+    .brand-features li:nth-child(1) { animation-delay: 100ms; }
+    .brand-features li:nth-child(2) { animation-delay: 200ms; }
+    .brand-features li:nth-child(n+3) { animation-delay: 300ms; }
 
     .feature-check {
       width: 20px;
@@ -265,6 +304,7 @@
       background: rgba(59, 130, 246, 0.12);
       font-size: 0.68rem;
       line-height: 1;
+      transition: background-color 300ms ease;
     }
 
     .portal-status {
@@ -280,7 +320,7 @@
       backdrop-filter: blur(8px);
       font-size: 0.73rem;
       font-weight: 700;
-      animation: contentEnter 500ms 410ms ease-out both;
+      animation: contentEnter 600ms 300ms var(--login-enter-ease) backwards;
     }
 
     .status-dot {
@@ -298,7 +338,6 @@
       inset: -4px;
       border: 1px solid rgba(74, 222, 128, 0.58);
       border-radius: inherit;
-      animation: statusPulse 2.2s ease-out infinite;
     }
 
     .auth-panel {
@@ -361,14 +400,19 @@
       font-size: 0.68rem;
     }
 
+    .mobile-brand,
     .auth-kicker,
     .auth-title,
     .auth-copy,
     .login-error,
     .login-form,
-    .login-note {
-      animation: formItemEnter 480ms ease-out both;
+    .login-note,
+    .auth-footer {
+      animation: formItemEnter 500ms 150ms var(--login-enter-ease) backwards;
     }
+
+    /* Focus makes the form immediately visible, even during its entrance. */
+    .auth-panel:focus-within > * { animation: none; }
 
     .auth-kicker {
       margin-bottom: 0.55rem;
@@ -377,7 +421,6 @@
       font-weight: 800;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      animation-delay: 230ms;
     }
 
     .auth-title {
@@ -387,7 +430,6 @@
       font-weight: 600;
       line-height: 1.12;
       letter-spacing: -0.025em;
-      animation-delay: 280ms;
     }
 
     .auth-copy {
@@ -395,7 +437,6 @@
       color: var(--muted);
       font-size: 0.87rem;
       line-height: 1.55;
-      animation-delay: 330ms;
     }
 
     .login-error {
@@ -411,7 +452,7 @@
       font-size: 0.82rem;
       font-weight: 700;
       line-height: 1.4;
-      animation-delay: 350ms;
+      animation: loginAlertEnter 300ms var(--login-enter-ease);
     }
 
     .login-error .ph {
@@ -422,7 +463,6 @@
 
     .login-form {
       min-width: 0;
-      animation-delay: 380ms;
     }
 
     .form-group { margin-bottom: 1rem; }
@@ -447,7 +487,7 @@
       border-radius: 12px;
       background: #fff;
       box-shadow: 0 1px 2px rgba(15, 39, 66, 0.03);
-      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+      transition: border-color 200ms var(--login-control-ease), box-shadow 200ms var(--login-control-ease);
     }
 
     .input-wrap.has-action {
@@ -457,7 +497,6 @@
     .input-wrap:focus-within {
       border-color: var(--blue-500);
       box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.13), 0 7px 16px rgba(37, 99, 235, 0.08);
-      transform: translateY(-1px);
     }
 
     .input-icon {
@@ -541,28 +580,41 @@
       box-shadow: 0 11px 22px rgba(18, 63, 114, 0.23);
       cursor: pointer;
       font: 700 0.94rem/1 "Manrope", sans-serif;
-      transition: transform 170ms ease, box-shadow 170ms ease, filter 170ms ease;
+      transition: transform 250ms var(--login-control-ease), box-shadow 250ms var(--login-control-ease);
     }
 
     .login-btn::before {
       content: "";
       position: absolute;
       inset: 0;
-      transform: translateX(-120%) skewX(-24deg);
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      transition: transform 650ms ease;
+      opacity: 0;
+      pointer-events: none;
+      background: linear-gradient(135deg, #1557a4 0%, #123f72 100%);
+      transition: opacity 250ms ease;
     }
 
-    .login-btn:hover {
-      transform: translateY(-2px);
-      filter: brightness(1.04);
-      box-shadow: 0 15px 28px rgba(18, 63, 114, 0.3);
+    .login-btn > * { position: relative; z-index: 1; }
+    .login-btn .button-icon { transition: transform 250ms var(--login-control-ease); }
+
+    @media (hover: hover) and (pointer: fine) {
+      .login-btn:hover:not(:disabled):not(.is-loading) {
+        transform: translateY(-2px);
+        box-shadow: 0 15px 28px rgba(18, 63, 114, 0.3);
+      }
+      .login-btn:hover:not(:disabled):not(.is-loading)::before { opacity: 1; }
+      .login-btn:hover:not(:disabled):not(.is-loading) .button-icon { transform: translateX(3px); }
+      .brand-features li:hover {
+        transform: translateX(4px);
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .brand-features li:hover .feature-check { background: rgba(255, 255, 255, 0.2); }
     }
 
-    .login-btn:hover::before { transform: translateX(120%) skewX(-24deg); }
+    .login-btn:focus-visible .button-icon { transform: translateX(3px); }
 
-    .login-btn:active {
-      transform: translateY(0);
+    .login-btn:active:not(:disabled):not(.is-loading) {
+      transform: translateY(0) scale(0.99);
       box-shadow: 0 8px 16px rgba(18, 63, 114, 0.23);
     }
 
@@ -594,7 +646,6 @@
       color: var(--muted);
       font-size: 0.72rem;
       text-align: center;
-      animation-delay: 440ms;
     }
 
     .login-note .ph {
@@ -610,45 +661,32 @@
       font-size: 0.68rem;
       line-height: 1.45;
       text-align: center;
-      animation: formItemEnter 480ms 480ms ease-out both;
-    }
-
-    @keyframes shellEnter {
-      from { opacity: 0; transform: translateY(20px) scale(0.985); }
-      to { opacity: 1; transform: none; }
     }
 
     @keyframes contentEnter {
-      from { opacity: 0; transform: translateX(-12px); }
+      from { opacity: 0; transform: translateX(-20px); }
       to { opacity: 1; transform: none; }
     }
 
     @keyframes formItemEnter {
-      from { opacity: 0; transform: translateY(10px); }
+      from { opacity: 0; transform: translateY(16px); }
       to { opacity: 1; transform: none; }
     }
 
-    @keyframes logoSettle {
-      0% { opacity: 0; transform: scale(0.82) rotate(-8deg); }
-      70% { opacity: 1; transform: scale(1.04) rotate(1deg); }
-      100% { opacity: 1; transform: none; }
+    @keyframes logoFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
     }
 
-    @keyframes laneDrift {
-      to { background-position: 300px 0; }
+    @keyframes brandOrbDrift {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(20px, -25px) scale(1.05); }
+      66% { transform: translate(-15px, 15px) scale(0.95); }
     }
 
-    @keyframes markRotate {
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes statusPulse {
-      0% { opacity: 0.85; transform: scale(0.55); }
-      75%, 100% { opacity: 0; transform: scale(1.35); }
-    }
-
-    @keyframes orbFloat {
-      to { transform: translate(-22px, 28px) scale(1.05); }
+    @keyframes loginAlertEnter {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: none; }
     }
 
     @keyframes btnSpin {
@@ -700,11 +738,14 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         scroll-behavior: auto !important;
-        animation-delay: 0ms !important;
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
+        animation: none !important;
         transition-duration: 0.01ms !important;
       }
+      .brand-features li:hover,
+      .login-btn,
+      .login-btn .button-icon,
+      .password-toggle:active,
+      .login-shell.is-submitting { transform: none !important; }
     }
   </style>
 </head>
@@ -714,6 +755,9 @@
 
   <main class="login-shell">
     <section class="brand-panel" aria-label="NAAP Parking Management">
+      <div class="brand-orb brand-orb--one" aria-hidden="true"></div>
+      <div class="brand-orb brand-orb--two" aria-hidden="true"></div>
+      <div class="brand-orb brand-orb--three" aria-hidden="true"></div>
       <div class="brand-top">
         <img class="brand-logo" src="/icons/icon-192.png" alt="" />
         <div>
