@@ -32,8 +32,8 @@
       --danger: #a11b3c;
       --danger-bg: #fff1f3;
       --success: #22c55e;
-      --login-enter-ease: cubic-bezier(0.16, 1, 0.3, 1);
-      --login-control-ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --login-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+      --login-control-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     }
 
     html { min-height: 100%; }
@@ -93,14 +93,6 @@
       border-radius: 0;
       background: var(--surface);
       box-shadow: none;
-      transform-origin: center;
-      transition: transform 180ms ease, opacity 180ms ease, filter 180ms ease;
-    }
-
-    .login-shell.is-submitting {
-      transform: translateY(-2px) scale(0.997);
-      opacity: 0.97;
-      filter: saturate(0.94);
     }
 
     .brand-panel {
@@ -122,14 +114,12 @@
       content: "";
       position: absolute;
       inset: 0;
-      opacity: 0.15;
-      background: repeating-linear-gradient(
-        115deg,
-        transparent 0 64px,
-        rgba(255, 255, 255, 0.42) 64px 66px,
-        transparent 66px 130px
-      );
-      background-size: 300% 100%;
+      opacity: 0.5;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: linear-gradient(to bottom, transparent, #000 25%, #000 75%, transparent);
     }
 
     .brand-panel::after {
@@ -141,7 +131,7 @@
       place-items: center;
       width: 260px;
       height: 260px;
-      border: 48px solid rgba(255, 255, 255, 0.065);
+      border: 48px solid rgba(255, 255, 255, 0.035);
       border-radius: 50%;
       color: rgba(255, 255, 255, 0.08);
       font-family: "Outfit", sans-serif;
@@ -159,7 +149,7 @@
       pointer-events: none;
       opacity: 0.24;
       background: radial-gradient(circle, #60a5fa, transparent 70%);
-      animation: brandOrbDrift 14s ease-in-out infinite;
+      animation: brandOrbDrift 18s ease-in-out infinite;
     }
 
     .brand-orb--one { top: -180px; right: -120px; }
@@ -169,7 +159,7 @@
       bottom: -120px;
       left: -100px;
       background: radial-gradient(circle, #ffffff, transparent 70%);
-      animation-duration: 18s;
+      animation-duration: 22s;
       animation-direction: reverse;
     }
     .brand-orb--three {
@@ -178,7 +168,7 @@
       top: 45%;
       left: 45%;
       background: radial-gradient(circle, #818cf8, transparent 70%);
-      animation-duration: 10s;
+      animation-duration: 16s;
       animation-delay: 2s;
     }
 
@@ -202,7 +192,7 @@
       flex: 0 0 auto;
       border-radius: 15px;
       box-shadow: 0 12px 24px rgba(0, 0, 0, 0.22);
-      animation: logoFloat 5s ease-in-out infinite;
+      animation: logoFloat 6s ease-in-out infinite;
     }
 
     .brand-name {
@@ -249,9 +239,9 @@
 
     .brand-title {
       font-family: "Outfit", sans-serif;
-      font-size: clamp(2rem, 4vw, 2.7rem);
+      font-size: clamp(2.1rem, 3.6vw, 3rem);
       font-weight: 600;
-      line-height: 1.08;
+      line-height: 1.13;
       letter-spacing: -0.025em;
       text-wrap: balance;
       animation: contentEnter 600ms 100ms var(--login-enter-ease) backwards;
@@ -271,7 +261,8 @@
       gap: 0.55rem;
       margin-top: 1.35rem;
       color: rgba(239, 246, 255, 0.88);
-      font-size: 0.76rem;
+      font-size: 0.82rem;
+      line-height: 1.5;
       font-weight: 650;
       list-style: none;
     }
@@ -280,17 +271,17 @@
       display: flex;
       align-items: center;
       gap: 0.62rem;
-      padding: 0.75rem;
+      padding: 0.85rem 0.9rem;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.06);
-      animation: contentEnter 600ms var(--login-enter-ease) backwards;
-      transition: transform 300ms var(--login-control-ease), background-color 300ms ease, border-color 300ms ease;
+      animation: contentEnter 480ms var(--login-enter-ease) backwards;
+      transition: translate 240ms var(--login-control-ease), background-color 240ms ease, border-color 240ms ease;
     }
 
-    .brand-features li:nth-child(1) { animation-delay: 100ms; }
-    .brand-features li:nth-child(2) { animation-delay: 200ms; }
-    .brand-features li:nth-child(n+3) { animation-delay: 300ms; }
+    .brand-features li:nth-child(1) { animation-delay: 80ms; }
+    .brand-features li:nth-child(2) { animation-delay: 130ms; }
+    .brand-features li:nth-child(n+3) { animation-delay: 180ms; }
 
     .feature-check {
       width: 20px;
@@ -367,10 +358,16 @@
       pointer-events: none;
     }
 
-    .auth-panel > * {
+    .auth-card {
       position: relative;
       z-index: 1;
-      width: min(520px, 100%);
+      width: min(480px, 100%);
+      padding: clamp(1.5rem, 2.5vw, 2.25rem);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--surface);
+      box-shadow: 0 20px 64px rgba(18, 58, 102, 0.07), 0 2px 8px rgba(18, 58, 102, 0.03);
+      animation: formItemEnter 480ms var(--login-enter-ease) backwards;
     }
 
     .mobile-brand {
@@ -400,20 +397,6 @@
       font-size: 0.68rem;
     }
 
-    .mobile-brand,
-    .auth-kicker,
-    .auth-title,
-    .auth-copy,
-    .login-error,
-    .login-form,
-    .login-note,
-    .auth-footer {
-      animation: formItemEnter 500ms 150ms var(--login-enter-ease) backwards;
-    }
-
-    /* Focus makes the form immediately visible, even during its entrance. */
-    .auth-panel:focus-within > * { animation: none; }
-
     .auth-kicker {
       margin-bottom: 0.55rem;
       color: var(--blue-600);
@@ -435,7 +418,7 @@
     .auth-copy {
       margin: 0.65rem 0 1rem;
       color: var(--muted);
-      font-size: 0.87rem;
+      font-size: 0.9rem;
       line-height: 1.55;
     }
 
@@ -577,7 +560,7 @@
       border-radius: 12px;
       color: #fff;
       background: linear-gradient(135deg, #123f72 0%, #1557a4 100%);
-      box-shadow: 0 11px 22px rgba(18, 63, 114, 0.23);
+      box-shadow: 0 8px 18px rgba(18, 63, 114, 0.16);
       cursor: pointer;
       font: 700 0.94rem/1 "Manrope", sans-serif;
       transition: transform 250ms var(--login-control-ease), box-shadow 250ms var(--login-control-ease);
@@ -598,13 +581,13 @@
 
     @media (hover: hover) and (pointer: fine) {
       .login-btn:hover:not(:disabled):not(.is-loading) {
-        transform: translateY(-2px);
-        box-shadow: 0 15px 28px rgba(18, 63, 114, 0.3);
+        transform: translateY(-1px);
+        box-shadow: 0 10px 26px rgba(18, 63, 114, 0.22);
       }
       .login-btn:hover:not(:disabled):not(.is-loading)::before { opacity: 1; }
       .login-btn:hover:not(:disabled):not(.is-loading) .button-icon { transform: translateX(3px); }
       .brand-features li:hover {
-        transform: translateX(4px);
+        translate: 3px 0;
         background: rgba(255, 255, 255, 0.14);
         border-color: rgba(255, 255, 255, 0.2);
       }
@@ -664,24 +647,23 @@
     }
 
     @keyframes contentEnter {
-      from { opacity: 0; transform: translateX(-20px); }
+      from { opacity: 0.4; transform: translateY(10px); }
       to { opacity: 1; transform: none; }
     }
 
     @keyframes formItemEnter {
-      from { opacity: 0; transform: translateY(16px); }
+      from { opacity: 0.4; transform: translateY(12px); }
       to { opacity: 1; transform: none; }
     }
 
     @keyframes logoFloat {
       0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
+      50% { transform: translateY(-6px); }
     }
 
     @keyframes brandOrbDrift {
       0%, 100% { transform: translate(0, 0) scale(1); }
-      33% { transform: translate(20px, -25px) scale(1.05); }
-      66% { transform: translate(-15px, 15px) scale(0.95); }
+      50% { transform: translate(16px, -20px) scale(1.035); }
     }
 
     @keyframes loginAlertEnter {
@@ -715,6 +697,14 @@
 
       .mobile-brand { display: flex; }
 
+      .auth-card {
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+
       .auth-title { font-size: 1.85rem; }
 
       .auth-copy { margin-bottom: 1.35rem; }
@@ -744,8 +734,8 @@
       .brand-features li:hover,
       .login-btn,
       .login-btn .button-icon,
-      .password-toggle:active,
-      .login-shell.is-submitting { transform: none !important; }
+      .password-toggle:active { transform: none !important; }
+      .brand-features li { translate: none !important; }
     }
   </style>
 </head>
@@ -786,6 +776,7 @@
     </section>
 
     <section class="auth-panel" aria-labelledby="login-title">
+      <div class="auth-card">
       <div class="mobile-brand">
         <img src="/icons/icon-192.png" alt="" />
         <div>
@@ -862,6 +853,7 @@
         National Aviation Academy of the Philippines<br />
         Parking Management System
       </footer>
+      </div>
     </section>
   </main>
 
@@ -876,10 +868,8 @@
       const form = document.querySelector('form[action="/login"]');
       const submitBtn = form ? form.querySelector('.login-btn') : null;
       const buttonLabel = submitBtn ? submitBtn.querySelector('.button-label') : null;
-      const loginShell = document.querySelector('.login-shell');
       const passwordInput = document.querySelector('#password');
       const passwordToggle = document.querySelector('.password-toggle');
-      const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       if (passwordInput && passwordToggle) {
         passwordToggle.addEventListener('click', () => {
@@ -907,9 +897,6 @@
         submitBtn.classList.add('is-loading');
         submitBtn.setAttribute('aria-busy', 'true');
         if (buttonLabel) buttonLabel.textContent = 'Signing in';
-        if (!prefersReducedMotion && loginShell) {
-          loginShell.classList.add('is-submitting');
-        }
       });
     })();
   </script>

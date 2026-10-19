@@ -1,9 +1,17 @@
 /* Small, finite movements reinforce actions without delaying navigation or scans. */
 :root {
-  --ui-motion-fast: 250ms;
-  --ui-motion-enter: 500ms;
-  --ui-motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --ui-motion-control-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ui-motion-fast: 220ms;
+  --ui-motion-enter: 420ms;
+  --ui-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-motion-control-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Keep the page still while the existing progress indicator handles navigation. */
+body.page-transitioning :is(.top-nav, .dashboard-hero, .overlap-wrapper),
+body.page-transitioning .container > * {
+  opacity: 1 !important;
+  transform: none;
+  filter: none;
 }
 
 /* Empty table cells can be transparent; keep the legacy row tint out of the message. */
@@ -17,20 +25,21 @@
     animation: ui-heading-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards;
   }
 
-  body.is-ready .hero-cards > .hero-card:nth-child(2) { animation-delay: 100ms; }
-  body.is-ready .hero-cards > .hero-card:nth-child(3) { animation-delay: 200ms; }
-  body.is-ready .hero-cards > .hero-card:nth-child(n+4) { animation-delay: 300ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(2) { animation-delay: 40ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(3) { animation-delay: 80ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(n+4) { animation-delay: 120ms; }
 
   body.is-ready .task-shortcut {
-    animation: ui-shortcut-enter 600ms var(--ui-motion-ease) backwards;
-    animation-delay: 100ms;
+    animation: ui-shortcut-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards;
+    animation-delay: 60ms;
   }
-  body.is-ready .task-shortcut:nth-child(2) { animation-delay: 200ms; }
-  body.is-ready .task-shortcut:nth-child(n+3) { animation-delay: 300ms; }
-  body.is-ready .task-shortcut:focus-visible { animation: none; }
+  body.is-ready .task-shortcut:nth-child(2) { animation-delay: 100ms; }
+  body.is-ready .task-shortcut:nth-child(n+3) { animation-delay: 140ms; }
 
   .task-shortcut {
-    transition: transform 300ms var(--ui-motion-control-ease),
+    /* Independent translate/scale keep hover feedback smooth during entrance. */
+    transition: translate var(--ui-motion-fast) var(--ui-motion-control-ease),
+      scale var(--ui-motion-fast) var(--ui-motion-control-ease),
       border-color var(--ui-motion-fast) ease,
       background-color var(--ui-motion-fast) ease,
       box-shadow var(--ui-motion-fast) ease;
@@ -43,7 +52,7 @@
   }
 
   .task-shortcut:focus-visible .task-shortcut-arrow {
-    transform: translate(3px, -3px);
+    transform: translate(2px, -2px);
     color: var(--status-info-text);
   }
 
@@ -58,11 +67,12 @@
   :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn):active:not(:disabled):not([aria-disabled="true"]):not(.is-loading) {
     scale: 0.98;
     translate: none;
-    transition-duration: 70ms;
+    transition-duration: 100ms;
   }
 
   .task-shortcut:active {
-    transform: translateY(0) scale(0.99);
+    translate: none;
+    scale: 0.99;
   }
 
   .hero-primary-action .ph-arrow-right {
@@ -78,7 +88,7 @@
 
   .confirm-dialog:not([hidden]) .confirm-dialog-card,
   .slot-history-modal.open .slot-history-dialog {
-    animation: ui-heading-enter 180ms var(--ui-motion-ease);
+    animation: ui-dialog-enter 240ms var(--ui-motion-ease);
   }
 
   .confirm-dialog:not([hidden]) .confirm-dialog-backdrop,
@@ -88,26 +98,27 @@
 
   @media (hover: hover) and (pointer: fine) {
     .task-shortcut:hover {
-      transform: translateX(4px);
+      translate: 0 -3px;
       box-shadow: var(--shadow-md);
     }
 
     .task-shortcut:hover .task-shortcut-arrow {
-      transform: translate(3px, -3px);
+      transform: translate(2px, -2px);
       color: var(--status-info-text);
     }
 
     .task-shortcut:hover .task-shortcut-icon {
-      transform: scale(1.04);
+      transform: scale(1.025);
     }
 
     .task-shortcut:active {
-      transform: translateY(0) scale(0.99);
+      translate: none;
+      scale: 0.99;
       box-shadow: var(--shadow-sm);
     }
 
     :is(.btn-sm, .link-btn, .hero-primary-action):hover:not(:active):not(:disabled):not([aria-disabled="true"]):not(.is-loading) {
-      translate: 0 -2px;
+      translate: 0 -1px;
     }
 
     .hero-primary-action:hover .ph-arrow-right { transform: translateX(3px); }
@@ -115,12 +126,17 @@
 }
 
 @keyframes ui-heading-enter {
-  from { opacity: 0; transform: translateY(16px); }
+  from { opacity: 0.4; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
 
 @keyframes ui-shortcut-enter {
-  from { opacity: 0; transform: translateX(-20px); }
+  from { opacity: 0.4; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-dialog-enter {
+  from { opacity: 0.6; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }
 }
 
@@ -143,6 +159,8 @@
 
   :is(.task-shortcut, .task-shortcut-arrow, .task-shortcut-icon, .hero-primary-action .ph-arrow-right) {
     transform: none;
+    translate: none;
+    scale: none;
     transition: none;
   }
 

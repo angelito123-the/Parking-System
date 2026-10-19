@@ -207,24 +207,6 @@
 
       requestAnimationFrame(() => requestAnimationFrame(hidePageLoader));
 
-      document.addEventListener("pointerdown", (event) => {
-        if (prefersReducedMotion) return;
-        const target = event.target instanceof Element ? event.target.closest("button, .btn-sm, .link-btn, .quick-link-card, .top-nav-links a, .icon-btn") : null;
-        if (!target) return;
-        if ("disabled" in target && target.disabled) return;
-        target.classList.remove("ui-tap-pop");
-        void target.offsetWidth;
-        target.classList.add("ui-tap-pop");
-      });
-
-      document.addEventListener("animationend", (event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (target.classList.contains("ui-tap-pop")) {
-          target.classList.remove("ui-tap-pop");
-        }
-      });
-
       document.addEventListener("click", (event) => {
         if (event.defaultPrevented || event.button !== 0) return;
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
