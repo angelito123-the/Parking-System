@@ -489,3 +489,61 @@ test('gate history uses the existing scan log retention period', async t => {
   assert.match(cleanup.sql, /INTERVAL \? DAY/);
   assert.equal(cleanup.values[0], app.evaluate('SCAN_LOG_RETENTION_DAYS'));
 });
+
+test('bulk parking reopening requires Admin and explicit confirmation', async t => {
+  const guard = await startApp(t, { role: 'guard' });
+  const form = { confirm_enable_all: 'yes' };
+  assert.equal((await guard.request('/admin/slots/enable-all', { form })).headers.get('location'), '/login');
+  const cookie = (await guard.signIn()).headers.get('set-cookie').split(';')[0];
+  assert.equal((await guard.request('/admin/slots/enable-all', { cookie, form })).status, 403);
+  const admin = await startApp(t);
+  const adminCookie = (await admin.signIn()).headers.get('set-cookie').split(';')[0];
+  for (const value of [undefined, 'no', ['yes'], true]) {
+    const result = await admin.request('/admin/slots/enable-all', { cookie: adminCookie, data: { confirm_enable_all: value } });
+    assert.match(result.headers.get('location'), /error=Confirm/);
+  }
+  assert.equal(admin.audits.some(values => values.includes('PARKING_SLOTS_ENABLED_ALL')), false);
+});
+
+test('bulk parking reopening preserves assignments and audits repeated requests', async t => {
+  const updates = [];
+  const app = await startApp(t, {}, { query(sql, values) {
+    if (/UPDATE parking_slots/.test(sql)) { updates.push({sql, values}); return [{ affectedRows: updates.length === 1 ? 4 : 0 }]; }
+  } });
+  const cookie = (await app.signIn()).headers.get('set-cookie').split(';')[0];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await app.request('/admin/slots/enable-all', { cookie, form: { confirm_enable_all: 'yes' } });
+    assert.equal(response.headers.get('location'), '/admin/slots?enabled_all=1');
+  }
+  for (const update of updates) {
+    assert.match(update.sql, /disabled_reason = NULL/);
+    assert.doesNotMatch(update.sql, /current_sticker_id|current_visitor_pass_id|slot_type|reserved_for/);
+    assert.deepEqual(Array.from(update.values), ['available', 'disabled']);
+  }
+  const audits = app.audits.filter(values => values.includes('PARKING_SLOTS_ENABLED_ALL'));
+  assert.equal(audits.length, 2);
+  assert.equal(JSON.parse(audits[0].at(-1)).affected_slots, 4);
+  assert.equal(JSON.parse(audits[1].at(-1)).affected_slots, 0);
+});
+
+test('bulk parking reopening hides database failures', async t => {
+  const app = await startApp(t, {}, { query(sql) {
+    if (/UPDATE parking_slots/.test(sql)) throw new Error('private-db-host SQL secret');
+  } });
+  const cookie = (await app.signIn()).headers.get('set-cookie').split(';')[0];
+  const response = await app.request('/admin/slots/enable-all', { cookie, form: { confirm_enable_all: 'yes' } });
+  assert.match(response.headers.get('location'), /error=Unable/);
+  assert.doesNotMatch(response.headers.get('location'), /private-db-host|secret|enabled_all/);
+});
+
+test('bulk parking reopening rejects cross-site submissions', async t => {
+  const app = await startApp(t);
+  const login = await app.signIn();
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const response = await fetch(new URL('/admin/slots/enable-all', login.url), {
+    method: 'POST', redirect: 'manual',
+    headers: { cookie, origin: 'https://untrusted.example', 'x-forwarded-proto': 'https', 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'confirm_enable_all=yes'
+  });
+  assert.equal(response.status, 403);
+});

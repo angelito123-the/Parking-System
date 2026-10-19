@@ -120,7 +120,7 @@ A repeated scan inside the cooldown returns `409` with `code: "DUPLICATE_SCAN"`.
 ## Manual-entry troubleshooting and verification
 
 - Open Guard dashboard → **Manual Gate Tools**, search for a valid vehicle, select it, choose an available slot, then select **Record ENTRY**. Success identifies the gate. Search recognizes expired stickers instead of offering them as active.
-- If all spaces are disabled, entry is intentionally unavailable. The page now explains that an Admin must reopen a space in Parking Slots. Existing closures are never automatically undone, and vehicles already inside can still exit through a suitable gate.
+- If all spaces are disabled, entry is intentionally unavailable. The page explains that an Admin must reopen parking: use **Parking Slots → Enable all parking slots** to reopen every zone, or edit one space to reopen it individually. Existing closures are never automatically undone, and vehicles already inside can still exit through a suitable gate.
 - Manual lookup and slot selection keep working if optional camera guidance or parking-layout decoration scripts fail to load. Submission buttons block repeated clicks while saving.
 - Phone cameras require HTTPS, except browser localhost development. Verify camera permission on the actual phone as well as automated tests.
 

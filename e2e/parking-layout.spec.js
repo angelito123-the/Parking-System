@@ -95,3 +95,31 @@ test('guard entry selection uses the same parking layouts', async ({ page, baseU
   await expect(selected).not.toHaveClass(/selected/);
   await expect(page.locator('#guardEntryConfirmBtn')).toBeEnabled();
 });
+
+test('bulk parking reopening confirms all zones and keeps assigned vehicles', async ({ page, baseURL }) => {
+  await signIn(page, baseURL, 'admin');
+  const submissions = [];
+  await page.route('**/admin/slots/enable-all', route => {
+    submissions.push(new URLSearchParams(route.request().postData()));
+    return route.fulfill({ contentType: 'text/html', body: '<p>Reopened test spaces</p>' });
+  });
+  await page.goto('/admin/slots');
+  await page.locator('#parkingSlotSearch').fill('A-01');
+  const trigger = page.getByRole('button', { name: 'Enable all parking slots', exact: true });
+  await trigger.click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toHaveAccessibleName('Enable all parking slots?');
+  await expect(dialog).toContainText('every zone, including slots hidden by filters');
+  await expect(dialog).toContainText('spaces closed for maintenance');
+  await expect(dialog).toContainText('Parked vehicles remain assigned');
+  await expect(page.locator('#confirmDialogNoteField')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(submissions).toHaveLength(0);
+  await trigger.click();
+  await dialog.getByRole('button', { name: 'Enable all parking slots', exact: true }).click();
+  await expect(page.getByText('Reopened test spaces')).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].get('confirm_enable_all')).toBe('yes');
+});

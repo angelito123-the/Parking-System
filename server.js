@@ -5110,7 +5110,9 @@ app.get("/admin/slots", requireRole(USER_ROLES.ADMIN), async (req, res) => {
          ORDER BY pzs.zone`
       )
     ]);
-    const flash = req.query.disabled_all === "1"
+    const flash = req.query.enabled_all === "1"
+      ? { type: "success", message: "All parking slots are enabled. Empty spaces are available for entry; parked vehicles remain assigned." }
+      : req.query.disabled_all === "1"
       ? { type: "success", message: "All parking slots are disabled for new entries. Vehicles already parked can still exit." }
       : req.query.saved
       ? { type: "success", message: "Parking slot settings saved." }
@@ -5158,6 +5160,27 @@ app.post("/admin/slots/disable-all", requireRole(USER_ROLES.ADMIN), async (req, 
   } catch (error) {
     console.error("Disable all parking slots error:", error);
     return res.redirect("/admin/slots?error=Unable+to+disable+parking+slots.+Please+try+again.");
+  }
+});
+
+// Reopen disabled spaces atomically; occupied spaces keep their vehicle assignments.
+app.post("/admin/slots/enable-all", requireRole(USER_ROLES.ADMIN), async (req, res) => {
+  if (req.body.confirm_enable_all !== "yes") {
+    return res.redirect("/admin/slots?error=Confirm+enabling+all+parking+slots+before+continuing.");
+  }
+  try {
+    const [result] = await pool.query(
+      "UPDATE parking_slots SET status = ?, disabled_reason = NULL WHERE status = ?",
+      ["available", "disabled"]
+    );
+    await recordSecurityAudit(req, "PARKING_SLOTS_ENABLED_ALL", {
+      targetType: "parking_slot",
+      metadata: { affected_slots: result.affectedRows }
+    });
+    return res.redirect("/admin/slots?enabled_all=1");
+  } catch (error) {
+    console.error("Enable all parking slots error:", error);
+    return res.redirect("/admin/slots?error=Unable+to+enable+parking+slots.+Please+try+again.");
   }
 });
 

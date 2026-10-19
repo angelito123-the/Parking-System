@@ -75,15 +75,25 @@
       <h2>Parking Slot Monitoring</h2>
       <p>See which vehicle is parked in each occupied slot. Click any slot to review history.</p>
     </div>
-    <form method="post" action="/admin/slots/disable-all" id="disableAllSlotsForm"
-      class="standard-form-actions" style="margin-bottom:1rem;" data-confirm-form
-      data-confirm-title="Disable all parking slots?"
-      data-confirm-message="This closes parking in every zone, including slots hidden by filters. Vehicles already parked remain assigned and can still exit. Existing maintenance reasons are kept. Slots stay disabled until you enable them again."
-      data-confirm-label="Disable all parking slots" data-confirm-note="true">
-      <input type="hidden" name="confirm_disable_all" value="yes" />
-      <input type="hidden" name="approval_note" value="" />
-      <button type="submit" id="disableAllSlotsBtn" class="btn-confirm-danger">Disable all parking slots</button>
-    </form>
+    <div class="standard-form-actions" style="margin-bottom:1rem;">
+      <form method="post" action="/admin/slots/enable-all" id="enableAllSlotsForm"
+        class="standard-form-actions" style="margin:0;" data-confirm-form
+        data-confirm-title="Enable all parking slots?"
+        data-confirm-message="This reopens disabled parking spaces in every zone, including slots hidden by filters and spaces closed for maintenance. Disabled reasons are cleared. Parked vehicles remain assigned; only empty spaces become available for entry."
+        data-confirm-label="Enable all parking slots">
+        <input type="hidden" name="confirm_enable_all" value="yes" />
+        <button type="submit" id="enableAllSlotsBtn" class="btn-sm">Enable all parking slots</button>
+      </form>
+      <form method="post" action="/admin/slots/disable-all" id="disableAllSlotsForm"
+        class="standard-form-actions" style="margin:0;" data-confirm-form
+        data-confirm-title="Disable all parking slots?"
+        data-confirm-message="This closes parking in every zone, including slots hidden by filters. Vehicles already parked remain assigned and can still exit. Existing maintenance reasons are kept. Slots stay disabled until you enable them again."
+        data-confirm-label="Disable all parking slots" data-confirm-note="true">
+        <input type="hidden" name="confirm_disable_all" value="yes" />
+        <input type="hidden" name="approval_note" value="" />
+        <button type="submit" id="disableAllSlotsBtn" class="btn-confirm-danger">Disable all parking slots</button>
+      </form>
+    </div>
     <div class="refresh-row" style="margin-bottom:0.8rem;">
       <span id="slotsLastUpdated" class="helper-text">Last updated: --</span>
       <button type="button" id="slotsRefreshBtn" class="refresh-btn btn-sm">Refresh</button>
