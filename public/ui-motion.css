@@ -1,0 +1,125 @@
+/* Small, finite movements reinforce actions without delaying navigation or scans. */
+:root {
+  --ui-motion-fast: 140ms;
+  --ui-motion-enter: 260ms;
+  --ui-motion-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Empty table cells can be transparent; keep the legacy row tint out of the message. */
+.ops-table-shell tbody tr:has(> td > .empty-state) {
+  background: var(--surface);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Animate the heading and summary cards, never a camera, table, or modal parent. */
+  body.is-ready :is(.hero-greeting, .hero-cards > .hero-card, .section-head) {
+    animation: ui-heading-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards;
+  }
+
+  body.is-ready .hero-cards > .hero-card:nth-child(2) { animation-delay: 35ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(3) { animation-delay: 70ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(4) { animation-delay: 105ms; }
+  body.is-ready .hero-cards > .hero-card:nth-child(n+5) { animation-delay: 140ms; }
+
+  .task-shortcut {
+    transition: transform var(--ui-motion-fast) var(--ui-motion-ease),
+      border-color var(--ui-motion-fast) ease,
+      background-color var(--ui-motion-fast) ease,
+      box-shadow var(--ui-motion-fast) ease;
+  }
+
+  .task-shortcut-arrow,
+  .task-shortcut-icon {
+    transition: transform var(--ui-motion-fast) var(--ui-motion-ease),
+      color var(--ui-motion-fast) ease;
+  }
+
+  .task-shortcut:focus-visible .task-shortcut-arrow {
+    transform: translate(2px, -2px);
+    color: var(--status-info-text);
+  }
+
+  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn) {
+    transition: color var(--ui-motion-fast) ease,
+      background-color var(--ui-motion-fast) ease,
+      border-color var(--ui-motion-fast) ease,
+      scale var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+
+  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn):active:not(:disabled):not([aria-disabled="true"]):not(.is-loading) {
+    scale: 0.98;
+    transition-duration: 70ms;
+  }
+
+  .task-shortcut:active {
+    transform: translateY(0) scale(0.99);
+  }
+
+  .account-menu:not([hidden]),
+  .action-menu.is-open .action-menu-popover {
+    animation: ui-menu-enter var(--ui-motion-fast) var(--ui-motion-ease);
+  }
+
+  .confirm-dialog:not([hidden]) .confirm-dialog-card,
+  .slot-history-modal.open .slot-history-dialog {
+    animation: ui-heading-enter 180ms var(--ui-motion-ease);
+  }
+
+  .confirm-dialog:not([hidden]) .confirm-dialog-backdrop,
+  .flash:not([hidden]) {
+    animation: ui-feedback-enter var(--ui-motion-fast) ease-out;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .task-shortcut:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .task-shortcut:hover .task-shortcut-arrow {
+      transform: translate(2px, -2px);
+      color: var(--status-info-text);
+    }
+
+    .task-shortcut:hover .task-shortcut-icon {
+      transform: scale(1.04);
+    }
+
+    .task-shortcut:active {
+      transform: translateY(0) scale(0.99);
+      box-shadow: var(--shadow-sm);
+    }
+  }
+}
+
+@keyframes ui-heading-enter {
+  from { opacity: 0.55; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-menu-enter {
+  from { opacity: 0.55; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ui-feedback-enter {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* Content stays visible without motion, including when the OS setting changes. */
+@media (prefers-reduced-motion: reduce), print {
+  :is(.hero-greeting, .hero-card, .section-head, .account-menu, .action-menu-popover,
+      .confirm-dialog-card, .confirm-dialog-backdrop, .slot-history-dialog, .flash) {
+    animation: none !important;
+  }
+
+  :is(.task-shortcut, .task-shortcut-arrow, .task-shortcut-icon) {
+    transform: none;
+    transition: none;
+  }
+
+  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn) {
+    scale: none;
+  }
+}
