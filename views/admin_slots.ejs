@@ -42,31 +42,46 @@
 
 <div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
   <section class="panel slot-configuration-panel">
-    <div class="section-head"><h2>Configure Parking Spaces</h2><p>Add normal, accessibility, or reserved spaces and set clear maintenance reasons.</p></div>
-    <form method="post" action="/admin/slots" class="form-grid">
-      <div class="form-row-3">
+    <div class="section-head"><h2>Configure Parking Spaces</h2><p>Add a parking space and set its availability.</p></div>
+    <form method="post" action="/admin/slots" class="form-grid parking-space-form">
+      <fieldset class="parking-form-section">
+        <legend>Space details</legend>
+        <div class="form-row-3">
         <div><label for="newSlotCode">Slot code</label><input id="newSlotCode" name="slot_code" maxlength="30" placeholder="C-01" required /></div>
         <div><label for="newSlotZone">Zone</label><input id="newSlotZone" name="zone" maxlength="50" placeholder="Zone C" required /></div>
         <div><label for="newSlotType">Space type</label><select id="newSlotType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
-      </div>
-      <div class="form-row-3">
-        <div><label for="newSlotReserved">Reserved for</label><input id="newSlotReserved" name="reserved_for" maxlength="120" placeholder="Required for reserved spaces" /></div>
+        </div>
+      </fieldset>
+      <fieldset class="parking-form-section">
+        <legend>Availability &amp; access</legend>
+        <div class="form-row-3">
         <div><label for="newSlotStatus">Status</label><select id="newSlotStatus" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
-        <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Required when disabled" /></div>
-      </div>
-      <div class="form-actions standard-form-actions"><button type="submit">Add parking space</button></div>
+        <div><label for="newSlotReserved">Reserved for</label><input id="newSlotReserved" name="reserved_for" maxlength="120" placeholder="Name or group" aria-describedby="newSlotReservedHelp" /><p id="newSlotReservedHelp" class="parking-field-help">Required for reserved spaces.</p></div>
+        <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Reason for closure" aria-describedby="newSlotReasonHelp" /><p id="newSlotReasonHelp" class="parking-field-help">Required when disabled.</p></div>
+        </div>
+      </fieldset>
+      <div class="form-actions standard-form-actions parking-form-actions"><p class="parking-field-help">Slot code and zone are required.</p><button type="submit">Add parking space</button></div>
     </form>
     <% if (safeZoneSettings.length) { %>
+      <section id="zoneThresholdSettings" class="zone-threshold-section" aria-labelledby="zoneThresholdHeading">
+        <div class="zone-threshold-heading">
+          <h3 id="zoneThresholdHeading">Zone occupancy warnings</h3>
+          <p>Choose how full each zone can get before a warning appears.</p>
+        </div>
       <div class="zone-threshold-grid">
-        <% safeZoneSettings.forEach((setting) => { %>
+        <% safeZoneSettings.forEach((setting, index) => { %>
           <form method="post" action="/admin/slots/zone-threshold" class="zone-threshold-card">
             <input type="hidden" name="zone" value="<%= setting.zone %>" />
-            <div><strong><%= setting.zone %></strong><span><%= setting.total_slots %> space(s)</span></div>
-            <label>Warn at <input type="number" name="warning_threshold_percent" min="50" max="100" value="<%= setting.warning_threshold_percent %>" required />% occupied</label>
-            <button type="submit" class="btn-sm">Save threshold</button>
+            <div class="zone-threshold-info"><strong><%= setting.zone %></strong><span><%= setting.total_slots %> <%= Number(setting.total_slots) === 1 ? 'space' : 'spaces' %></span></div>
+            <div class="zone-threshold-control">
+              <label for="zoneThreshold<%= index %>">Warn at<span class="sr-only"> for <%= setting.zone %> (percent occupied)</span></label>
+              <div class="zone-threshold-input"><input id="zoneThreshold<%= index %>" type="number" name="warning_threshold_percent" min="50" max="100" value="<%= setting.warning_threshold_percent %>" required /><span aria-hidden="true">%</span></div>
+            </div>
+            <button type="submit" class="btn-sm btn-reset">Save threshold<span class="sr-only"> for <%= setting.zone %></span></button>
           </form>
         <% }) %>
       </div>
+      </section>
     <% } %>
   </section>
 
