@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v48`;
+const CACHE_NAME = `${CACHE_PREFIX}v49`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
   '/styles.css?v=20260914-email',
   '/design-system.css?v=20260914-email',
   '/parking-layout.css?v=20261008-hangar',
-  '/ui-polish.css?v=20261021-notifications',
+  '/ui-polish.css?v=20261021-slot-history',
   '/ui-motion.css?v=20261020-fluid',
   '/js/parking-layout.js?v=20261008-hangar',
   '/vendor/phosphor/style.css?v=2.1.2',

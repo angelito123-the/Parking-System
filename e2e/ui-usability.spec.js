@@ -111,6 +111,118 @@ for (const role of ['admin', 'guard']) {
   });
 }
 
+function slotHistoryRows() {
+  return [
+    { full_name: 'Santos, Maria Elena', student_number: '2026-00128', plate_number: 'ABC 1234', parking_slot: 'H-20', entry_gate: 'Gate 1', parked_at: '2026-10-21T01:00:00Z', exited_at: null, duration_label: '25m', is_ongoing: true },
+    { full_name: 'Reyes, Juan Miguel', student_number: '2026-00456', plate_number: 'XYZ 5678', parking_slot: 'H-20', entry_gate: 'Main Gate', parked_at: '2026-10-20T00:15:30Z', exited_at: '2026-10-20T02:45:40Z', duration_label: '2h 30m', is_ongoing: false },
+    { full_name: 'History <img src=x onerror=alert(1)>', student_number: 'LONG-STUDENT-NUMBER-2026-REVIEW', plate_number: 'CHECK-123', parking_slot: 'H-20', entry_gate: null, parked_at: null, exited_at: '2026-10-19T02:45:40Z', duration_label: '-', is_ongoing: false }
+  ];
+}
+
+async function selectHistorySlot(page) {
+  await signIn(page, 'admin');
+  await page.goto('/admin/slots');
+  await page.locator('#parkingSlotSearch').fill('H-20');
+  await page.locator('#parkingSlotsList [data-slot-code="H-20"]').click();
+  await expect(page.locator('#slotInspectorTitle')).toContainText('H-20');
+  await expect(page.locator('#slotInspectorHistory')).not.toContainText('Loading');
+}
+
+test('slot history separates entry and exit details and restores focus', async ({ page }, testInfo) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/parking-slot-history?*', route => route.fulfill({ json: { ok: true, rows: slotHistoryRows() } }));
+  await selectHistorySlot(page);
+  const trigger = page.locator('#openSlotHistoryBtn');
+  await trigger.click();
+  const modal = page.locator('#slotHistoryModal');
+  const dialog = modal.getByRole('dialog');
+  const close = dialog.getByRole('button', { name: 'Close slot history' });
+  const list = page.locator('#slotHistoryList');
+  const cards = list.locator('.slot-history-card');
+  await expect(dialog).toHaveAccessibleName('Slot H-20 history');
+  await expect(cards).toHaveCount(3);
+  await expect(cards.nth(0).locator('.slot-history-status')).toHaveText('Still parked');
+  await expect(cards.nth(1).locator('.slot-history-status')).toHaveText('Exited');
+  await expect(list).not.toContainText('COMPLETED');
+  await expect(cards.nth(0)).toContainText('Awaiting exit');
+  await expect(cards.nth(1)).toContainText('Entry gate: Main Gate');
+  await expect(cards.nth(1).locator('.slot-history-entry time')).toHaveAttribute('datetime', '2026-10-20T00:15:30.000Z');
+  await expect(cards.nth(1).locator('.slot-history-exit time')).toHaveAttribute('datetime', '2026-10-20T02:45:40.000Z');
+  await expect(cards.nth(1)).toContainText('2h 30m');
+  await expect(cards.nth(2)).toContainText('Not recorded');
+  await expect(cards.nth(2).locator('h4')).toHaveText('History <img src=x onerror=alert(1)>');
+  await expect(list.locator('img')).toHaveCount(0);
+  await expect(list).not.toHaveAttribute('aria-busy');
+  await expect(close).toBeFocused();
+  await expect(page.locator('.app-shell')).toHaveAttribute('inert', '');
+  await dialog.screenshot({ path: testInfo.outputPath('slot-history.png') });
+  const audit = await new AxeBuilder({ page }).include('#slotHistoryModal').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(audit.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.failureSummary) }))).toEqual([]);
+  expect(await dialog.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return box.left >= 0 && box.right <= innerWidth + 1 && box.top >= 0 && box.bottom <= innerHeight + 1;
+  })).toBe(true);
+  expect(await list.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.keyboard.press('Tab');
+  await expect(list).toBeFocused();
+  await page.keyboard.press('End');
+  await expect.poll(() => list.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  await expect(close).toBeInViewport();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(list).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert', '');
+  await trigger.click();
+  await close.click();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await modal.locator('.slot-history-backdrop').click({ position: { x: 3, y: 3 } });
+  await expect(dialog).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('slot history handles empty, failed, and outdated responses', async ({ page }) => {
+  let mode = 'empty';
+  let delayed;
+  await page.route('**/api/parking-slot-history?*', route => {
+    if (mode === 'pending') { delayed = route; return; }
+    return mode === 'error'
+      ? route.fulfill({ status: 500, json: { ok: false, message: 'Please try again later.' } })
+      : route.fulfill({ json: { ok: true, rows: [] } });
+  });
+  await selectHistorySlot(page);
+  const trigger = page.locator('#openSlotHistoryBtn');
+  const modal = page.locator('#slotHistoryModal');
+  const list = page.locator('#slotHistoryList');
+  mode = 'pending';
+  await trigger.click();
+  await expect(list).toHaveAttribute('aria-busy', 'true');
+  await expect.poll(() => Boolean(delayed)).toBe(true);
+  await page.keyboard.press('Escape');
+  mode = 'empty';
+  await trigger.click();
+  await expect(list).toContainText('No parking history');
+  const response = page.waitForResponse('**/api/parking-slot-history?*');
+  await delayed.fulfill({ json: { ok: true, rows: slotHistoryRows() } });
+  await (await response).finished();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(list).toContainText('No parking history');
+  await expect(list.locator('.slot-history-card')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  mode = 'error';
+  await trigger.click();
+  await expect(list).toContainText('Please try again later.');
+  await expect(list).not.toHaveAttribute('aria-busy');
+  await expect(modal.locator('#slotHistoryMeta')).toHaveText('History unavailable');
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+});
+
 test('key pages fit the screen and have no serious accessibility violations', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

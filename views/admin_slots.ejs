@@ -203,13 +203,16 @@
   <div class="slot-history-backdrop" data-close-slot-history></div>
   <div class="slot-history-dialog" role="dialog" aria-modal="true" aria-labelledby="slotHistoryTitle">
     <div class="slot-history-head">
-      <h3 id="slotHistoryTitle">Slot History</h3>
+      <div class="slot-history-heading">
+        <h3 id="slotHistoryTitle">Slot history</h3>
+        <p id="slotHistoryMeta" role="status">Loading parking records...</p>
+      </div>
       <button type="button" class="slot-history-close" data-close-slot-history aria-label="Close slot history">
         <i class="ph ph-x" aria-hidden="true"></i>
       </button>
     </div>
-    <p id="slotHistoryMeta" class="helper-text" style="margin:0 0 0.75rem;">Loading slot history...</p>
-    <div id="slotHistoryList" class="slot-history-list">
+    <p class="slot-history-timezone">Newest first &middot; Philippine time (UTC+8)</p>
+    <div id="slotHistoryList" class="slot-history-list" tabindex="0" role="region" aria-label="Parking records">
       <div class="empty-state" style="padding:1rem;"><p>Loading slot history...</p></div>
     </div>
   </div>
@@ -254,6 +257,11 @@
     const slotHistoryTitle = document.getElementById("slotHistoryTitle");
     const slotHistoryMeta = document.getElementById("slotHistoryMeta");
     const slotHistoryList = document.getElementById("slotHistoryList");
+    const slotHistoryCloseBtn = slotHistoryModal?.querySelector("button[data-close-slot-history]");
+    const slotHistoryAppShell = document.querySelector(".app-shell");
+    let slotHistoryReturnFocus = null;
+    let slotHistoryWasInert = false;
+    let slotHistoryModalRequestId = 0;
 
     const initialParkingSlots = <%- serializeForScript(safeParkingSlots) %>;
     const initialParkingSlotSummary = <%- serializeForScript(safeParkingSlotSummary) %>;
@@ -546,48 +554,78 @@
       return window.NaapUiState.render(type, { title, message, compact: true });
     }
 
+    // Separate the date and time for scanning while preserving the recorded timestamp.
+    function renderSlotHistoryTime(value, fallback = "Not recorded") {
+      const date = value ? new Date(value) : null;
+      if (!date || !Number.isFinite(date.getTime())) return `<span class="slot-history-pending">${escapeHtml(fallback)}</span>`;
+      const time = date.toLocaleTimeString("en-US", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", second: "2-digit" });
+      const day = date.toLocaleDateString("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" });
+      return `<time datetime="${date.toISOString()}"><strong>${escapeHtml(time)}</strong><span>${escapeHtml(day)}</span></time>`;
+    }
+
     function renderSlotHistoryCard(item) {
       const parkedAt = item.parked_at || item.scanned_at;
-      const exitedAtText = item.exited_at ? toPht(item.exited_at) : "Still parked";
-      const durationText = item.duration_label || "-";
-      const statusChip = item.is_ongoing
-        ? `<span class="badge badge-inside">ONGOING</span>`
-        : `<span class="badge badge-soft">COMPLETED</span>`;
-      return `<div class="slot-history-card">
+      const state = item.is_ongoing ? "inside" : "exited";
+      const statusLabel = item.is_ongoing ? "Still parked" : "Exited";
+      return `<article class="slot-history-card">
         <div class="slot-history-card-head">
-          <strong>${escapeHtml(item.full_name || "Unknown Student")}</strong>
-          <span class="badge badge-soft">${escapeHtml(item.parking_slot || "-")}</span>
+          <h4>${escapeHtml(item.full_name || "Unknown Student")}</h4>
+          <span class="slot-history-status ${state}">${statusLabel}</span>
         </div>
-        <div>${statusChip}</div>
-        <div class="slot-history-card-meta">Student No: <strong>${escapeHtml(item.student_number || "-")}</strong></div>
-        <div class="slot-history-card-meta">Plate: <strong>${escapeHtml(item.plate_number || "-")}</strong></div>
-        <div class="slot-history-card-meta">Entry Gate: <strong>${escapeHtml(item.entry_gate || item.gate || "-")}</strong></div>
-        <div class="slot-history-card-meta">Parked At: <strong>${parkedAt ? escapeHtml(toPht(parkedAt)) : "-"}</strong></div>
-        <div class="slot-history-card-meta">Exited At: <strong>${escapeHtml(exitedAtText)}</strong></div>
-        <div class="slot-history-card-meta">Duration: <strong>${escapeHtml(durationText)}</strong></div>
-      </div>`;
+        <dl class="slot-history-details">
+          <div><dt>Plate number</dt><dd>${escapeHtml(item.plate_number || "-")}</dd></div>
+          <div><dt>Student number</dt><dd>${escapeHtml(item.student_number || "-")}</dd></div>
+        </dl>
+        <ol class="slot-history-timeline">
+          <li class="slot-history-entry">
+            <span class="slot-history-event-label">Entry</span>
+            ${renderSlotHistoryTime(parkedAt)}
+            <span class="slot-history-gate">Entry gate: ${escapeHtml(item.entry_gate || item.gate || "Not recorded")}</span>
+          </li>
+          <li class="slot-history-exit">
+            <span class="slot-history-event-label">Exit</span>
+            ${renderSlotHistoryTime(item.exited_at, item.is_ongoing ? "Awaiting exit" : "Not recorded")}
+          </li>
+        </ol>
+        <div class="slot-history-card-footer">
+          <span>Space <strong>${escapeHtml(item.parking_slot || "-")}</strong></span>
+          <span>Time parked <strong>${escapeHtml(item.duration_label || "-")}</strong></span>
+        </div>
+      </article>`;
     }
 
     function closeSlotHistoryModal() {
-      if (!slotHistoryModal) return;
+      if (!slotHistoryModal?.classList.contains("open")) return;
+      ++slotHistoryModalRequestId;
       slotHistoryModal.classList.remove("open");
       slotHistoryModal.setAttribute("aria-hidden", "true");
       document.body.classList.remove("modal-open");
+      if (slotHistoryAppShell) slotHistoryAppShell.inert = slotHistoryWasInert;
+      if (slotHistoryReturnFocus?.isConnected) slotHistoryReturnFocus.focus({ preventScroll: true });
+      slotHistoryReturnFocus = null;
     }
 
     async function openSlotHistoryModal(slotCode) {
       if (!slotCode || !slotHistoryModal) return;
+      const requestId = ++slotHistoryModalRequestId;
+      slotHistoryReturnFocus = document.activeElement;
+      slotHistoryWasInert = Boolean(slotHistoryAppShell?.inert);
       slotHistoryModal.classList.add("open");
       slotHistoryModal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
-      if (slotHistoryTitle) slotHistoryTitle.textContent = `Slot ${slotCode} History`;
-      if (slotHistoryMeta) slotHistoryMeta.textContent = "Loading slot history...";
+      slotHistoryCloseBtn?.focus({ preventScroll: true });
+      if (slotHistoryAppShell) slotHistoryAppShell.inert = true;
+      if (slotHistoryTitle) slotHistoryTitle.textContent = `Slot ${slotCode} history`;
+      if (slotHistoryMeta) slotHistoryMeta.textContent = "Loading parking records...";
       if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory("Retrieving parking activity for this slot.", "loading");
+      slotHistoryList?.setAttribute("aria-busy", "true");
 
       try {
         const resp = await fetch(`/api/parking-slot-history?slot_code=${encodeURIComponent(slotCode)}`);
         const data = await resp.json();
-        if (!data.ok) throw new Error(data.message || "Failed to load slot history.");
+        // A closed or reopened dialog must not display a previous request's results.
+        if (requestId !== slotHistoryModalRequestId) return;
+        if (!resp.ok || !data.ok) throw new Error(data.message || "Failed to load slot history.");
         const rows = Array.isArray(data.rows) ? data.rows : [];
         if (slotHistoryList) {
           slotHistoryList.innerHTML = rows.length
@@ -595,11 +633,14 @@
             : renderEmptySlotHistory(`No parking history found for slot ${slotCode}.`);
         }
         if (slotHistoryMeta) {
-          slotHistoryMeta.textContent = `${rows.length} parking entr${rows.length === 1 ? "y" : "ies"} found for slot ${slotCode}`;
+          slotHistoryMeta.textContent = `${rows.length} parking record${rows.length === 1 ? "" : "s"}`;
         }
       } catch (error) {
+        if (requestId !== slotHistoryModalRequestId) return;
         if (slotHistoryList) slotHistoryList.innerHTML = renderEmptySlotHistory(error.message || "Unable to load slot history.", "error");
-        if (slotHistoryMeta) slotHistoryMeta.textContent = error.message || "Unable to load slot history.";
+        if (slotHistoryMeta) slotHistoryMeta.textContent = "History unavailable";
+      } finally {
+        if (requestId === slotHistoryModalRequestId) slotHistoryList?.removeAttribute("aria-busy");
       }
     }
 
@@ -743,7 +784,17 @@
       });
     }
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeSlotHistoryModal();
+      if (!slotHistoryModal?.classList.contains("open")) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeSlotHistoryModal();
+      } else if (event.key === "Tab") {
+        // Keep keyboard navigation inside the dialog; the record list can be scrolled.
+        const first = slotHistoryCloseBtn;
+        const last = slotHistoryList;
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     });
 
     latestParkingSlotSummary = normalizeParkingSlotSummary(latestParkingSlotSummary, latestParkingSlots);
