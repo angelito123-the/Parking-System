@@ -19,7 +19,34 @@
 }
 .manual-parking-flow .gate-console-headline h2 { margin: 0; font-size: 1rem; }
 .manual-parking-flow .gate-console-headline p { max-width: 44rem; line-height: 1.6; }
-.manual-parking-flow .gate-search-grid { --ui-control-height: 46px; }
+.manual-parking-flow .gate-search-grid { --ui-control-height: 46px; align-items: start; }
+.manual-parking-flow .gate-camera-btn {
+  min-width: 0;
+  max-width: none;
+  width: auto;
+  padding: 0.7rem 0.9rem !important;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px !important;
+  background: var(--surface) !important;
+  color: var(--text);
+  box-shadow: none !important;
+}
+.manual-parking-flow .gate-camera-btn-title { color: var(--text); font-size: 0.85rem; font-weight: 700; }
+.manual-parking-flow .gate-camera-btn-sub { color: var(--text-secondary); font-size: 0.75rem; }
+.manual-parking-flow .gate-camera-btn:hover { background: var(--surface-soft) !important; border-color: var(--status-info-border); }
+.manual-parking-flow .gate-camera-btn:focus-visible { outline: 2px solid var(--status-info-text); outline-offset: 3px; }
+.manual-parking-flow .gate-search-grid select + .helper-text { display: block; margin-top: 0.35rem; }
+/* The gate hint gets its own row so it cannot push the other controls downward. */
+@media (min-width: 1081px) {
+  .manual-parking-flow .gate-search-grid { row-gap: 0.35rem; }
+  .manual-parking-flow .gate-search-grid > div { display: contents; }
+  .manual-parking-flow .gate-search-grid > div:first-child > * { grid-column: 1; }
+  .manual-parking-flow .gate-search-grid > div:nth-child(2) > * { grid-column: 2; }
+  .manual-parking-flow .gate-search-grid label { grid-row: 1; margin: 0; }
+  .manual-parking-flow .gate-search-grid :is(input, select) { grid-row: 2; height: 100%; }
+  .manual-parking-flow .gate-search-grid select + .helper-text { grid-row: 3; margin: 0; }
+  .manual-parking-flow .gate-search-btn { grid-column: 3; grid-row: 2; align-self: stretch; }
+}
 .manual-search-status { margin-bottom: 0.85rem; min-height: 1.5em; color: var(--text-secondary); }
 .manual-parking-flow #gateResultsContainer {
   display: grid;
@@ -83,6 +110,7 @@
   .manual-parking-flow .parking-plan-row { grid-template-columns: minmax(0, 1fr) minmax(28px, 18%) minmax(0, 1fr); }
   .manual-parking-flow .gate-search-grid { grid-template-columns: minmax(0, 1fr); }
   .manual-parking-flow .gate-console-top { gap: 0.85rem; }
+  .manual-parking-flow .gate-camera-btn { width: 100%; }
   .manual-movement-bar { grid-template-columns: minmax(0, 1fr); gap: 0.65rem; bottom: 0.5rem; padding: 0.75rem; }
   .manual-parking-flow .manual-vehicle-card .select-vehicle-btn { width: 100%; }
 }
