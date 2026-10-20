@@ -1,5 +1,117 @@
 const { test, expect } = require('@playwright/test');
+
+test('manual slot selection keeps keyboard focus and the existing map nodes', async ({ page, baseURL }) => {
+  await manualFixture(page, baseURL, 'available');
+  const slot = page.locator('.slot-option-btn[data-selectable="1"]');
+  await expect(page.locator('#gateEntryBtn')).toBeDisabled();
+  await slot.focus();
+  await slot.evaluate(element => { window.originalManualSlot = element; });
+  await page.keyboard.press('Enter');
+  await expect(slot).toBeFocused();
+  await expect(slot).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#gateEntryBtn')).toBeEnabled();
+  expect(await slot.evaluate(element => element === window.originalManualSlot && element.isConnected)).toBe(true);
+  await page.locator('#gateNameSelect').selectOption('Gate 4');
+  await expect(page.locator('#manualSelectedGate')).toHaveText('Gate 4');
+});
+
+test('manual lookup ignores older responses that finish after the latest search', async ({ page, baseURL }) => {
+  await signIn(page, baseURL, 'guard');
+  let releaseOldSearch;
+  let oldSearchReceived;
+  const received = new Promise(resolve => { oldSearchReceived = resolve; });
+  const pending = new Promise(resolve => { releaseOldSearch = resolve; });
+  await page.route('**/api/gate-lookup?*', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'OLDER') { oldSearchReceived(); await pending; }
+    await route.fulfill({ json: { ok: true, results: [{
+      full_name: query, plate_number: query, sticker_status: 'active', qr_token: query, last_action: null
+    }] } });
+  });
+  await page.goto('/scanner');
+  await page.locator('#gateSearchInput').fill('OLDER');
+  await page.locator('#gateSearchBtn').click();
+  await received;
+  await expect(page.locator('#gateSearchBtn')).toHaveText('Searching...');
+  await page.locator('#gateSearchInput').fill('LATEST');
+  await page.locator('#gateSearchInput').press('Enter');
+  await expect(page.locator('#gateResultsContainer')).toContainText('LATEST');
+  const oldResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('q') === 'OLDER');
+  releaseOldSearch();
+  await oldResponse;
+  await page.waitForFunction(() => document.getElementById('gateSearchBtn').disabled === false);
+  await expect(page.locator('#gateResultsContainer')).not.toContainText('OLDER');
+  await expect(page.locator('#gateResultsContainer')).toContainText('LATEST');
+  await expect(page.locator('#gateResultsContainer')).toHaveAttribute('aria-busy', 'false');
+});
+
+test('manual movement locks the selection while saving and preserves server errors for retry', async ({ page, baseURL }) => {
+  let releaseSave;
+  const pending = new Promise(resolve => { releaseSave = resolve; });
+  const submissions = [];
+  await page.route('**/api/manual-movement', async route => {
+    submissions.push(route.request().postDataJSON());
+    if (submissions.length === 1) await pending;
+    await route.fulfill({ status: submissions.length === 1 ? 409 : 200, json: submissions.length === 1
+      ? { ok: false, movement_saved: false, message: 'Slot is no longer available. Select another slot.' }
+      : { ok: true, movement_saved: true } });
+  });
+  await manualFixture(page, baseURL, 'available');
+  await page.locator('#gateNameSelect').selectOption('Gate 1');
+  await page.locator('.slot-option-btn[data-selectable="1"]').click();
+  await page.locator('#gateEntryBtn').click();
+  await expect(page.locator('#gateEntryBtn')).toBeDisabled();
+  await expect(page.locator('#gateEntryBtn')).toContainText('Recording entry...');
+  await expect(page.locator('#gateNameSelect')).toBeDisabled();
+  await expect(page.locator('#gateSearchInput')).toHaveAttribute('readonly', '');
+  await page.locator('#gateEntryBtn').evaluate(element => element.click());
+  expect(submissions).toHaveLength(1);
+  releaseSave();
+  await expect(page.locator('#gateLogFeedback')).toContainText('Slot is no longer available');
+  await expect(page.locator('#gateEntryBtn')).toBeEnabled();
+  await expect(page.locator('#gateNameSelect')).toBeEnabled();
+  await page.locator('#gateEntryBtn').click();
+  await expect(page.locator('#gateSearchStatus')).toContainText('Entry recorded at Gate 1');
+  await expect(page.locator('#gateLogFeedback')).toContainText('Entry recorded at Gate 1');
+  await expect(page.locator('#gateSearchInput')).toBeFocused();
+  await expect(page.locator('#gateEntryBtn')).toBeDisabled();
+  expect(submissions).toHaveLength(2);
+  expect(submissions[1]).toMatchObject({ token: 'manual-test', action: 'ENTRY', gate: 'Gate 1', slot_id: '999' });
+});
+
 require('dotenv').config();
+
+test('manual parking ignores a stale map after selecting another vehicle', async ({ page, baseURL }) => {
+  await signIn(page, baseURL, 'guard');
+  let releaseOldMap;
+  let mapRequested;
+  const received = new Promise(resolve => { mapRequested = resolve; });
+  const pending = new Promise(resolve => { releaseOldMap = resolve; });
+  await page.route('**/api/gate-lookup?*', route => route.fulfill({ json: { ok: true, results: [
+    { full_name: 'Student A', plate_number: 'STUDENT-A', qr_token: 'student-a', sticker_status: 'active' },
+    { full_name: 'Visitor B', plate_number: 'VISITOR-B', qr_token: 'visitor-b', sticker_status: 'active', entity_type: 'visitor' }
+  ] } }));
+  await page.route('**/api/parking-slot-overview?*', async route => {
+    const scope = new URL(route.request().url()).searchParams.get('scope');
+    if (scope === 'all') { mapRequested(); await pending; }
+    await route.fulfill({ json: { ok: true, summary: { total: 1, available: 1 }, slots: [
+      { id: scope === 'all' ? 1 : 2, slot_code: scope === 'all' ? 'OLD-01' : 'VISITOR-01', zone: 'Test zone', occupancy: 'available' }
+    ] } });
+  });
+  await page.goto('/scanner?q=TEST');
+  await page.locator('.select-vehicle-btn').first().click();
+  await received;
+  await page.locator('.select-vehicle-btn').nth(1).click();
+  await expect(page.locator('#slotMap')).toContainText('VISITOR-01');
+  const oldResponse = page.waitForResponse(response => response.url().includes('parking-slot-overview?scope=all'));
+  releaseOldMap();
+  await oldResponse;
+  await expect(page.locator('#slotMap')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#slotMap')).toContainText('VISITOR-01');
+  await expect(page.locator('#slotMap')).not.toContainText('OLD-01');
+  await expect(page.locator('#gateLogInfo')).toContainText('Visitor B');
+});
+
 
 async function signIn(page, baseURL, role) {
   const response = await page.request.post('/login', {

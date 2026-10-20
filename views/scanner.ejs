@@ -9,7 +9,7 @@
   <p class="hero-description">Use manual lookup or review scans sent from a remote phone.</p>
 </section>
 
-<div class="overlap-wrapper" style="display: grid; gap: 2rem;">
+<div class="overlap-wrapper manual-parking-flow">
   <div class="manual-tools-shortcut">
     <span>Prefer to scan a QR?</span>
     <a href="/scanner/auto" class="link-btn"><i class="ph ph-camera" aria-hidden="true"></i> Open scanner</a>
@@ -18,8 +18,8 @@
   <section class="panel gate-console-panel" id="gateControlsSection">
     <div class="gate-console-top">
       <div class="gate-console-headline">
-        <h3>Manual Search</h3>
-        <p>Find a record by student name, ID, plate number, or sticker when the QR cannot be scanned.</p>
+        <h2><span class="manual-step-number" aria-hidden="true">1</span> Find a vehicle</h2>
+        <p>Search by name, student ID, plate number, or sticker. Check your gate before recording a movement.</p>
       </div>
       <button id="toggleCameraBtn" type="button" class="gate-camera-btn">
         <span class="gate-camera-btn-title">Use Camera Here</span>
@@ -44,8 +44,8 @@
 
     <div class="gate-search-grid">
       <div>
-        <label for="gateSearchInput">Search Manually (Plate, ID, Name)</label>
-        <input id="gateSearchInput" type="search" placeholder="e.g. ABC 1234 or 2024-001" autocomplete="off" />
+        <label for="gateSearchInput">Vehicle or student</label>
+        <input id="gateSearchInput" type="search" placeholder="Plate, student ID, name, or sticker" autocomplete="off" enterkeyhint="search" aria-controls="gateResultsContainer" />
       </div>
       <div>
         <label for="gateNameSelect">Current Gate</label>
@@ -55,9 +55,46 @@
           <% }) %>
         </select>
       </div>
-      <button type="button" id="gateSearchBtn" class="gate-search-btn">Search Record</button>
+      <button type="button" id="gateSearchBtn" class="gate-search-btn">Search records</button>
     </div>
   </section>
+
+  <section class="panel" id="gateResultsSection">
+  <div class="section-head">
+    <h2><span class="manual-step-number" aria-hidden="true">2</span> Select a vehicle</h2>
+    <p>Select a vehicle to record gate movement.</p>
+  </div>
+  <div id="gateSearchStatus" class="helper-text manual-search-status" role="status" aria-live="polite">Search for a vehicle to get started.</div>
+  <div id="gateResultsContainer"></div>
+</section>
+
+  <section class="panel" id="gateLogPanel" tabindex="-1" style="display:none;">
+  <div class="section-head">
+    <h2><span class="manual-step-number" aria-hidden="true">3</span> Record movement</h2>
+    <p id="gateLogInfo">Recording for selected vehicle.</p>
+  </div>
+  <div id="gateLogDetails" style="margin-bottom: 0.75rem;"></div>
+  <div id="slotPickerPanel" class="scanner-slot-picker" style="display:none;">
+    <div class="scanner-slot-picker-head">
+      <strong>Choose Parking Slot</strong>
+      <span id="slotPickerStatus" class="helper-text">Loading parking map...</span>
+    </div>
+    <div id="slotMap" class="scanner-slot-map" tabindex="0" role="region" aria-label="Choose an available parking slot"></div>
+  </div>
+  <div class="manual-movement-bar">
+  <div id="gateLogFeedback" role="status" aria-live="polite">Choose a parking slot for entry.</div>
+  <div id="movementBtnContainer" class="scanner-movement-actions">
+    <button type="button" id="gateEntryBtn" class="scanner-movement-btn scanner-movement-entry">
+      <span class="scanner-movement-direction">IN</span>
+      <span class="movement-label">Record entry</span>
+    </button>
+    <button type="button" id="gateExitBtn" class="scanner-movement-btn scanner-movement-exit">
+      <span class="scanner-movement-direction">OUT</span>
+      <span class="movement-label">Record exit</span>
+    </button>
+  </div>
+  </div>
+</section>
 
   <% if (isGuardQueueMode) { %>
   <section class="panel remote-queue-panel" id="remoteQueueSection">
@@ -76,41 +113,6 @@
     <div id="remoteQueueList" class="remote-queue-list"></div>
   </section>
   <% } %>
-
-  <section class="panel" id="gateResultsSection">
-  <div class="section-head">
-    <h2>Scanner Results</h2>
-    <p>Select a vehicle to record gate movement.</p>
-  </div>
-  <div id="gateSearchStatus" class="helper-text" style="margin-bottom: 0.75rem;">Waiting for scan or search...</div>
-  <div id="gateResultsContainer"></div>
-</section>
-
-  <section class="panel" id="gateLogPanel" style="display:none;">
-  <div class="section-head">
-    <h2>Record Movement</h2>
-    <p id="gateLogInfo">Recording for selected vehicle.</p>
-  </div>
-  <div id="gateLogDetails" style="margin-bottom: 0.75rem;"></div>
-  <div id="slotPickerPanel" class="scanner-slot-picker" style="display:none;">
-    <div class="scanner-slot-picker-head">
-      <strong>Choose Parking Slot</strong>
-      <span id="slotPickerStatus" class="helper-text">Loading parking map...</span>
-    </div>
-    <div id="slotMap" class="scanner-slot-map"></div>
-  </div>
-  <div id="gateLogFeedback" style="margin-bottom: 1rem;"></div>
-  <div id="movementBtnContainer" class="scanner-movement-actions">
-    <button type="button" id="gateEntryBtn" class="scanner-movement-btn scanner-movement-entry">
-      <span class="scanner-movement-direction">IN</span>
-      <span>Record ENTRY</span>
-    </button>
-    <button type="button" id="gateExitBtn" class="scanner-movement-btn scanner-movement-exit">
-      <span class="scanner-movement-direction">OUT</span>
-      <span>Record EXIT</span>
-    </button>
-  </div>
-</section>
 
   <% if (isGuardQueueMode) { %>
   <div id="remoteEntryModal" class="slot-history-modal" aria-hidden="true">
@@ -189,6 +191,8 @@
 
     let selectedToken = null;
     let movementSaving = false;
+    let searchRequestId = 0;
+    let slotRequestId = 0;
     let selectedLabel = "";
     let selectedEntityType = "student";
     let selectedSlotId = null;
@@ -204,6 +208,30 @@
     let remoteQueueAlertTimer = null;
     const guardQueueMode = <%- isGuardQueueMode ? "true" : "false" %>;
     const gateStageChips = Array.from(document.querySelectorAll(".gate-stage-chip[data-gate-stage]"));
+
+    function scrollToManualStep(element) {
+      element.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: "start"
+      });
+    }
+
+    // Keep the chosen vehicle, gate, and slot stable while a movement is being saved.
+    function setMovementSaving(saving) {
+      movementSaving = saving;
+      logPanel.setAttribute("aria-busy", String(saving));
+      searchInput.readOnly = saving;
+      searchBtn.disabled = saving;
+      gateSelect.disabled = saving;
+      resultsEl.querySelectorAll(".select-vehicle-btn").forEach(button => { button.disabled = saving; });
+      slotMap.querySelectorAll(".slot-option-btn").forEach(button => {
+        button.disabled = saving || button.dataset.selectable !== "1";
+      });
+      entryBtn.disabled = saving || !selectedToken || !selectedSlotId;
+      exitBtn.disabled = saving || !selectedToken;
+      entryBtn.querySelector(".movement-label").textContent = saving ? "Recording entry..." : "Record entry";
+      exitBtn.querySelector(".movement-label").textContent = saving ? "Recording exit..." : "Record exit";
+    }
 
     function setGateStage(stageKey) {
       const normalized = String(stageKey || "scan").toLowerCase();
@@ -508,20 +536,28 @@
           class="slot-option-btn ${occupancy}${selected ? " selected" : ""}"
           data-slot-id="${escapeHtml(slot.id)}"
           data-slot-code="${escapeHtml(slot.slot_code)}"
+          aria-label="${escapeHtml(slot.slot_code)}, ${escapeHtml(slot.zone || "General")}, ${escapeHtml(occupancy)}${slot.slot_type && slot.slot_type !== "standard" ? ", " + escapeHtml(slot.slot_type) : ""}${slot.reserved_for ? ", reserved for " + escapeHtml(slot.reserved_for) : ""}"
           data-selectable="${isSelectable ? "1" : "0"}"
+          aria-pressed="${selected}"
           ${isSelectable ? "" : "disabled"}>
           <span class="slot-option-code">${escapeHtml(slot.slot_code)}</span>
-          <span class="slot-option-zone">${escapeHtml(slot.zone)}${slot.slot_type && slot.slot_type !== "standard" ? ` · ${escapeHtml(slot.slot_type)}` : ""}${slot.reserved_for ? ` · ${escapeHtml(slot.reserved_for)}` : ""}</span>
+          ${(slot.slot_type && slot.slot_type !== "standard") || slot.reserved_for ? `<span class="slot-option-zone">${slot.slot_type && slot.slot_type !== "standard" ? escapeHtml(slot.slot_type) : ""}${slot.reserved_for ? ` · ${escapeHtml(slot.reserved_for)}` : ""}</span>` : ""}
         </button>
       `;
     }
 
     function attachSlotHandlers() {
-      document.querySelectorAll(".slot-option-btn").forEach(btn => {
+      slotMap.querySelectorAll(".slot-option-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-          if (btn.dataset.selectable !== "1") return;
+          if (movementSaving || btn.dataset.selectable !== "1") return;
           selectedSlotId = btn.dataset.slotId;
-          renderParkingMap(parkingOverview);
+          // Update selection in place so keyboard focus and map scroll stay put.
+          slotMap.querySelectorAll(".slot-option-btn").forEach(button => {
+            const selected = button === btn;
+            button.classList.toggle("selected", selected);
+            button.setAttribute("aria-pressed", String(selected));
+          });
+          entryBtn.disabled = false;
           logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">Slot <strong>${escapeHtml(btn.dataset.slotCode || "-")}</strong> selected for entry.</div>`;
         });
       });
@@ -584,7 +620,10 @@
 
     async function loadParkingSlots(scope = "all") {
       if (!slotPickerStatus) return;
+      const requestId = ++slotRequestId;
       slotPickerStatus.textContent = "Loading parking map...";
+      slotMap.setAttribute("aria-busy", "true");
+      slotMap.innerHTML = window.NaapUiState.render("loading", { title: "Loading parking slots", message: "Checking current availability...", compact: true });
       entryBtn.disabled = true;
       selectedSlotId = null;
       const selectedScope = String(scope || "all").toLowerCase();
@@ -592,7 +631,8 @@
       try {
         const resp = await fetch(`/api/parking-slot-overview?scope=${encodeURIComponent(selectedScope)}`);
         const data = await resp.json();
-        if (!data.ok) throw new Error(data.message || "Failed to load parking overview.");
+        if (requestId !== slotRequestId) return;
+        if (!resp.ok || !data.ok) throw new Error(data.message || "Failed to load parking overview.");
         parkingOverview = {
           slots: Array.isArray(data.slots) ? data.slots : [],
           summary: data.summary || { total: 0, available: 0, occupied: 0, disabled: 0 }
@@ -601,13 +641,15 @@
         const totalCount = parkingOverview.summary?.total || parkingOverview.slots.length || 0;
         slotPickerStatus.textContent = `${availableCount} available out of ${totalCount} slots`;
         renderParkingMap(parkingOverview);
-        entryBtn.disabled = availableCount <= 0;
+        entryBtn.disabled = true;
+        if (availableCount > 0) logFeedback.textContent = "Choose an available slot, then record entry.";
         if (availableCount <= 0) {
           logFeedback.textContent = totalCount > 0 && Number(parkingOverview.summary.disabled) === Number(totalCount)
             ? "All parking spaces are disabled. Ask an administrator to reopen a space before recording entry."
             : "No parking spaces are available. Entry cannot be recorded until a space is available.";
         }
       } catch (error) {
+        if (requestId !== slotRequestId) return;
         parkingOverview = { slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } };
         slotPickerStatus.textContent = "Unable to load parking map";
         slotMap.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
@@ -615,6 +657,8 @@
           message: error.message || "Unable to load parking overview.",
           compact: true
         });
+      } finally {
+        if (requestId === slotRequestId) slotMap.setAttribute("aria-busy", "false");
       }
     }
 
@@ -687,6 +731,7 @@
       }
     });
     async function onScanSuccess(decodedText, decodeMeta = null) {
+      if (movementSaving) return;
       scannerGuidance.detected();
       if (html5QrCode && html5QrCode.getState() === 2) {
         html5QrCode.pause(); // Pause scanning
@@ -757,7 +802,7 @@
             ? "Access denied for this pass."
             : "No active QR token available.";
       return `
-        <div class="mini-row" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; padding: 1rem;">
+        <div class="mini-row manual-vehicle-card">
           <div style="display:flex; justify-content:space-between; align-items:center; width:100%; flex-wrap:wrap; gap:0.5rem;">
             <div>
               <strong>${escapeHtml(item.full_name || "-")}</strong>
@@ -775,6 +820,7 @@
           ${item.current_slot ? `<div class="helper-text">Current Slot: <strong>${escapeHtml(item.current_slot)}</strong></div>` : ""}
           ${isActive && item.qr_token
             ? `<button type="button" class="select-vehicle-btn btn-sm"
+                aria-pressed="false"
                 data-token="${escapeHtml(item.qr_token)}"
                 data-label="${escapeHtml(item.full_name)} · ${escapeHtml(item.plate_number)}"
                 data-entity="${entityType}"
@@ -791,8 +837,14 @@
       setGateStage(resultsData.length ? "select" : "scan");
       statusEl.textContent = `Found ${resultsData.length} result(s).`;
       resultsEl.innerHTML = resultsData.map(renderVehicleCard).join("");
-      document.querySelectorAll(".select-vehicle-btn").forEach(btn => {
+      resultsEl.querySelectorAll(".select-vehicle-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
+          if (movementSaving) return;
+          slotRequestId += 1;
+          resultsEl.querySelectorAll(".select-vehicle-btn").forEach(button => {
+            button.setAttribute("aria-pressed", String(button === btn));
+            button.closest(".manual-vehicle-card").classList.toggle("is-selected", button === btn);
+          });
           selectedToken = btn.dataset.token;
           selectedLabel = btn.dataset.label;
           selectedEntityType = btn.dataset.entity || "student";
@@ -801,13 +853,15 @@
           logInfo.textContent = selectedLabel;
           const currentSlot = btn.dataset.currentslot || "";
           logDetails.innerHTML = `
-            <p class="helper-text">Gate: <strong>${escapeHtml(gateSelect.value)}</strong></p>
+            <p class="helper-text">Gate: <strong id="manualSelectedGate">${escapeHtml(gateSelect.value)}</strong></p>
             <p class="helper-text">Mode: <strong>${selectedEntityType === "visitor" ? "Visitor Pass" : "Student Vehicle"}</strong></p>
             ${currentSlot ? `<p class="helper-text">Current Slot: <strong>${escapeHtml(currentSlot)}</strong></p>` : ""}
           `;
           logFeedback.innerHTML = "";
           logPanel.style.display = "block";
-          logPanel.scrollIntoView({ behavior: "smooth" });
+          logPanel.style.opacity = "1";
+          logPanel.focus({ preventScroll: true });
+          scrollToManualStep(logPanel);
           setGateStage("record");
 
           // Smart Scanning (Auto-Toggle)
@@ -817,6 +871,8 @@
           slotPickerPanel.style.display = "none";
           if (lastAction === "ENTRY") {
              entryBtn.style.display = "none";
+             exitBtn.disabled = false;
+             logFeedback.textContent = "Vehicle is inside campus. Record exit at your current gate.";
           } else {
              exitBtn.style.display = "none";
           }
@@ -829,58 +885,70 @@
       });
     }
 
+    gateSelect.addEventListener("change", () => {
+      const selectedGateLabel = document.getElementById("manualSelectedGate");
+      if (selectedGateLabel) selectedGateLabel.textContent = gateSelect.value;
+    });
+
     async function doSearch() {
+      if (movementSaving) return;
+      const requestId = ++searchRequestId;
+      slotRequestId += 1;
       const q = searchInput.value.trim();
-      if (!q) {
-        statusEl.textContent = "Please enter a search term.";
-        resultsEl.innerHTML = "";
-        setGateStage("scan");
-        return;
-      }
-      setGateStage("scan");
-      statusEl.textContent = "Searching...";
+      selectedToken = null;
+      selectedSlotId = null;
       resultsEl.innerHTML = "";
       logPanel.style.display = "none";
-      
-      const isOffline = !navigator.onLine;
+      setGateStage("scan");
+      if (!q) {
+        statusEl.textContent = "Please enter a search term.";
+        searchBtn.disabled = false;
+        searchBtn.textContent = "Search records";
+        resultsEl.setAttribute("aria-busy", "false");
+        searchInput.focus();
+        return;
+      }
 
-      if (isOffline) {
-        // Search local DB
-        statusEl.textContent = "Searching Offline Roster...";
-        let offlineResults;
-        try {
+      const isOffline = !navigator.onLine;
+      statusEl.textContent = isOffline ? "Searching Offline Roster..." : "Searching...";
+      searchBtn.disabled = true;
+      searchBtn.textContent = "Searching...";
+      resultsEl.setAttribute("aria-busy", "true");
+
+      try {
+        let matches;
+        if (isOffline) {
           if (!window.OfflineManager) throw new Error("Offline support unavailable");
-          offlineResults = await window.OfflineManager.searchOfflineRoster(q);
-        } catch (error) {
-          statusEl.textContent = "Offline lookup is unavailable on this device. Reconnect and retry.";
-          return;
-        }
-        if (offlineResults.length === 0) {
-          statusEl.textContent = "No offline matches found.";
-          setGateStage("scan");
+          const offlineResults = await window.OfflineManager.searchOfflineRoster(q);
+          matches = offlineResults.map(vehicle => ({ ...vehicle, sticker_status: "active" }));
         } else {
-          // Normalize format to match online output
-          const matched = offlineResults.map(v => ({
-            ...v,
-            sticker_status: 'active'
-          }));
-          renderSearchResults(matched);
-        }
-      } else {
-        // Online search
-        try {
           const resp = await fetch(`/api/gate-lookup?q=${encodeURIComponent(q)}`);
           const data = await resp.json();
-          if (!data.ok) return statusEl.textContent = `Error: ${data.message}`;
-          if (data.results.length === 0) {
-            statusEl.textContent = "No results found.";
-            setGateStage("scan");
-          } else {
-            renderSearchResults(data.results);
+          if (requestId !== searchRequestId) return;
+          if (!resp.ok || !data.ok) {
+            statusEl.textContent = `Error: ${data.message || "Unable to search records. Please retry."}`;
+            return;
           }
-        } catch (err) {
-          statusEl.textContent = "Lookup failed. Check your connection and retry.";
-          setGateStage("scan");
+          if (!Array.isArray(data.results)) throw new Error("Invalid lookup response");
+          matches = data.results;
+        }
+        // A slow response must never replace the guard's more recent search.
+        if (requestId !== searchRequestId) return;
+        if (matches.length) {
+          renderSearchResults(matches);
+        } else {
+          statusEl.textContent = isOffline ? "No offline matches found." : "No results found.";
+        }
+      } catch (error) {
+        if (requestId !== searchRequestId) return;
+        statusEl.textContent = isOffline
+          ? "Offline lookup is unavailable on this device. Reconnect and retry."
+          : "Lookup failed. Check your connection and retry.";
+      } finally {
+        if (requestId === searchRequestId) {
+          searchBtn.disabled = false;
+          searchBtn.textContent = "Search records";
+          resultsEl.setAttribute("aria-busy", "false");
         }
       }
     }
@@ -948,9 +1016,7 @@
         setTimeout(() => { if(html5QrCode) html5QrCode.resume() }, 2000);
       } else {
         // Block repeated clicks while the movement request is in flight.
-        movementSaving = true;
-        entryBtn.disabled = true;
-        exitBtn.disabled = true;
+        setMovementSaving(true);
         try {
           const resp = await fetch("/api/manual-movement", {
             method: "POST",
@@ -967,12 +1033,8 @@
           if (data.movement_saved) {
             addToHistory(selectedLabel, action, false, true);
             playBeep('success');
-            if (action === "ENTRY") {
-              await loadParkingSlots(selectedSlotScope);
-            } else {
-              selectedSlotId = null;
-              slotPickerPanel.style.display = "none";
-            }
+            selectedSlotId = null;
+            slotPickerPanel.style.display = "none";
             logFeedback.innerHTML = `<div class="flash flash-success" style="margin:0;">${action === "ENTRY" ? "Entry" : "Exit"} recorded at ${escapeHtml(gate)}.</div>`;
             statusEl.textContent = `${action === "ENTRY" ? "Entry" : "Exit"} recorded at ${gate}. Ready for next scan.`;
             setGateStage("scan");
@@ -980,9 +1042,10 @@
             selectedLabel = "";
             selectedEntityType = "student";
             selectedSlotScope = "all";
-            window.setTimeout(() => {
-              logPanel.style.display = "none";
-            }, 900);
+            resultsEl.innerHTML = "";
+            searchInput.focus({ preventScroll: true });
+            searchInput.select();
+            scrollToManualStep(document.getElementById("gateControlsSection"));
           } else {
              playBeep('error');
              logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">${escapeHtml(data.message || "Unable to record")}</div>`;
@@ -992,9 +1055,7 @@
           playBeep('error');
           logFeedback.innerHTML = `<div class="flash flash-error" style="margin:0;">Unable to save movement. Check your connection and retry.</div>`;
         } finally {
-          movementSaving = false;
-          entryBtn.disabled = !parkingOverview.slots.some(slot => slot.occupancy === "available");
-          exitBtn.disabled = false;
+          setMovementSaving(false);
         }
       }
     }
