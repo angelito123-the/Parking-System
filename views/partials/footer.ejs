@@ -74,7 +74,9 @@
         accountMenu.hidden = !open;
         accountButton.setAttribute("aria-expanded", open ? "true" : "false");
         if (open) {
-          window.requestAnimationFrame(() => accountMenu.querySelector('[role="menuitem"]')?.focus());
+          window.requestAnimationFrame(() => {
+            if (!accountMenu.hidden) accountMenu.querySelector('[role="menuitem"]')?.focus();
+          });
         } else if (restoreFocus) {
           accountButton.focus({ preventScroll: true });
         }

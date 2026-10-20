@@ -16,6 +16,101 @@ test.beforeEach(async ({ page }, testInfo) => {
   await page.addInitScript(theme => localStorage.setItem('theme', theme), testInfo.project.name.includes('dark') ? 'dark' : 'light');
 });
 
+
+for (const role of ['admin', 'guard']) {
+  test(`${role} notification and account panels never cover one another`, async ({ page }, testInfo) => {
+    const errors = [];
+    const writes = [];
+    const queries = [];
+    const rows = [
+      { id: 9001, title: 'Entry attempt after denial', message: 'Manual EXIT denied: last movement is already EXIT.', severity: 'medium', type: 'SUSPICIOUS_SCAN_BEHAVIOR', status: 'resolved', is_read: false, created_at: '2026-10-19T01:00:42Z' },
+      { id: 9002, title: 'Parking zone full: Basketball Area Parking', message: 'No spaces remain in this zone. Entry can resume when a slot is released.', severity: 'high', type: 'FULL_PARKING_ZONE', status: 'active', is_read: false, created_at: '2026-10-18T12:19:50Z' },
+      { id: 9003, title: 'Parking status updated', message: 'The parking inventory has been checked.', severity: 'low', type: 'PARKING_STATUS', status: 'resolved', is_read: true, created_at: '2026-10-18T10:00:00Z' }
+    ];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => { window.EventSource = class extends EventTarget { close() {} }; });
+    await page.route('**/api/notifications**', route => {
+      const url = new URL(route.request().url());
+      if (route.request().method() === 'POST') {
+        writes.push(url.pathname);
+        if (url.pathname.endsWith('/read-all')) rows.forEach(row => { row.is_read = true; });
+        else {
+          const row = rows.find(item => String(item.id) === url.pathname.split('/')[3]);
+          if (row && url.pathname.endsWith('/read')) row.is_read = true;
+          if (row && url.pathname.endsWith('/resolve')) row.status = 'resolved';
+        }
+        return route.fulfill({ json: { ok: true } });
+      }
+      if (url.pathname.endsWith('/summary')) return route.fulfill({ json: { ok: true, summary: { active_total: rows.filter(row => row.status === 'active').length, unread_total: rows.filter(row => !row.is_read).length } } });
+      queries.push(url.searchParams.toString());
+      const filtered = rows.filter(row => (!url.searchParams.has('severity') || row.severity === url.searchParams.get('severity')) && (!url.searchParams.has('read_state') || !row.is_read));
+      return route.fulfill({ json: { ok: true, rows: filtered } });
+    });
+    await signIn(page, role);
+    await page.goto('/' + role);
+    const bell = page.locator('#notificationBell');
+    const panel = page.locator('#notificationPanel');
+    const account = page.locator('#accountMenuButton');
+    const menu = page.locator('#accountMenu');
+    await bell.click();
+    await expect(panel.locator('.notification-row')).toHaveCount(3);
+    await expect(panel.getByRole('img', { name: 'Medium risk' })).toBeVisible();
+    await expect(panel.locator('.notification-row').first()).not.toContainText(/\bmedium\b/i);
+    await expect(panel.locator('.notification-chip')).toHaveCount(3);
+    await expect(panel.locator('.notification-category').first()).toHaveText('suspicious scan behavior');
+    await panel.screenshot({ path: testInfo.outputPath('notifications.png') });
+    const audit = await new AxeBuilder({ page }).include('#notificationPanel').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(audit.violations.map(item => ({ id: item.id, targets: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) }))).toEqual([]);
+    expect(await panel.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return box.left >= 0 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1;
+    })).toBe(true);
+    await account.click();
+    await expect(menu).toBeVisible();
+    await expect(panel).toBeHidden();
+    await expect(panel).toHaveAttribute('inert', '');
+    await expect(bell).toHaveAttribute('aria-expanded', 'false');
+    const logout = menu.locator('a[href="/logout"]');
+    expect(await logout.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    })).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(account).toBeFocused();
+    await account.press('Enter');
+    await bell.click();
+    await expect(menu).toBeHidden();
+    await expect(panel).toBeVisible();
+    await expect(page.locator('#notificationCloseBtn')).toBeFocused();
+    await account.focus();
+    await account.press('Enter');
+    await expect(panel).toBeHidden();
+    await expect(menu).toBeVisible();
+    await bell.focus();
+    await bell.press('Space');
+    await expect(menu).toBeHidden();
+    await expect(panel).toBeVisible();
+    await panel.getByRole('button', { name: 'High priority', exact: true }).click();
+    await expect(panel.locator('.notification-row')).toHaveCount(1);
+    expect(queries.at(-1)).toContain('severity=high');
+    await panel.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(panel.locator('.notification-row')).toHaveCount(3);
+    await panel.locator('.notification-row').first().getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(panel.locator('.notification-row').first().locator('.notification-read-btn')).toHaveCount(0);
+    expect(writes).toContain('/api/notifications/9001/read');
+    await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
+    await expect(panel.locator('.notification-resolve-btn')).toHaveCount(0);
+    expect(writes).toContain('/api/notifications/9002/resolve');
+    await panel.getByRole('button', { name: 'Mark all read', exact: true }).click();
+    await expect(panel.locator('.notification-read-btn')).toHaveCount(0);
+    expect(writes).toContain('/api/notifications/read-all');
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+    await expect(bell).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+}
+
 test('key pages fit the screen and have no serious accessibility violations', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

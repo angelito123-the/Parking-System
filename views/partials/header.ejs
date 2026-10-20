@@ -23,7 +23,7 @@
   <link rel="stylesheet" href="/styles.css?v=20260914-email" />
   <link rel="stylesheet" href="/design-system.css?v=20260914-email" />
   <link rel="stylesheet" href="/parking-layout.css?v=20261008-hangar" />
-  <link rel="stylesheet" href="/ui-polish.css?v=20261020-manual-controls" />
+  <link rel="stylesheet" href="/ui-polish.css?v=20261021-notifications" />
   <link rel="stylesheet" href="/ui-motion.css?v=20261020-fluid" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
@@ -417,6 +417,8 @@
               const renderNotificationRow = (row) => {
                 const isUnread = !row.is_read;
                 const severityClass = getSeverityClass(row.severity);
+                const riskLabel = severityClass === 'sev-high' ? 'High risk' : severityClass === 'sev-medium' ? 'Medium risk' : 'Low risk';
+                const category = String(row.type || 'Alert').toLowerCase().replace(/_/g, ' ');
                 const statusClass = String(row.status || '').toLowerCase() === 'resolved' ? 'state-resolved' : 'state-active';
                 const createdAt = row.created_at ? new Date(row.created_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : '-';
                 const alertId = Number.isInteger(Number(row.id)) ? Number(row.id) : 0;
@@ -424,20 +426,21 @@
                   <article class="notification-row ${isUnread ? 'is-unread' : ''}">
                     <div class="notification-row-main">
                       <p class="notification-row-title">
-                        <span class="notify-severity-dot ${severityClass}"></span>
-                        ${escapeHtml(row.title || 'Alert')}
+                        <span class="notify-severity-dot ${severityClass}" role="img" aria-label="${riskLabel}"></span>
+                        <span>${escapeHtml(row.title || 'Alert')}</span>
                       </p>
                       <p class="notification-row-message">${escapeHtml(row.message || '-')}</p>
                       <p class="notification-row-meta">
                         <span class="notification-chip ${statusClass}">${escapeHtml(row.status || 'active')}</span>
-                        <span class="notification-chip">${escapeHtml(row.type || 'ALERT')}</span>
-                        <span class="notification-chip">${escapeHtml((row.severity || 'low').toUpperCase())}</span>
-                        <span>${escapeHtml(createdAt)}</span>
+                        <span class="notification-category">${escapeHtml(category)}</span>
                       </p>
                     </div>
-                    <div class="notification-row-actions">
-                      ${isUnread ? `<button type="button" class="btn-sm notification-read-btn" data-alert-id="${alertId}">Read</button>` : ''}
-                      ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${alertId}">Resolve</button>` : ''}
+                    <div class="notification-row-footer">
+                      <span class="notification-row-time">${escapeHtml(createdAt)}</span>
+                      <div class="notification-row-actions">
+                        ${isUnread ? `<button type="button" class="btn-sm btn-reset notification-read-btn" data-alert-id="${alertId}">Mark read</button>` : ''}
+                        ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${alertId}">Resolve</button>` : ''}
+                      </div>
                     </div>
                   </article>
                 `;
@@ -537,7 +540,9 @@
                 notificationPanel.setAttribute('aria-hidden', 'false');
                 notificationBell?.setAttribute('aria-expanded', 'true');
                 fetchNotificationList();
-                window.requestAnimationFrame(() => notificationCloseBtn?.focus());
+                window.requestAnimationFrame(() => {
+                  if (notificationPanel.classList.contains('open')) notificationCloseBtn?.focus();
+                });
               };
 
               const closeNotificationPanel = ({ restoreFocus = true } = {}) => {
@@ -614,7 +619,7 @@
                 if (!(target instanceof Element)) return;
                 if (target.closest('#notificationPanel') || target.closest('#notificationBell')) return;
                 closeNotificationPanel({ restoreFocus: false });
-              });
+              }, true); // Capture outside clicks even when the account menu stops propagation.
               document.addEventListener('keydown', (event) => {
                 if (event.key !== 'Escape' || !notificationPanel?.classList.contains('open')) return;
                 event.preventDefault();
