@@ -79,7 +79,7 @@
       <p>Live roster of vehicles currently inside campus.</p>
     </div>
     <div class="refresh-row" style="margin-bottom: 0.75rem;">
-      <span id="insideLastUpdated" class="helper-text">Last updated: --</span>
+      <span id="insideLastUpdated" class="helper-text live-update-status">Automatic updates every 20s</span>
       <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn">Refresh</button>
     </div>
     <div id="overstayNotice" class="flash flash-error overstay-notice" style="display:none; margin-bottom:0.85rem;"></div>
@@ -459,11 +459,16 @@
       }
     }
 
-    async function refreshOverview() {
+    async function refreshOverview(event) {
+      const manual = event?.type === "click";
+      if (manual && refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.setAttribute("aria-busy", "true");
+      }
       try {
         const resp = await fetch("/api/dashboard-stats", { credentials: "same-origin" });
         const data = await resp.json();
-        if (!data.ok) return;
+        if (!resp.ok || !data.ok) throw new Error("Refresh unavailable");
 
         const metrics = data.metrics || {};
         if (metricStudents) metricStudents.textContent = metrics.students ?? "-";
@@ -507,8 +512,22 @@
         if (lastUpdatedEl) {
           lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         }
+        lastUpdatedEl?.classList.remove("is-stale");
+        lastUpdatedEl?.classList.add("is-current");
+        if (manual) window.NaapFeedback?.show("Dashboard updated.", { tone: "success" });
       } catch (error) {
+        if (lastUpdatedEl) {
+          lastUpdatedEl.textContent = "Update failed · showing previous data";
+          lastUpdatedEl.classList.remove("is-current");
+          lastUpdatedEl.classList.add("is-stale");
+        }
+        if (manual) window.NaapFeedback?.show("Dashboard could not update. Check your connection and try Refresh again.", { tone: "error" });
         console.error("Admin overview refresh failed:", error);
+      } finally {
+        if (manual && refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.removeAttribute("aria-busy");
+        }
       }
     }
 

@@ -111,7 +111,7 @@
       <p><%= isRemoteScannerMode ? 'Entry approvals will appear on the guard console.' : 'Follow the prompt shown here after the QR is detected.' %></p>
     </div>
 
-    <div id="autoResultCard" class="auto-result-card state-idle">
+    <div id="autoResultCard" class="auto-result-card state-idle" role="status" aria-live="polite" aria-atomic="true">
       <h3 id="autoResultTitle">Waiting for QR detection</h3>
       <p id="autoResultMessage">Point the camera to a student vehicle QR sticker anywhere in view.</p>
       <div id="autoResultMeta" class="auto-result-meta"></div>

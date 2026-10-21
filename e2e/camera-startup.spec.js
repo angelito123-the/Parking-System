@@ -30,7 +30,7 @@ async function serveScanner(page, options = {}) {
         deferEntryConfirmation: url.searchParams.get("mode") === "remote",
         currentRole: "guard", scanCooldownSeconds: 10, cspNonce: "camera-test",
         include: name => name === "partials/header"
-          ? '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/design-system.css"></head><body>'
+          ? '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/theme-tokens.css"><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/design-system.css"><link rel="stylesheet" href="/ui-polish.css"></head><body data-role="guard">'
           : "</body></html>"
       });
       return route.fulfill({

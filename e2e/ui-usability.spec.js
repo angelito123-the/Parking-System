@@ -202,6 +202,8 @@ test('slot history handles empty, failed, and outdated responses', async ({ page
   mode = 'pending';
   await trigger.click();
   await expect(list).toHaveAttribute('aria-busy', 'true');
+  await expect(list.locator('.ui-skeleton')).toBeVisible();
+  await expect(list.locator('.ui-skeleton')).toHaveAttribute('aria-hidden', 'true');
   await expect.poll(() => Boolean(delayed)).toBe(true);
   await page.keyboard.press('Escape');
   mode = 'empty';
@@ -691,4 +693,109 @@ test('QR email controls are removed and QR downloads and print cards remain avai
   expect((await page.request.get(await printLink.getAttribute('href'))).status()).toBe(200);
   const audit = await new AxeBuilder({ page }).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
   expect(audit.violations.filter(item => ['serious','critical'].includes(item.impact))).toEqual([]);
+});
+
+for (const [path, endpoint, buttonId, metricId, statusId, result] of [
+  ['/admin', '/api/dashboard-stats', 'refreshInsideBtn', 'metricStudents', 'insideLastUpdated', { ok: true, metrics: { students: 7 }, insideVehicles: [], overstayAlerts: [] }],
+  ['/admin/slots', '/api/parking-slot-overview', 'slotsRefreshBtn', 'slotMetricTotal', 'slotsLastUpdated', { ok: true, slots: [], summary: { total: 0, available: 0, occupied: 0, disabled: 0 } }]
+]) {
+  test(`refresh feedback preserves data and supports retry on ${path}`, async ({ page }) => {
+    let mode = 'pending';
+    let pending;
+    await page.route('**' + endpoint, route => {
+      if (mode === 'pending') { pending = route; return; }
+      return route.fulfill({ json: result });
+    });
+    await signIn(page, 'admin');
+    await page.goto(path);
+    const button = page.locator('#' + buttonId);
+    const metric = page.locator('#' + metricId);
+    const initialValue = await metric.textContent();
+    await button.click();
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAttribute('aria-busy', 'true');
+    await expect.poll(() => Boolean(pending)).toBe(true);
+    await pending.fulfill({ status: 503, json: { ok: false } });
+    await expect(button).toBeEnabled();
+    await expect(metric).toHaveText(initialValue);
+    await expect(page.locator('#' + statusId)).toHaveText('Update failed · showing previous data');
+    const errorToast = page.locator('.ui-toast-error');
+    await expect(errorToast.getByRole('alert')).toContainText('try Refresh again');
+    const audit = await new AxeBuilder({ page }).include('.ui-toast-stack').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(audit.violations.map(item => item.id)).toEqual([]);
+    await errorToast.getByRole('button', { name: 'Dismiss message' }).click();
+    await expect(errorToast).toHaveCount(0);
+    mode = 'success';
+    await button.click();
+    await expect(page.locator('.ui-toast-success')).toContainText('updated');
+    await expect(page.locator('#' + statusId)).toHaveClass(/is-current/);
+    await expect(metric).toHaveText(path === '/admin' ? '7' : '0');
+    await page.evaluate(() => window.NaapFeedback.show('<img src=x onerror=alert(1)>', { tone: 'info' }));
+    await expect(page.locator('.ui-toast-info')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(page.locator('.ui-toast-info img')).toHaveCount(0);
+  });
+}
+
+test('parking form keeps required-field errors inline without submitting', async ({ page }) => {
+  let submitted = false;
+  await signIn(page, 'admin');
+  await page.goto('/admin/slots');
+  page.on('request', request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/admin/slots') submitted = true; });
+  const form = page.locator('.parking-space-form');
+  await form.getByRole('button', { name: 'Add parking space' }).click();
+  await expect(form.locator('.form-error-summary')).toBeVisible();
+  await expect(page.locator('#newSlotCode')).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#newSlotCode')).toBeFocused();
+  await expect(form.locator('.form-field-error:visible')).toHaveCount(2);
+  await page.locator('#newSlotCode').fill('REVIEW-ONLY');
+  await expect(page.locator('#newSlotCode')).not.toHaveAttribute('aria-invalid');
+  expect(submitted).toBe(false);
+});
+
+test('tablet layouts keep key pages within the viewport', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('phone'), 'Tablet coverage uses the desktop browser.');
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 768, height: 1024 });
+  for (const [role, paths] of [['admin', ['/admin', '/admin/slots', '/students#directory', '/visitor-passes']], ['guard', ['/guard', '/scanner/auto?mode=remote']]]) {
+    await signIn(page, role);
+    for (const path of paths) {
+      await page.goto(path);
+      if (path.includes('/scanner/auto')) await expect(page.locator('#chipCameraState')).toHaveText('Camera Ready');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), path).toBe(true);
+      const violations = (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations;
+      expect(violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.failureSummary) })), path).toEqual([]);
+    }
+  }
+});
+
+test('scan-result presentation keeps explicit statuses and accessible contrast', async ({ page }, testInfo) => {
+  await signIn(page, 'guard');
+  await page.goto('/scanner/auto?mode=remote');
+  await expect(page.locator('#chipCameraState')).toHaveText('Camera Ready');
+  await page.locator('#toggleAutoCameraBtn').click();
+  const card = page.locator('#autoResultCard');
+  // Exercise presentation states only; QR eligibility remains covered by scanner tests.
+  for (const [state, title, message] of [
+    ['success', 'EXIT recorded', 'Exit recorded at Gate 4.'],
+    ['invalid', 'Unauthorized (INVALID)', 'The vehicle QR could not be verified.'],
+    ['invalid', 'Unauthorized (EXPIRED)', 'This vehicle sticker has expired.'],
+    ['warning', 'Scan paused', 'Wait before scanning the same vehicle again.']
+  ]) {
+    await card.evaluate((element, data) => {
+      element.className = `auto-result-card state-${data.state}`;
+      element.querySelector('h3').textContent = data.title;
+      element.querySelector('#autoResultMessage').textContent = data.message;
+    }, { state, title, message });
+    await card.scrollIntoViewIfNeeded();
+    await expect(card).toHaveAttribute('aria-live', 'polite');
+    await expect(card.getByRole('heading')).toHaveText(title);
+    const audit = await new AxeBuilder({ page }).include('#autoResultCard').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+    expect(audit.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.failureSummary) })), title).toEqual([]);
+  }
+  await card.screenshot({ path: testInfo.outputPath('scan-result.png') });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => window.NaapFeedback.show('Display check.', { tone: 'success' }));
+  expect(await page.locator('.ui-toast').evaluate(element => getComputedStyle(element).animationDuration)).toBe('0.18s');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await page.locator('.ui-toast').evaluate(element => getComputedStyle(element).animationName)).toBe('none');
 });

@@ -47,6 +47,7 @@
       <div class="ui-state-copy">
         ${title ? `<strong>${title}</strong>` : ""}
         ${message ? `<p>${message}</p>` : ""}
+        ${safeType === "loading" ? '<span class="ui-skeleton" aria-hidden="true"><span></span><span></span><span></span></span>' : ""}
       </div>
     </div>`;
   }

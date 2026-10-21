@@ -66,7 +66,7 @@
       </form>
     </div>
     <div class="refresh-row" style="margin-bottom:0.8rem;">
-      <span id="slotsLastUpdated" class="helper-text">Last updated: --</span>
+      <span id="slotsLastUpdated" class="helper-text live-update-status">Automatic updates every 20s</span>
       <button type="button" id="slotsRefreshBtn" class="refresh-btn btn-sm">Refresh</button>
     </div>
 
@@ -772,17 +772,36 @@
       }
     }
 
-    async function refreshSlots() {
+    async function refreshSlots(event) {
+      const manual = event?.type === "click";
+      if (manual && refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.setAttribute("aria-busy", "true");
+      }
       try {
         const resp = await fetch("/api/parking-slot-overview", { credentials: "same-origin" });
         const data = await resp.json();
-        if (!data.ok) return;
+        if (!resp.ok || !data.ok) throw new Error("Refresh unavailable");
         latestParkingSlots = Array.isArray(data.slots) ? data.slots : [];
         latestParkingSlotSummary = normalizeParkingSlotSummary(data.summary || {}, latestParkingSlots);
         renderParkingSlotsSection();
         if (lastUpdatedEl) lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+        lastUpdatedEl?.classList.remove("is-stale");
+        lastUpdatedEl?.classList.add("is-current");
+        if (manual) window.NaapFeedback?.show("Parking availability updated.", { tone: "success" });
       } catch (error) {
+        if (lastUpdatedEl) {
+          lastUpdatedEl.textContent = "Update failed · showing previous data";
+          lastUpdatedEl.classList.remove("is-current");
+          lastUpdatedEl.classList.add("is-stale");
+        }
+        if (manual) window.NaapFeedback?.show("Parking availability could not update. Check your connection and try Refresh again.", { tone: "error" });
         console.error("Failed to refresh parking slots:", error);
+      } finally {
+        if (manual && refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.removeAttribute("aria-busy");
+        }
       }
     }
 
