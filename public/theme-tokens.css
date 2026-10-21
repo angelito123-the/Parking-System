@@ -1,0 +1,36 @@
+/* NAAP's shared visual vocabulary. Operational status colors remain separate from branding. */
+:root {
+  --naap-brand: #102a46;
+  --naap-brand-hover: #193e62;
+  --naap-brand-soft: #edf3f8;
+  --naap-link: #174b7a;
+  --naap-focus: #1d4ed8;
+  --naap-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --naap-text-xs: 0.75rem;
+  --naap-text-sm: 0.875rem;
+  --naap-text-base: 1rem;
+  --naap-text-lg: 1.125rem;
+  --naap-text-title: clamp(1.5rem, 2.2vw, 2rem);
+  --naap-text-stat: clamp(1.8rem, 2.5vw, 2.25rem);
+  --naap-space-1: 0.25rem;
+  --naap-space-2: 0.5rem;
+  --naap-space-3: 0.75rem;
+  --naap-space-4: 1rem;
+  --naap-space-5: 1.5rem;
+  --naap-space-6: 2rem;
+  --naap-radius-control: 10px;
+  --naap-radius-card: 14px;
+  --naap-radius-dialog: 18px;
+  --naap-shadow-card: 0 2px 8px rgba(16, 42, 70, 0.04);
+  --naap-shadow-overlay: 0 16px 40px rgba(16, 42, 70, 0.16);
+  --naap-control-height: 44px;
+  --naap-touch-height: 48px;
+}
+
+[data-theme="dark"] {
+  --naap-link: #a5cdf2;
+  --naap-focus: #93c5fd;
+  --naap-brand-soft: #1b324b;
+  --naap-shadow-card: 0 2px 8px rgba(0, 0, 0, 0.16);
+  --naap-shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.4);
+}

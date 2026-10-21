@@ -1,13 +1,15 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v49`;
+const CACHE_NAME = `${CACHE_PREFIX}v50`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
   '/offline.js',
+  '/theme-tokens.css?v=20261021-brand',
+  '/login-theme.css?v=20261021-brand',
   '/styles.css?v=20260914-email',
-  '/design-system.css?v=20260914-email',
+  '/design-system.css?v=20261021-brand',
   '/parking-layout.css?v=20261008-hangar',
-  '/ui-polish.css?v=20261021-slot-history',
+  '/ui-polish.css?v=20261021-brand',
   '/ui-motion.css?v=20261020-fluid',
   '/js/parking-layout.js?v=20261008-hangar',
   '/vendor/phosphor/style.css?v=2.1.2',
@@ -35,7 +37,7 @@ const ASSETS_TO_CACHE = [
 ];
 const STATIC_ASSET_PATHS = new Set(ASSETS_TO_CACHE.map(asset => new URL(asset, self.location.origin).pathname));
 const OPTIONAL_ASSETS_TO_CACHE = [
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap'
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 ];
 
 self.addEventListener('install', event => {

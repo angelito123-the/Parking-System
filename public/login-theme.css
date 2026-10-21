@@ -1,0 +1,21 @@
+/* Login shares the app's brand and type scale; the existing form and animations stay intact. */
+.page-login { font-family: var(--naap-font); background: #f4f7fa; }
+.page-login :is(h1, h2, input, button, .brand-name) { font-family: var(--naap-font); }
+.page-login .brand-panel { background: linear-gradient(145deg, #0b2036, var(--naap-brand) 65%, #1b4266); }
+.page-login .brand-orb { opacity: 0.12; }
+.page-login .brand-title { font-size: clamp(2rem, 3.3vw, 3rem); line-height: 1.18; letter-spacing: -0.035em; }
+.page-login .brand-copy { line-height: 1.75; color: #d5e2ef; }
+.page-login .auth-card { width: 100%; max-width: 430px; }
+.page-login .auth-title { font-size: var(--naap-text-title); letter-spacing: -0.025em; }
+.page-login .auth-copy { color: #435169; line-height: 1.65; }
+.page-login .auth-kicker { color: var(--naap-brand); }
+.page-login .input-wrap input { min-height: 52px; font-size: var(--naap-text-base); border-radius: var(--naap-radius-control); }
+.page-login .login-btn { min-height: 52px; border-radius: var(--naap-radius-control); background: var(--naap-brand); box-shadow: none; font-size: var(--naap-text-base); }
+.page-login .login-btn:hover { background: var(--naap-brand-hover); box-shadow: var(--naap-shadow-card); }
+.page-login :is(button, input):focus-visible { outline: 3px solid var(--naap-focus); outline-offset: 3px; }
+.page-login .password-toggle { min-width: var(--naap-control-height); min-height: var(--naap-control-height); }
+.page-login :is(.login-note, .auth-footer) { color: #52647a; line-height: 1.65; }
+@media (max-width: 700px) {
+  .page-login .auth-panel { padding: 2rem 1.25rem; }
+  .page-login .auth-card { max-width: 430px; }
+}

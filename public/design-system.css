@@ -6,21 +6,21 @@
  */
 
 :root {
-  --ui-space-1: 0.25rem;
-  --ui-space-2: 0.5rem;
-  --ui-space-3: 0.75rem;
-  --ui-space-4: 1rem;
-  --ui-space-5: 1.5rem;
+  --ui-space-1: var(--naap-space-1);
+  --ui-space-2: var(--naap-space-2);
+  --ui-space-3: var(--naap-space-3);
+  --ui-space-4: var(--naap-space-4);
+  --ui-space-5: var(--naap-space-5);
   --ui-space-card: 1rem;
   --ui-space-section: 1.5rem;
-  --ui-radius-card: 12px;
-  --ui-radius-control: 9px;
-  --ui-control-height: 40px;
+  --ui-radius-card: var(--naap-radius-card);
+  --ui-radius-control: var(--naap-radius-control);
+  --ui-control-height: var(--naap-control-height);
   --ui-control-height-large: 48px;
   --ui-control-height-compact: 34px;
   --ui-touch-target: 44px;
-  --ui-primary: #2563eb;
-  --ui-primary-hover: #1d4ed8;
+  --ui-primary: var(--naap-brand);
+  --ui-primary-hover: var(--naap-brand-hover);
   --ui-success: #15803d;
   --ui-warning: #b45309;
   --ui-danger: #be123c;
@@ -32,9 +32,9 @@
   --sidebar-muted: #64748b;
   --sidebar-hover: #f1f5f9;
   --sidebar-hover-border: #d7e0ea;
-  --sidebar-active: #eef4ff;
-  --sidebar-active-text: #1d4ed8;
-  --sidebar-active-border: #cdddfb;
+  --sidebar-active: var(--naap-brand);
+  --sidebar-active-text: #ffffff;
+  --sidebar-active-border: var(--naap-brand);
   --sidebar-user-bg: #f8fafc;
   --sidebar-user-border: #dfe6ee;
   --surface: #ffffff;
@@ -44,7 +44,7 @@
   --text: #172033;
   --text-secondary: #435169;
   --muted: #64748b;
-  --navy: #172033;
+  --navy: var(--naap-brand);
   --blue-soft: #eef4ff;
   --green-soft: #f0fdf4;
   --green-text: #15803d;
@@ -604,7 +604,7 @@ button.account-menu-item:hover,
 .pagination-control:hover,
 .pagination-page:hover,
 .pagination-page.is-active {
-  color: var(--ui-primary);
+  color: var(--naap-link);
   border-color: var(--ui-hover-border);
   background: var(--blue-soft);
   text-decoration: none;
@@ -921,7 +921,7 @@ body[class] .overlap-wrapper > .panel[style] {
 }
 
 .section-head h2 {
-  font-family: "Inter", sans-serif;
+  font-family: var(--naap-font);
   font-size: 1rem;
   line-height: 1.35;
 }
@@ -1084,7 +1084,7 @@ button.btn-add-vehicle:hover,
 button.btn-cancel-sm:hover,
 button.entry-cancel-btn:hover,
 button.auto-resume-btn:hover {
-  color: var(--ui-primary) !important;
+  color: var(--naap-link) !important;
   border-color: var(--ui-hover-border) !important;
   background: var(--blue-soft) !important;
   text-decoration: none;
@@ -1457,7 +1457,7 @@ body[data-role] :is(input, select, textarea)::placeholder {
 body[data-role] :is(input, select, textarea):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ui-primary) 55%, transparent);
   outline-offset: 1px;
-  border-color: var(--ui-primary);
+  border-color: var(--naap-link);
   box-shadow: none;
 }
 
@@ -2096,7 +2096,7 @@ body.is-ready .container > *,
 
   body[data-role="guard"] .side-nav a.nav-primary-action {
     color: #ffffff;
-    border-color: var(--ui-primary);
+    border-color: var(--naap-link);
     background: var(--ui-primary);
   }
 

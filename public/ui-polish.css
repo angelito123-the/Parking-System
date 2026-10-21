@@ -1,5 +1,82 @@
 /* Shared visual refinements; status colors continue to come from the design system. */
 
+/* Shared shell, typography, and controls use the NAAP tokens across every staff screen. */
+body[data-role] { font-family: var(--naap-font); line-height: 1.55; }
+body[data-role] :is(h1, h2, h3, h4, input, select, textarea, button) { font-family: var(--naap-font); }
+body[data-role] .hero-greeting h1 { font-size: var(--naap-text-title); letter-spacing: -0.035em; line-height: 1.2; }
+body[data-role] .hero-greeting h2 { color: var(--naap-link); letter-spacing: 0.08em; }
+body[data-role] :is(.section-head h2, .gate-console-headline h2) { font-size: var(--naap-text-lg); }
+body[data-role] .helper-text { font-size: var(--naap-text-xs); }
+body[data-role] .side-nav a { min-height: var(--naap-control-height); font-size: var(--naap-text-sm); }
+body[data-role] .side-nav a.active::before { background: currentColor; }
+body[data-role] .sidebar-brand-mark { background: var(--naap-brand); border-radius: var(--naap-radius-control); }
+body[data-role] .sidebar-user .avatar-dot { background: var(--naap-brand); color: #fff; }
+body[data-role] .sidebar-user { border: 1px solid var(--line); }
+body[data-role] .top-nav-actions { background: transparent; gap: 0.5rem; }
+body[data-role] .top-nav-page-title h2 { font-size: var(--naap-text-base); }
+body[data-role] .top-nav-avatar { background: var(--naap-brand); color: #fff; }
+body[data-role] .dashboard-hero .hero-card {
+  min-width: 0;
+  padding: var(--naap-space-4) var(--naap-space-5) !important;
+  border-radius: var(--naap-radius-card) !important;
+  background: var(--surface) !important;
+  box-shadow: var(--naap-shadow-card) !important;
+}
+body[data-role] .dashboard-hero .hero-card h3 { min-height: 2.6em; font-size: var(--naap-text-xs); line-height: 1.4; }
+body[data-role] .dashboard-hero .hero-card p { font-size: var(--naap-text-stat); line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+body[data-role] :is(.task-shortcut-icon, .hero-primary-action) { border-radius: var(--naap-radius-control); }
+body[data-role] .task-shortcut-icon { background: var(--naap-brand-soft); color: var(--naap-link); border-color: var(--line); }
+body[data-role] .task-shortcut-copy strong { font-size: var(--naap-text-sm); }
+body[data-role] :is(.form-grid, .visitor-form-grid, .filter-form, .edit-form-grid) { gap: var(--naap-space-4); }
+body[data-role] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  border-radius: var(--naap-radius-control);
+  font-size: var(--naap-text-sm);
+}
+body[data-role] :is(.btn-sm, button[type="submit"], .link-btn) { min-height: var(--naap-control-height); }
+body[data-role] :is(a, button, input, select, textarea, summary, [tabindex="0"]):focus-visible {
+  outline: 3px solid var(--naap-focus) !important;
+  outline-offset: 3px;
+}
+body[data-role] .form-field-error { line-height: 1.5; font-size: var(--naap-text-xs); }
+body[data-role] :is(.table-wrap, .ops-table-shell) {
+  max-height: min(70dvh, 720px);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border-radius: var(--naap-radius-card);
+}
+body[data-role] :is(.table-wrap, .ops-table-shell) table { border-collapse: separate; border-spacing: 0; }
+body[data-role] :is(.table-wrap, .ops-table-shell) thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.85rem 1rem;
+  color: var(--text-secondary);
+  background: var(--surface-soft);
+  font-size: var(--naap-text-xs);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  border-bottom: 1px solid var(--line-strong);
+}
+body[data-role] :is(.table-wrap, .ops-table-shell) td { padding: 1rem; font-size: var(--naap-text-sm); line-height: 1.55; }
+body[data-role] :is(.table-wrap, .ops-table-shell) tbody tr:focus-within td { background: var(--surface-soft); }
+body[data-role] .visitor-form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+body[data-role] .visitor-filter-grid { gap: var(--naap-space-3); }
+body[data-role] .ui-state { border-radius: var(--naap-radius-card); line-height: 1.6; }
+body[data-role] .ui-state-copy strong { font-size: var(--naap-text-sm); }
+body[data-role] .ui-state-copy p { font-size: var(--naap-text-xs); }
+@media (max-width: 1080px) {
+  body[data-role] .visitor-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body[data-role] .side-nav a { min-height: var(--naap-touch-height); }
+}
+@media (max-width: 700px) {
+  body[data-role] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) { font-size: 1rem; }
+  body[data-role] .visitor-form-grid { grid-template-columns: minmax(0, 1fr); }
+  body[data-role] .visitor-form-wide { grid-column: auto; }
+  body[data-role] .dashboard-hero .hero-card { padding: var(--naap-space-4) !important; }
+  body[data-role] .top-nav-actions { gap: 0.25rem; }
+}
+
 /* Keep the history heading visible while the parking records scroll. */
 #slotHistoryModal .slot-history-dialog {
   display: flex;
@@ -346,12 +423,12 @@
 }
 body[data-role] .parking-form-actions {
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   margin: 0;
   padding-top: 1rem;
   border-top: 1px solid var(--line);
 }
-.parking-form-actions .parking-field-help { margin: 0; }
+.parking-form-actions .parking-field-help { margin: 0; order: 1; }
 
 /* One row per zone keeps names, warning levels, and save actions easy to compare. */
 .zone-threshold-section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }

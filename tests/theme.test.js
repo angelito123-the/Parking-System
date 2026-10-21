@@ -28,11 +28,11 @@ test('final UI layer defines complete light and dark palettes', () => {
 test('theme stylesheet version is consistent with the offline cache', () => {
   const header = fs.readFileSync(path.join(projectRoot, 'views', 'partials', 'header.ejs'), 'utf8');
   const worker = fs.readFileSync(path.join(projectRoot, 'public', 'sw.js'), 'utf8');
-  const asset = '/design-system.css?v=20260914-email';
+  const asset = '/design-system.css?v=20261021-brand';
 
   assert.ok(header.includes(asset));
   assert.ok(worker.includes(asset));
-  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v49`/);
+  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v50`/);
   assert.match(header, /localStorage\.setItem\('theme', newTheme\)/);
   assert.match(header, /setAttribute\('aria-pressed', isDark \? 'true' : 'false'\)/);
 });

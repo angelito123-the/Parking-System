@@ -1,7 +1,7 @@
 <%
   const initialPath = typeof currentPath === "string" ? currentPath : "";
   const needsOfflineScanner = initialPath === "/scanner" || initialPath === "/scanner/auto";
-  const fontStylesheetUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Sora:wght@600;700;800&display=swap";
+  const fontStylesheetUrl = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
 %>
 <!doctype html>
 <html lang="en">
@@ -20,10 +20,11 @@
   <link rel="stylesheet" href="<%= fontStylesheetUrl %>" />
   <noscript><link rel="stylesheet" href="<%= fontStylesheetUrl %>" /></noscript>
   <link rel="stylesheet" href="/vendor/phosphor/style.css?v=2.1.2" />
+  <link rel="stylesheet" href="/theme-tokens.css?v=20261021-brand" />
   <link rel="stylesheet" href="/styles.css?v=20260914-email" />
-  <link rel="stylesheet" href="/design-system.css?v=20260914-email" />
+  <link rel="stylesheet" href="/design-system.css?v=20261021-brand" />
   <link rel="stylesheet" href="/parking-layout.css?v=20261008-hangar" />
-  <link rel="stylesheet" href="/ui-polish.css?v=20261021-slot-history" />
+  <link rel="stylesheet" href="/ui-polish.css?v=20261021-brand" />
   <link rel="stylesheet" href="/ui-motion.css?v=20261020-fluid" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />

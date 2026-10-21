@@ -7,10 +7,13 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#11263f",
-  "theme_color": "#11263f",
+  "background_color": "#102a46",
+  "theme_color": "#102a46",
   "lang": "en",
-  "categories": ["business", "utilities"],
+  "categories": [
+    "business",
+    "utilities"
+  ],
   "prefer_related_applications": false,
   "icons": [
     {
