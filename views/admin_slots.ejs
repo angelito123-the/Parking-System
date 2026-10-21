@@ -33,7 +33,7 @@
       <p id="slotMetricOccupied"><%= safeParkingSlotSummary.occupied %></p>
     </div>
     <div class="hero-card hero-card--muted">
-      <h3>Disabled</h3>
+      <h3>Blocked</h3>
       <p id="slotMetricDisabled"><%= safeParkingSlotSummary.disabled %></p>
     </div>
   </div>
@@ -41,50 +41,6 @@
 </section>
 
 <div class="overlap-wrapper" style="display:grid; gap:1.25rem;">
-  <section class="panel slot-configuration-panel">
-    <div class="section-head"><h2>Configure Parking Spaces</h2><p>Add a parking space and set its availability.</p></div>
-    <form method="post" action="/admin/slots" class="form-grid parking-space-form">
-      <fieldset class="parking-form-section">
-        <legend>Space details</legend>
-        <div class="form-row-3">
-        <div><label for="newSlotCode">Slot code</label><input id="newSlotCode" name="slot_code" maxlength="30" placeholder="C-01" required /></div>
-        <div><label for="newSlotZone">Zone</label><input id="newSlotZone" name="zone" maxlength="50" placeholder="Zone C" required /></div>
-        <div><label for="newSlotType">Space type</label><select id="newSlotType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
-        </div>
-      </fieldset>
-      <fieldset class="parking-form-section">
-        <legend>Availability &amp; access</legend>
-        <div class="form-row-3">
-        <div><label for="newSlotStatus">Status</label><select id="newSlotStatus" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
-        <div><label for="newSlotReserved">Reserved for</label><input id="newSlotReserved" name="reserved_for" maxlength="120" placeholder="Name or group" aria-describedby="newSlotReservedHelp" /><p id="newSlotReservedHelp" class="parking-field-help">Required for reserved spaces.</p></div>
-        <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Reason for closure" aria-describedby="newSlotReasonHelp" /><p id="newSlotReasonHelp" class="parking-field-help">Required when disabled.</p></div>
-        </div>
-      </fieldset>
-      <div class="form-actions standard-form-actions parking-form-actions"><p class="parking-field-help">Slot code and zone are required.</p><button type="submit">Add parking space</button></div>
-    </form>
-    <% if (safeZoneSettings.length) { %>
-      <section id="zoneThresholdSettings" class="zone-threshold-section" aria-labelledby="zoneThresholdHeading">
-        <div class="zone-threshold-heading">
-          <h3 id="zoneThresholdHeading">Zone occupancy warnings</h3>
-          <p>Choose how full each zone can get before a warning appears.</p>
-        </div>
-      <div class="zone-threshold-grid">
-        <% safeZoneSettings.forEach((setting, index) => { %>
-          <form method="post" action="/admin/slots/zone-threshold" class="zone-threshold-card">
-            <input type="hidden" name="zone" value="<%= setting.zone %>" />
-            <div class="zone-threshold-info"><strong><%= setting.zone %></strong><span><%= setting.total_slots %> <%= Number(setting.total_slots) === 1 ? 'space' : 'spaces' %></span></div>
-            <div class="zone-threshold-control">
-              <label for="zoneThreshold<%= index %>">Warn at<span class="sr-only"> for <%= setting.zone %> (percent occupied)</span></label>
-              <div class="zone-threshold-input"><input id="zoneThreshold<%= index %>" type="number" name="warning_threshold_percent" min="50" max="100" value="<%= setting.warning_threshold_percent %>" required /><span aria-hidden="true">%</span></div>
-            </div>
-            <button type="submit" class="btn-sm btn-reset">Save threshold<span class="sr-only"> for <%= setting.zone %></span></button>
-          </form>
-        <% }) %>
-      </div>
-      </section>
-    <% } %>
-  </section>
-
   <section class="panel">
     <div class="section-head">
       <h2>Parking Slot Monitoring</h2>
@@ -130,10 +86,18 @@
         <button type="button" class="slot-filter-btn is-active" data-slot-filter="all">All (<%= safeParkingSlotSummary.total %>)</button>
         <button type="button" class="slot-filter-btn" data-slot-filter="available">Available (<%= safeParkingSlotSummary.available %>)</button>
         <button type="button" class="slot-filter-btn" data-slot-filter="occupied">Occupied (<%= safeParkingSlotSummary.occupied %>)</button>
-        <button type="button" class="slot-filter-btn" data-slot-filter="disabled">Disabled (<%= safeParkingSlotSummary.disabled %>)</button>
+        <button type="button" class="slot-filter-btn" data-slot-filter="disabled">Blocked (<%= safeParkingSlotSummary.disabled %>)</button>
+        <button type="button" class="slot-filter-btn" data-slot-filter="reserved">Reserved</button>
       </div>
     </div>
 
+    <div class="parking-view-toolbar">
+      <p class="helper-text">Select a space to see its details. Reserved spaces also show their current availability.</p>
+      <div id="parkingViewButtons" class="parking-view-toggle" role="group" aria-label="Parking view">
+        <button type="button" class="btn-sm" data-parking-view="map" aria-pressed="true" aria-controls="parkingSlotsList"><i class="ph ph-grid-four" aria-hidden="true"></i> Map</button>
+        <button type="button" class="btn-sm btn-reset" data-parking-view="table" aria-pressed="false" aria-controls="parkingSlotsTableRegion"><i class="ph ph-list" aria-hidden="true"></i> Table</button>
+      </div>
+    </div>
     <div id="availableSlotsStrip" class="available-slots-strip">
       <% const initialAvailableSlots = safeParkingSlots.filter((slot) => slot.occupancy === "available"); %>
       <% if (!initialAvailableSlots.length) { %>
@@ -151,12 +115,18 @@
 
     <div class="parking-space-layout">
       <div class="parking-space-map-shell">
-        <div id="parkingSlotsList" class="parking-space-map">
+        <div id="parkingSlotsList" class="parking-space-map" tabindex="0" role="region" aria-label="Parking map">
           <% if (!safeParkingSlots.length) { %>
             <div class="empty-state" style="padding:1.25rem 1rem;">
               <p>No parking slots configured.</p>
             </div>
           <% } %>
+        </div>
+        <div id="parkingSlotsTableRegion" class="table-wrap parking-slots-table-region" tabindex="0" role="region" aria-label="Parking spaces table" hidden>
+          <table>
+            <thead><tr><th scope="col">Space</th><th scope="col">Zone</th><th scope="col">Status</th><th scope="col">Type</th><th scope="col">Vehicle / note</th><th scope="col">Details</th></tr></thead>
+            <tbody id="parkingSlotsTableBody"></tbody>
+          </table>
         </div>
       </div>
 
@@ -164,7 +134,7 @@
         <div class="parking-space-panel-head">
           <div>
             <p class="parking-space-panel-label">Selected Parking Space</p>
-            <h3 id="slotInspectorTitle"><%= initialSelectedSlotCode || "Not selected" %></h3>
+            <h3 id="slotInspectorTitle" tabindex="-1"><%= initialSelectedSlotCode || "Not selected" %></h3>
           </div>
           <span id="slotInspectorStatus" class="parking-inspector-badge">--</span>
         </div>
@@ -174,7 +144,7 @@
         <div id="slotInspectorDetails" class="parking-inspector-details"></div>
         <details class="slot-editor-disclosure">
           <summary>Edit selected space</summary>
-          <form method="post" id="slotEditorForm" class="form-grid security-form-compact">
+          <form method="post" id="slotEditorForm" class="form-grid security-form-compact" data-form-feedback>
             <div><label for="slotEditorCode">Slot code</label><input id="slotEditorCode" name="slot_code" maxlength="30" required /></div>
             <div><label for="slotEditorZone">Zone</label><input id="slotEditorZone" name="zone" maxlength="50" required /></div>
             <div><label for="slotEditorType">Space type</label><select id="slotEditorType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
@@ -197,6 +167,50 @@
       </aside>
     </div>
   </section>
+  <section class="panel slot-configuration-panel">
+    <div class="section-head"><h2>Configure Parking Spaces</h2><p>Add a parking space and set its availability.</p></div>
+    <form method="post" action="/admin/slots" class="form-grid parking-space-form" data-form-feedback>
+      <fieldset class="parking-form-section">
+        <legend>Space details</legend>
+        <div class="form-row-3">
+        <div><label for="newSlotCode">Slot code</label><input id="newSlotCode" name="slot_code" maxlength="30" placeholder="C-01" required /></div>
+        <div><label for="newSlotZone">Zone</label><input id="newSlotZone" name="zone" maxlength="50" placeholder="Zone C" required /></div>
+        <div><label for="newSlotType">Space type</label><select id="newSlotType" name="slot_type"><option value="standard">Standard</option><option value="accessibility">Accessibility</option><option value="reserved">Reserved</option></select></div>
+        </div>
+      </fieldset>
+      <fieldset class="parking-form-section">
+        <legend>Availability &amp; access</legend>
+        <div class="form-row-3">
+        <div><label for="newSlotStatus">Status</label><select id="newSlotStatus" name="status"><option value="available">Available</option><option value="disabled">Disabled / maintenance</option></select></div>
+        <div><label for="newSlotReserved">Reserved for</label><input id="newSlotReserved" name="reserved_for" maxlength="120" placeholder="Name or group" aria-describedby="newSlotReservedHelp" /><p id="newSlotReservedHelp" class="parking-field-help">Required for reserved spaces.</p></div>
+        <div><label for="newSlotReason">Maintenance reason</label><input id="newSlotReason" name="disabled_reason" maxlength="255" placeholder="Reason for closure" aria-describedby="newSlotReasonHelp" /><p id="newSlotReasonHelp" class="parking-field-help">Required when disabled.</p></div>
+        </div>
+      </fieldset>
+      <div class="form-actions standard-form-actions parking-form-actions"><p class="parking-field-help">Slot code and zone are required.</p><button type="submit">Add parking space</button></div>
+    </form>
+    <% if (safeZoneSettings.length) { %>
+      <section id="zoneThresholdSettings" class="zone-threshold-section" aria-labelledby="zoneThresholdHeading">
+        <div class="zone-threshold-heading">
+          <h3 id="zoneThresholdHeading">Zone occupancy warnings</h3>
+          <p>Choose how full each zone can get before a warning appears.</p>
+        </div>
+      <div class="zone-threshold-grid">
+        <% safeZoneSettings.forEach((setting, index) => { %>
+          <form method="post" action="/admin/slots/zone-threshold" class="zone-threshold-card">
+            <input type="hidden" name="zone" value="<%= setting.zone %>" />
+            <div class="zone-threshold-info"><strong><%= setting.zone %></strong><span><%= setting.total_slots %> <%= Number(setting.total_slots) === 1 ? 'space' : 'spaces' %></span></div>
+            <div class="zone-threshold-control">
+              <label for="zoneThreshold<%= index %>">Warn at<span class="sr-only"> for <%= setting.zone %> (percent occupied)</span></label>
+              <div class="zone-threshold-input"><input id="zoneThreshold<%= index %>" type="number" name="warning_threshold_percent" min="50" max="100" value="<%= setting.warning_threshold_percent %>" required /><span aria-hidden="true">%</span></div>
+            </div>
+            <button type="submit" class="btn-sm btn-reset">Save threshold<span class="sr-only"> for <%= setting.zone %></span></button>
+          </form>
+        <% }) %>
+      </div>
+      </section>
+    <% } %>
+  </section>
+
 </div>
 
 <div id="slotHistoryModal" class="slot-history-modal" aria-hidden="true">
@@ -237,6 +251,10 @@
     const refreshBtn = document.getElementById("slotsRefreshBtn");
     const parkingSlotsMetaEl = document.getElementById("parkingSlotsMeta");
     const parkingSlotsListEl = document.getElementById("parkingSlotsList");
+    const parkingSlotsTableRegion = document.getElementById("parkingSlotsTableRegion");
+    const parkingSlotsTableBody = document.getElementById("parkingSlotsTableBody");
+    const parkingViewButtons = Array.from(document.querySelectorAll("[data-parking-view]"));
+    let parkingView = "map";
     const parkingSlotSearchEl = document.getElementById("parkingSlotSearch");
     const availableSlotsStripEl = document.getElementById("availableSlotsStrip");
     const slotFilterButtons = Array.from(document.querySelectorAll(".slot-filter-btn[data-slot-filter]"));
@@ -335,11 +353,42 @@
         type="button"
         class="parking-slot-tile ${occupancy} ${isSelected ? "selected" : ""}"
         data-slot-code="${escapeHtml(code)}"
+        data-slot-type="${escapeHtml(slot.slot_type || "standard")}"
+        data-parking-label="${occupancy === "disabled" ? "Blocked" : occupancy === "occupied" ? "Occupied" : "Available"}"
         aria-pressed="${isSelected ? "true" : "false"}"
         aria-label="Parking slot ${escapeHtml(code)} ${occupancy}">
         <span class="tile-code">${escapeHtml(code)}</span>
         <span class="tile-meta">${escapeHtml(tileMeta)}</span>
+        ${slot.slot_type === "reserved" ? '<span class="parking-reserved-label">Reserved</span>' : ''}
       </button>`;
+    }
+
+    // Both views use the same filtered inventory and selected slot.
+    function renderParkingSlotsTable(slots) {
+      if (!parkingSlotsTableBody) return;
+      const labels = { available: "Available", occupied: "Occupied", disabled: "Blocked" };
+      parkingSlotsTableBody.innerHTML = slots.length ? slots.map(slot => {
+        const state = Object.prototype.hasOwnProperty.call(labels, slot.occupancy) ? slot.occupancy : "disabled";
+        const code = slot.slot_code || "-";
+        const selected = normalizeSlotCode(code) === normalizeSlotCode(selectedSlotCode);
+        const type = slot.slot_type || "standard";
+        const note = slot.occupied_by_plate || slot.occupied_by_name || slot.disabled_reason || slot.reserved_for || "No vehicle assigned";
+        return `<tr class="${selected ? "is-selected" : ""}">
+          <td><strong>${escapeHtml(code)}</strong></td>
+          <td>${escapeHtml(slot.zone || "General")}</td>
+          <td><span class="parking-status-badge status-${state}">${labels[state]}</span></td>
+          <td><span class="parking-type-label ${type === "reserved" ? "is-reserved" : ""}">${escapeHtml(type.charAt(0).toUpperCase() + type.slice(1))}</span></td>
+          <td>${escapeHtml(note)}</td>
+          <td><button type="button" class="btn-sm btn-reset" data-slot-select="${escapeHtml(code)}" aria-pressed="${selected}">View <span class="sr-only">${escapeHtml(code)}</span></button></td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="6">${renderEmptyParkingSlots("No spaces match your search and filters.")}</td></tr>`;
+      if (parkingSlotsListEl) parkingSlotsListEl.hidden = parkingView !== "map";
+      if (parkingSlotsTableRegion) parkingSlotsTableRegion.hidden = parkingView !== "table";
+      parkingViewButtons.forEach(button => {
+        const active = button.dataset.parkingView === parkingView;
+        button.setAttribute("aria-pressed", String(active));
+        button.classList.toggle("btn-reset", !active);
+      });
     }
 
     function renderEmptyParkingSlots(message = "No parking slots configured.") {
@@ -354,12 +403,13 @@
       if (filterKey === "available") return summary.available || 0;
       if (filterKey === "occupied") return summary.occupied || 0;
       if (filterKey === "disabled") return summary.disabled || 0;
+      if (filterKey === "reserved") return latestParkingSlots.filter(slot => slot.slot_type === "reserved").length;
       return summary.total || 0;
     }
 
     function updateSlotFilterButtons(summary) {
       if (!slotFilterButtons.length) return;
-      const labels = { all: "All", available: "Available", occupied: "Occupied", disabled: "Disabled" };
+      const labels = { all: "All", available: "Available", occupied: "Occupied", disabled: "Blocked", reserved: "Reserved" };
       slotFilterButtons.forEach((button) => {
         const key = button.dataset.slotFilter || "all";
         const count = getSlotFilterCount(key, summary);
@@ -405,7 +455,8 @@
       const query = String(slotSearchQuery || "").trim().toLowerCase();
       return source.filter((slot) => {
         const occupancy = slot.occupancy || "available";
-        if (activeSlotFilter !== "all" && occupancy !== activeSlotFilter) return false;
+        if (activeSlotFilter === "reserved" && slot.slot_type !== "reserved") return false;
+        if (activeSlotFilter !== "all" && activeSlotFilter !== "reserved" && occupancy !== activeSlotFilter) return false;
         if (!query) return true;
         const searchable = [slot.slot_code || "", slot.zone || "", slot.slot_type || "", slot.reserved_for || "", slot.disabled_reason || "", slot.occupied_by_plate || "", slot.occupied_by_name || ""].join(" ").toLowerCase();
         return searchable.includes(query);
@@ -454,7 +505,7 @@
       const occupancy = ["available", "occupied", "disabled"].includes(requestedOccupancy)
         ? requestedOccupancy
         : "disabled";
-      const statusText = occupancy.charAt(0).toUpperCase() + occupancy.slice(1);
+      const statusText = occupancy === "disabled" ? "Blocked" : occupancy.charAt(0).toUpperCase() + occupancy.slice(1);
       slotInspectorTitleEl.textContent = slot.slot_code || "-";
       slotInspectorStatusEl.textContent = statusText;
       slotInspectorStatusEl.className = `parking-inspector-badge ${occupancy}`;
@@ -681,8 +732,9 @@
       const selectedChanged = normalizeSlotCode(selectedSlotCode) !== previousSelected;
 
       const filteredSlots = applyParkingSlotFilters(latestParkingSlots);
+      renderParkingSlotsTable(filteredSlots);
       if (parkingSlotsMetaEl) {
-        parkingSlotsMetaEl.textContent = `${summary.available} available | ${summary.occupied} occupied | ${summary.disabled} disabled | ${summary.total} total | Showing ${filteredSlots.length}`;
+        parkingSlotsMetaEl.textContent = `${summary.available} available · ${summary.occupied} occupied · ${summary.disabled} blocked · Showing ${filteredSlots.length} of ${summary.total}`;
       }
       if (parkingSlotsListEl) {
         const emptyMessage = latestParkingSlots.length ? "No slots match the selected filter." : "No parking slots configured.";
@@ -741,6 +793,23 @@
         activeSlotFilter = nextFilter;
         renderParkingSlotsSection();
       });
+    });
+
+    parkingViewButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        parkingView = button.dataset.parkingView === "table" ? "table" : "map";
+        renderParkingSlotsTable(applyParkingSlotFilters(latestParkingSlots));
+      });
+    });
+    parkingSlotsTableBody?.addEventListener("click", event => {
+      const button = event.target instanceof Element ? event.target.closest("[data-slot-select]") : null;
+      if (!button) return;
+      selectedSlotCode = normalizeSlotCode(button.dataset.slotSelect);
+      selectedSlotHistoryRows = slotHistoryCache.get(selectedSlotCode) || [];
+      slotInspectorError = "";
+      renderParkingSlotsSection();
+      slotInspectorTitleEl?.focus({ preventScroll: true });
+      slotInspectorTitleEl?.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     });
 
     if (parkingSlotSearchEl) {

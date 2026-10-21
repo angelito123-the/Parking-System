@@ -224,9 +224,10 @@ test('slot history handles empty, failed, and outdated responses', async ({ page
 });
 
 test('key pages fit the screen and have no serious accessibility violations', async ({ page }) => {
+  test.setTimeout(150_000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  for (const [role, paths] of [['admin', ['/admin', '/students', '/students#directory', '/reports']], ['guard', ['/guard', '/scanner', '/scanner/auto?mode=remote']]]) {
+  for (const [role, paths] of [['admin', ['/admin', '/admin/slots', '/students', '/students#directory', '/visitor-passes', '/stickers', '/reports']], ['guard', ['/guard', '/visitor-passes', '/scanner', '/scanner/auto?mode=remote']]]) {
     await signIn(page, role);
     for (const path of paths) {
       await page.goto(path);
@@ -240,6 +241,56 @@ test('key pages fit the screen and have no serious accessibility violations', as
     }
   }
   expect(errors).toEqual([]);
+});
+
+test('parking map and table share filters, types, selection, and history', async ({ page }, testInfo) => {
+  const slots = [
+    { id: 9001, slot_code: 'A-01', zone: 'Basketball Area Parking', slot_type: 'standard', occupancy: 'available', status: 'available' },
+    { id: 9002, slot_code: 'A-02', zone: 'Basketball Area Parking', slot_type: 'standard', occupancy: 'occupied', status: 'available', occupied_by_plate: 'REVIEW-123' },
+    { id: 9003, slot_code: 'H-01', zone: 'Hangar Parking Zone', slot_type: 'reserved', occupancy: 'available', status: 'available', reserved_for: 'Faculty' },
+    { id: 9004, slot_code: 'H-02', zone: 'Hangar Parking Zone', slot_type: 'reserved', occupancy: 'disabled', status: 'disabled', disabled_reason: 'School event' }
+  ];
+  await page.route('**/api/parking-slot-overview', route => route.fulfill({ json: { ok: true, slots, summary: { total: 4, available: 2, occupied: 1, disabled: 1 } } }));
+  await page.route('**/api/parking-slot-history?*', route => route.fulfill({ json: { ok: true, rows: [] } }));
+  await signIn(page, 'admin');
+  await page.goto('/admin/slots');
+  await page.locator('#slotsRefreshBtn').click();
+  await expect(page.locator('#slotMetricTotal')).toHaveText('4');
+  const map = page.locator('#parkingSlotsList');
+  const table = page.locator('#parkingSlotsTableRegion');
+  await expect(map.locator('[data-slot-code="H-02"] .parking-plan-state')).toHaveText('Blocked');
+  await expect(map.locator('[data-slot-code="H-01"]')).toContainText('Reserved');
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await expect(map).toBeHidden();
+  await expect(table).toBeVisible();
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  await page.locator('[data-slot-filter="reserved"]').click();
+  await expect(table.locator('tbody tr')).toHaveCount(2);
+  await expect(table).toContainText('Available');
+  await expect(table).toContainText('Blocked');
+  await expect(table).toContainText('Faculty');
+  await page.locator('#parkingSlotSearch').fill('H-02');
+  await expect(table.locator('tbody tr')).toHaveCount(1);
+  await table.getByRole('button', { name: 'View H-02' }).click();
+  await expect(page.locator('#slotInspectorTitle')).toHaveText('H-02');
+  await expect(page.locator('#slotInspectorStatus')).toHaveText('Blocked');
+  await expect(page.locator('#slotEditorState')).toHaveValue('disabled');
+  await page.locator('#openSlotHistoryBtn').click();
+  await expect(page.getByRole('dialog', { name: 'Slot H-02 history' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Map', exact: true }).click();
+  await expect(map.locator('[data-slot-code]')).toHaveCount(1);
+  await expect(map.locator('[data-slot-code="H-02"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#parkingSlotSearch').fill('NO-MATCH');
+  await expect(map).toContainText('No slots match');
+  await page.locator('#parkingSlotSearch').fill('');
+  await page.locator('[data-slot-filter="all"]').click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await expect(table.locator('tbody tr')).toHaveCount(4);
+  await table.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('parking-table.png') });
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(audit.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.failureSummary) }))).toEqual([]);
 });
 
 test('student tabs support keyboard navigation and retain the selected section', async ({ page }) => {

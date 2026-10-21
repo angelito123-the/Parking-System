@@ -54,7 +54,7 @@
         const state = ["available", "occupied", "disabled"].find(value =>
           button.classList.contains(value) || button.classList.contains(`state-${value}`)
         ) || "disabled";
-        const label = state.charAt(0).toUpperCase() + state.slice(1);
+        const label = button.dataset.parkingLabel || state.charAt(0).toUpperCase() + state.slice(1);
         const selected = button.classList.contains("selected") || button.classList.contains("is-selected");
         button.classList.add("parking-plan-bay");
         button.dataset.parkingState = state;

@@ -11,7 +11,7 @@ const ASSETS_TO_CACHE = [
   '/parking-layout.css?v=20261008-hangar',
   '/ui-polish.css?v=20261021-brand',
   '/ui-motion.css?v=20261020-fluid',
-  '/js/parking-layout.js?v=20261008-hangar',
+  '/js/parking-layout.js?v=20261021-views',
   '/vendor/phosphor/style.css?v=2.1.2',
   '/vendor/phosphor/Phosphor.woff2',
   '/manifest.json',
