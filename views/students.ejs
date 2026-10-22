@@ -427,6 +427,7 @@
         </div>
 
         <div class="sc-vehicles" id="studentDetails_<%= student.id %>" hidden>
+          <div class="student-vehicle-panel">
           <div class="sv-header">
             <span class="sv-title">
               Registered vehicles
@@ -507,26 +508,27 @@
                 <form method="post" action="/vehicles/<%= vehicle.id %>/edit" class="edit-form-grid">
                   <div class="form-row-3">
                     <div>
-                      <label>Plate Number</label>
-                      <input name="plate_number" value="<%= vehicle.plate_number %>" required />
+                      <label for="vehicle_plate_number_<%= vehicle.id %>">Plate Number</label>
+                      <span class="vehicle-input-wrap"><input id="vehicle_plate_number_<%= vehicle.id %>" name="plate_number" value="<%= vehicle.plate_number %>" required /></span>
                     </div>
                     <div>
-                      <label>Model</label>
-                      <input name="model" value="<%= vehicle.model || '' %>" />
+                      <label for="vehicle_model_<%= vehicle.id %>">Model</label>
+                      <span class="vehicle-input-wrap"><input id="vehicle_model_<%= vehicle.id %>" name="model" value="<%= vehicle.model || '' %>" /></span>
                     </div>
                     <div>
-                      <label>Color</label>
-                      <input name="color" value="<%= vehicle.color || '' %>" />
+                      <label for="vehicle_color_<%= vehicle.id %>">Color</label>
+                      <span class="vehicle-input-wrap"><input id="vehicle_color_<%= vehicle.id %>" name="color" value="<%= vehicle.color || '' %>" /></span>
                     </div>
                   </div>
                   <div class="edit-form-actions standard-form-actions">
-                    <button type="submit" class="btn-save-sm">Save changes</button>
-                    <button type="button" class="btn-cancel-sm" data-ui-action="toggle-vehicle-edit" data-target-id="<%= vehicle.id %>">Cancel</button>
+                    <button type="submit" class="btn-save-sm btn-primary">Save changes</button>
+                    <button type="button" class="btn-cancel-sm btn-secondary" data-ui-action="toggle-vehicle-edit" data-target-id="<%= vehicle.id %>">Cancel</button>
                   </div>
                 </form>
               </div>
             </div>
           <% }) %>
+          </div>
         </div>
 
       </div>
@@ -1869,9 +1871,8 @@
     const button = document.getElementById('studentDetailsBtn_' + id);
     if (!details || !button) return;
     const isVisible = button.getAttribute("aria-expanded") === "true";
-    if (window.NaapPages) window.NaapPages.reveal(details, !isVisible);
+    if (window.NaapPages) window.NaapPages.reveal(details, !isVisible, { height: true });
     else details.hidden = isVisible;
-    button.innerHTML = (isVisible ? 'Details' : 'Hide details') + '<i class="ph ph-caret-down" aria-hidden="true"></i>';
     button.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
 
@@ -1889,12 +1890,14 @@
   function toggleVehicleEdit(id) {
     const form = document.getElementById('vehicleEditForm_' + id);
     const btn = document.getElementById('editVehicleBtn_' + id);
-    const isVisible = !form.hidden;
-    form.hidden = isVisible;
-    if (btn) {
-      btn.textContent = isVisible ? 'Edit' : 'Close';
-      btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
-    }
+    if (!form || !btn) return;
+    const isVisible = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
+    btn.hidden = !isVisible;
+    if (window.NaapPages) window.NaapPages.reveal(form, !isVisible, { height: true });
+    else form.hidden = isVisible;
+    if (isVisible) btn.focus({ preventScroll: true });
+    else form.querySelector('input')?.focus({ preventScroll: true });
   }
 
   // Toggle add vehicle form per student

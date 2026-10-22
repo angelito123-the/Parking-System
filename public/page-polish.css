@@ -66,9 +66,26 @@ body[data-role] #mainContent :is(button, .link-btn) { transition-property: trans
 .student-tabs-bar .flow-tab-btn { min-width: 0; }
 .btn-details-sm .ph-caret-down { display: inline-block; margin-left: .4rem; transition: transform 200ms ease-out; }
 .btn-details-sm[aria-expanded="true"] .ph-caret-down { transform: rotate(180deg); }
-#studentDirectory .sc-vehicles { margin: .5rem .8rem .8rem; border: 1px solid var(--line); border-left: 3px solid var(--naap-link); border-radius: var(--naap-radius-control); background: var(--surface-soft); }
+#studentDirectory .sc-vehicles { display: flow-root; margin: 0; padding: 0; border: 0; background: transparent; }
+#studentDirectory .student-vehicle-panel { display: grid; gap: .58rem; margin: .5rem .8rem .8rem; padding: .85rem 1.1rem 1rem; border: 1px solid var(--line); border-left: 3px solid var(--naap-link); border-radius: var(--naap-radius-control); background: var(--surface-soft); }
 #studentDirectory .sv-item { background: var(--surface); border-radius: var(--naap-radius-control); }
 #studentDirectory .student-card { overflow: visible; }
+body[data-role] #studentDirectory .btn-details-sm { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 104px; width: 104px; min-width: 104px; white-space: nowrap; }
+body[data-role] #studentDirectory .vehicle-edit-form { display: flow-root; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none !important; animation: none; }
+#studentDirectory .vehicle-edit-form form { padding: 1rem; background: color-mix(in srgb, var(--surface-soft) 65%, var(--surface)); }
+#studentDirectory :is(.sv-plate, input[name="plate_number"]) { font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-variant-numeric: slashed-zero tabular-nums; font-feature-settings: "zero" 1; text-transform: uppercase; letter-spacing: .06em; }
+#studentDirectory .sv-plate { max-width: 100%; overflow-wrap: anywhere; padding: .3rem .45rem; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface-soft); }
+#studentDirectory .vehicle-edit-form label { display: block; margin-bottom: .4rem; color: var(--text); font-size: .8rem; font-weight: 650; }
+.vehicle-input-wrap { position: relative; display: block; }
+.vehicle-input-wrap::after { content: ''; position: absolute; inset: 0; border-radius: var(--naap-radius-control); box-shadow: 0 0 0 4px color-mix(in srgb, var(--naap-focus) 22%, transparent); opacity: 0; transition: opacity 180ms ease-out; pointer-events: none; }
+.vehicle-input-wrap:focus-within::after { opacity: 1; }
+#studentDirectory .vehicle-edit-form input { width: 100%; min-width: 0; }
+#studentDirectory .vehicle-field-error { min-height: 1.5em; }
+/* Reserve the error line so blurring an input cannot move Save under the pointer. */
+#studentDirectory .vehicle-field-error[hidden] { display: block !important; visibility: hidden; }
+#studentDirectory .vehicle-field-error:not([hidden]) { animation: vehicle-error-in 180ms ease-out; }
+#studentDirectory .vehicle-edit-form .btn-save-sm.is-loading::after { animation-duration: 400ms; }
+@keyframes vehicle-error-in { from { opacity: 0; } to { opacity: 1; } }
 .directory-loading { display: grid; gap: .75rem; margin: 1rem 0; }
 .directory-loading[hidden] { display: none; }
 .directory-loading > span { height: 72px; border: 1px solid var(--line); border-radius: var(--naap-radius-control); background: var(--surface-soft); overflow: hidden; position: relative; }
@@ -99,11 +116,19 @@ body[data-role] .sticker-status { display: inline-flex; align-items: center; gap
 @keyframes page-status-pulse { 50% { opacity: .5; transform: scale(.9); } }
 @keyframes page-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @media (max-width: 600px) {
+  #studentDirectory .student-vehicle-panel { margin-inline: .5rem; padding: .75rem; }
+  #studentDirectory .vehicle-edit-form form { padding: .8rem; }
+  #studentDirectory .vehicle-edit-form .edit-form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body[data-role] #studentDirectory .vehicle-edit-form .edit-form-actions button { width: 100%; min-width: 0; padding-inline: .5rem; }
   #regForm :is(.form-row-2, .form-row-academic, .form-row-email) { grid-template-columns: minmax(0, 1fr); }
   body[data-role] #parkingSlotsList { min-height: 360px; max-height: 72dvh; }
 }
+@media (max-width: 360px) {
+  #studentDirectory .vehicle-edit-form .edit-form-actions { grid-template-columns: minmax(0, 1fr); }
+}
 .motion-lite :is(.sticker-status i, .directory-loading > span::after), .motion-paused .directory-loading > span::after { animation: none; }
 @media (prefers-reduced-motion: reduce) {
+  .vehicle-input-wrap::after { transition: none; }
   :is(#parkingViewButtons, .flow-tabs)::before, .flow-tabs::after, .btn-details-sm .ph-caret-down, .available-slot-pill { transition: none !important; }
   :is(.qr-preview-dialog, .sticker-status i, .form-field-error, .form-field-success, .copy-sticker-link i, .directory-loading > span::after, .ui-toast-success strong::before) { animation: none !important; }
   .available-slot-pill:hover { transform: none; }

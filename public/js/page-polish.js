@@ -17,19 +17,29 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) finishMotion(); });
 
   // Closing content becomes inert immediately; rapid toggles cancel the old close.
-  function reveal(node, open) {
+  function reveal(node, open, options = {}) {
     if (!node) return;
+    const startHeight = node.hidden ? 0 : node.getBoundingClientRect().height;
+    const startOpacity = node.hidden ? 0 : Number(getComputedStyle(node).opacity);
+    const overflow = reveals.get(node)?.overflow ?? node.style.overflow;
     reveals.get(node)?.cancel();
-    const state = {};
+    const state = { overflow };
     reveals.set(node, state);
     node.inert = !open;
     if (open) node.hidden = false;
-    const animation = motion(node, open
+    // Height mode is opt-in for directory disclosures; other pages keep their motion.
+    const frames = options.height ? [
+      { height: `${startHeight}px`, opacity: startOpacity },
+      { height: `${open ? node.getBoundingClientRect().height : 0}px`, opacity: open ? 1 : 0 }
+    ] : open
       ? [{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'none' }]
-      : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px)' }], () => {
+      : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px)' }];
+    if (options.height) node.style.overflow = 'hidden';
+    const animation = motion(node, frames, () => {
       if (reveals.get(node) !== state) return;
       node.hidden = !open;
       node.inert = false;
+      if (options.height) node.style.overflow = overflow;
       reveals.delete(node);
     });
     state.cancel = () => animation?.cancel();
@@ -117,6 +127,54 @@
       directory.setAttribute('aria-busy', 'true');
     });
     window.addEventListener('pageshow', () => { directory.hidden = false; skeleton.hidden = true; directory.removeAttribute('aria-busy'); });
+
+    // Normalize only user edits; existing stored plate values are not rewritten.
+    directory.querySelectorAll('input[name="plate_number"]').forEach(field => {
+      const uppercase = event => {
+        if (event.isComposing) return;
+        const value = field.value;
+        const normalized = value.toUpperCase();
+        if (value === normalized) return;
+        const start = field.selectionStart;
+        const end = field.selectionEnd;
+        const direction = field.selectionDirection;
+        field.value = normalized;
+        if (start !== null) field.setSelectionRange(value.slice(0, start).toUpperCase().length, value.slice(0, end).toUpperCase().length, direction);
+      };
+      field.addEventListener('input', uppercase);
+      field.addEventListener('compositionend', uppercase);
+    });
+
+    // Present the browser's existing validity errors without adding validation rules.
+    directory.querySelectorAll('.vehicle-edit-form form').forEach(form => {
+      form.querySelectorAll('input').forEach(field => {
+        const note = document.createElement('small');
+        note.id = field.id + '-error';
+        note.className = 'form-field-error vehicle-field-error';
+        note.hidden = true;
+        note.setAttribute('aria-live', 'polite');
+        (field.closest('.vehicle-input-wrap') || field).after(note);
+        const descriptions = (field.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+        field.setAttribute('aria-describedby', [...new Set([...descriptions, note.id])].join(' '));
+        let touched = false;
+        const update = () => {
+          const invalid = touched && !field.validity.valid;
+          note.hidden = !invalid;
+          note.textContent = invalid ? field.validationMessage : '';
+          if (invalid) field.setAttribute('aria-invalid', 'true');
+          else field.removeAttribute('aria-invalid');
+        };
+        field.addEventListener('blur', () => { touched = true; update(); });
+        field.addEventListener('input', update);
+        field.addEventListener('invalid', event => {
+          event.preventDefault();
+          touched = true;
+          update();
+          if (field === form.querySelector('input:invalid')) field.focus();
+        });
+        form.addEventListener('reset', () => { touched = false; setTimeout(update, 0); });
+      });
+    });
   }
 
   // Only confirm fields the user has touched; do not change validation rules.
