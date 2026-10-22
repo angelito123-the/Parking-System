@@ -20,21 +20,25 @@
     <p class="hero-description">Monitor campus parking and manage vehicle access.</p>
   </div>
   <div class="hero-cards">
-    <div class="hero-card">
-      <h3>Total Students</h3>
+    <div class="hero-card" data-motion-metric="students">
+      <h3><span class="metric-icon-tile" aria-hidden="true"><i class="ph ph-student"></i></span>Total Students</h3>
       <p id="metricStudents"><%= safeMetrics.students || 0 %></p>
+      <svg class="metric-sparkline" viewBox="0 0 52 24" role="img" aria-label="Readings recorded during this visit"><title>Live readings during this visit</title><polyline points=""></polyline><circle cx="48" cy="12" r="2.5"></circle></svg>
     </div>
-    <div class="hero-card">
-      <h3>Registered Vehicles</h3>
+    <div class="hero-card" data-motion-metric="vehicles">
+      <h3><span class="metric-icon-tile" aria-hidden="true"><i class="ph ph-car-profile"></i></span>Registered Vehicles</h3>
       <p id="metricVehicles"><%= safeMetrics.vehicles || 0 %></p>
+      <svg class="metric-sparkline" viewBox="0 0 52 24" role="img" aria-label="Readings recorded during this visit"><title>Live readings during this visit</title><polyline points=""></polyline><circle cx="48" cy="12" r="2.5"></circle></svg>
     </div>
-    <div class="hero-card hero-card--primary">
-      <h3>Currently Inside</h3>
+    <div class="hero-card hero-card--primary" data-motion-metric="inside">
+      <h3><span class="metric-icon-tile" aria-hidden="true"><i class="ph ph-sign-in"></i></span>Currently Inside</h3>
       <p id="metricInside"><%= safeMetrics.currentlyInside || 0 %></p>
+      <svg class="metric-sparkline" viewBox="0 0 52 24" role="img" aria-label="Readings recorded during this visit"><title>Live readings during this visit</title><polyline points=""></polyline><circle cx="48" cy="12" r="2.5"></circle></svg>
     </div>
-    <div class="hero-card hero-card--danger">
-      <h3>Overstay Alerts</h3>
+    <div class="hero-card hero-card--danger" data-motion-metric="overstay">
+      <h3><span class="metric-icon-tile" aria-hidden="true"><i class="ph ph-clock-countdown"></i></span>Overstay Alerts</h3>
       <p id="metricOverstay"><%= safeMetrics.overstayAlerts || safeOverstayAlerts.length || 0 %></p>
+      <svg class="metric-sparkline" viewBox="0 0 52 24" role="img" aria-label="Readings recorded during this visit"><title>Live readings during this visit</title><polyline points=""></polyline><circle cx="48" cy="12" r="2.5"></circle></svg>
     </div>
   </div>
 </section>
@@ -80,8 +84,9 @@
     </div>
     <div class="refresh-row" style="margin-bottom: 0.75rem;">
       <span id="insideLastUpdated" class="helper-text live-update-status">Automatic updates every 20s</span>
-      <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn">Refresh</button>
+      <button type="button" class="refresh-btn btn-sm" id="refreshInsideBtn"><i class="ph ph-arrow-clockwise dashboard-refresh-icon" aria-hidden="true"></i>Refresh</button>
     </div>
+    <div id="overviewLoading" hidden role="status"><span class="sr-only">Refreshing campus data. Previous values remain visible.</span><span class="ui-skeleton" aria-hidden="true"><span></span><span></span><span></span></span></div>
     <div id="overstayNotice" class="flash flash-error overstay-notice" style="display:none; margin-bottom:0.85rem;"></div>
     <div class="overstay-panel" style="margin-bottom: 1rem;">
       <div class="overstay-panel-head">
@@ -461,6 +466,7 @@
 
     async function refreshOverview(event) {
       const manual = event?.type === "click";
+      if (manual) window.NaapMotion?.setDashboardBusy(true);
       if (manual && refreshBtn) {
         refreshBtn.disabled = true;
         refreshBtn.setAttribute("aria-busy", "true");
@@ -512,6 +518,7 @@
         if (lastUpdatedEl) {
           lastUpdatedEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
         }
+        window.NaapMotion?.dashboardUpdated();
         lastUpdatedEl?.classList.remove("is-stale");
         lastUpdatedEl?.classList.add("is-current");
         if (manual) window.NaapFeedback?.show("Dashboard updated.", { tone: "success" });
@@ -524,6 +531,7 @@
         if (manual) window.NaapFeedback?.show("Dashboard could not update. Check your connection and try Refresh again.", { tone: "error" });
         console.error("Admin overview refresh failed:", error);
       } finally {
+        if (manual) window.NaapMotion?.setDashboardBusy(false);
         if (manual && refreshBtn) {
           refreshBtn.disabled = false;
           refreshBtn.removeAttribute("aria-busy");

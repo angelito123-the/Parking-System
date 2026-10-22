@@ -1,171 +1,124 @@
-/* Small, finite movements reinforce actions without delaying navigation or scans. */
+/* Reusable motion for the existing server-rendered screens. Layout dimensions stay static. */
 :root {
-  --ui-motion-fast: 220ms;
-  --ui-motion-enter: 420ms;
+  --ui-motion-fast: 200ms;
+  --ui-motion-enter: 360ms;
   --ui-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --ui-motion-control-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Keep the page still while the existing progress indicator handles navigation. */
-body.page-transitioning :is(.top-nav, .dashboard-hero, .overlap-wrapper),
-body.page-transitioning .container > * {
-  opacity: 1 !important;
-  transform: none;
-  filter: none;
-}
+.ops-table-shell tbody tr:has(> td > .empty-state) { background: var(--surface); }
+/* Keep the live page stable until the browser can transition the confirmed destination. */
+body.page-transitioning :is(.top-nav, .dashboard-hero, .overlap-wrapper), body.page-transitioning .container > * { opacity: 1 !important; transform: none; filter: none; transition: none; }
+.sidebar-brand-mark img { display: block; width: 100%; height: 100%; border-radius: inherit; }
+body[data-role] .content-area { background: radial-gradient(ellipse at 95% 0%, var(--naap-brand-soft), transparent 60%), var(--bg) !important; }
+body[data-role] .main-shell { background: transparent !important; }
 
-/* Empty table cells can be transparent; keep the legacy row tint out of the message. */
-.ops-table-shell tbody tr:has(> td > .empty-state) {
-  background: var(--surface);
-}
+/* Decorative details fit inside the original metric cards and quick-action grid. */
+body[data-role] .hero-card[data-motion-metric] { position: relative; isolation: isolate; overflow: hidden; }
+.hero-card[data-motion-metric]::after { content: ''; position: absolute; inset: 0; z-index: -1; opacity: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(ellipse at 95% 100%, var(--metric-glow), transparent 72%); }
+.hero-card[data-motion-metric='students'] { --metric-accent: #526c9a; --metric-glow: #dce6f5; }
+.hero-card[data-motion-metric='vehicles'] { --metric-accent: #087d89; --metric-glow: #c7eef0; }
+.hero-card[data-motion-metric='inside'] { --metric-accent: #2563eb; --metric-glow: #cdddff; }
+.hero-card[data-motion-metric='overstay'] { --metric-accent: #be123c; --metric-glow: #ffdde5; }
+[data-theme='dark'] .hero-card[data-motion-metric] { --metric-glow: #334e75; }
+[data-theme='dark'] .hero-card[data-motion-metric='overstay'] { --metric-glow: #63283b; }
+body[data-role] .hero-card[data-motion-metric] h3 { display: block; padding-top: 2rem; margin-bottom: 0.5rem; font-size: 0.75rem; letter-spacing: 0; }
+.hero-card[data-motion-metric] h3::before { display: none; }
+.metric-icon-tile { position: absolute; top: 0.65rem; left: 1.45rem; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; color: var(--text); background: linear-gradient(135deg, var(--surface-soft), var(--metric-glow)); border: 1px solid var(--line); font-size: 16px; }
+.metric-sparkline { position: absolute; bottom: 0.45rem; right: 1rem; width: 52px; height: 24px; color: var(--metric-accent); overflow: visible; }
+.metric-sparkline polyline { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.metric-sparkline circle { fill: currentColor; }
+[data-theme='dark'] .metric-sparkline { color: var(--text-secondary); }
+body[data-role] .task-shortcut-icon { background: linear-gradient(140deg, var(--surface), var(--naap-brand-soft)); box-shadow: inset 0 1px 0 var(--surface); }
+.dashboard-refresh-icon { display: inline-block; font-size: 1rem; }
+#refreshInsideBtn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
+#overviewLoading { margin: 0 0 0.75rem; border-radius: 8px; }
+#overviewLoading[hidden] { display: none; }
+#overviewLoading .ui-skeleton { display: flex; width: 100%; margin: 0; gap: 0.5rem; }
+#overviewLoading .ui-skeleton > span { flex: 1; height: 4px; }
+.ui-skeleton { overflow: hidden; position: relative; }
+.ui-skeleton::after { content: ''; position: absolute; inset: 0; opacity: 0; pointer-events: none; background: linear-gradient(100deg, transparent 25%, var(--surface) 50%, transparent 75%); }
+.hero-card.has-alerts::after { opacity: 0.3; }
+.side-nav a.active::before { background: var(--naap-link) !important; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Animate the heading and summary cards, never a camera, table, or modal parent. */
-  body.is-ready :is(.hero-greeting, .hero-cards > .hero-card, .section-head) {
-    animation: ui-heading-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards;
-  }
-
+  /* Native document transitions preserve navigation, downloads, and form submissions. */
+  @view-transition { navigation: auto; }
+  ::view-transition-old(root) { animation: ui-page-out 180ms ease-out both; }
+  ::view-transition-new(root) { animation: ui-feedback-enter 280ms ease-out both; }
+  ::view-transition-group(root) { animation-duration: 280ms; }
+  body.is-ready :is(.hero-greeting, .hero-cards > .hero-card, .section-head) { animation: ui-heading-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards; }
   body.is-ready .hero-cards > .hero-card:nth-child(2) { animation-delay: 40ms; }
   body.is-ready .hero-cards > .hero-card:nth-child(3) { animation-delay: 80ms; }
   body.is-ready .hero-cards > .hero-card:nth-child(n+4) { animation-delay: 120ms; }
-
-  body.is-ready .task-shortcut {
-    animation: ui-shortcut-enter var(--ui-motion-enter) var(--ui-motion-ease) backwards;
-    animation-delay: 60ms;
-  }
-  body.is-ready .task-shortcut:nth-child(2) { animation-delay: 100ms; }
-  body.is-ready .task-shortcut:nth-child(n+3) { animation-delay: 140ms; }
-
-  .task-shortcut {
-    /* Independent translate/scale keep hover feedback smooth during entrance. */
-    transition: translate var(--ui-motion-fast) var(--ui-motion-control-ease),
-      scale var(--ui-motion-fast) var(--ui-motion-control-ease),
-      border-color var(--ui-motion-fast) ease,
-      background-color var(--ui-motion-fast) ease,
-      box-shadow var(--ui-motion-fast) ease;
-  }
-
-  .task-shortcut-arrow,
-  .task-shortcut-icon {
-    transition: transform var(--ui-motion-fast) var(--ui-motion-ease),
-      color var(--ui-motion-fast) ease;
-  }
-
-  .task-shortcut:focus-visible .task-shortcut-arrow {
-    transform: translate(2px, -2px);
-    color: var(--status-info-text);
-  }
-
-  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn) {
-    transition: color var(--ui-motion-fast) ease,
-      background-color var(--ui-motion-fast) ease,
-      border-color var(--ui-motion-fast) ease,
-      translate var(--ui-motion-fast) var(--ui-motion-control-ease),
-      scale var(--ui-motion-fast) var(--ui-motion-ease);
-  }
-
-  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn):active:not(:disabled):not([aria-disabled="true"]):not(.is-loading) {
-    scale: 0.98;
-    translate: none;
-    transition-duration: 100ms;
-  }
-
-  .task-shortcut:active {
-    translate: none;
-    scale: 0.99;
-  }
-
-  .hero-primary-action .ph-arrow-right {
-    transition: transform var(--ui-motion-fast) var(--ui-motion-control-ease);
-  }
-
-  .hero-primary-action:focus-visible .ph-arrow-right { transform: translateX(3px); }
-
-  .account-menu:not([hidden]),
-  .action-menu.is-open .action-menu-popover {
-    animation: ui-menu-enter var(--ui-motion-fast) var(--ui-motion-ease);
-  }
-
-  .confirm-dialog:not([hidden]) .confirm-dialog-card,
-  .slot-history-modal.open .slot-history-dialog {
-    animation: ui-dialog-enter 240ms var(--ui-motion-ease);
-  }
-
-  .confirm-dialog:not([hidden]) .confirm-dialog-backdrop,
-  .flash:not([hidden]) {
-    animation: ui-feedback-enter var(--ui-motion-fast) ease-out;
-  }
-
+  body.is-ready .task-shortcut { animation: ui-heading-enter 320ms var(--ui-motion-ease) backwards; }
+  body.is-ready .task-shortcut:nth-child(2n) { animation-delay: 40ms; }
+  body.is-ready .task-shortcut:nth-child(3n) { animation-delay: 80ms; }
+  body.is-ready .task-shortcut:nth-child(n+4) { animation-delay: 120ms; }
+  :is(.task-shortcut, .task-shortcut-arrow, .task-shortcut-icon, .hero-card[data-motion-metric], .nav-link-icon,
+      .btn-sm, .link-btn, .hero-primary-action, .icon-btn, .account-menu-trigger) { transition: transform var(--ui-motion-fast) var(--ui-motion-control-ease), opacity var(--ui-motion-fast) ease-out; }
+  .hero-card[data-motion-metric]::after { transition: opacity 280ms ease-out; }
+  .task-shortcut:focus-visible .task-shortcut-arrow { transform: translate(3px, -3px); }
+  .side-nav a:focus-visible .nav-link-icon { transform: translateX(2px); }
+  .nav-motion-arrive::before { animation: ui-nav-slide 320ms var(--ui-motion-ease); }
+  .account-menu:not([hidden]), .action-menu.is-open .action-menu-popover { animation: ui-menu-enter 200ms var(--ui-motion-ease); }
+  #notificationPanel { transform-origin: top right; transition: opacity 200ms ease-out, transform 240ms var(--ui-motion-ease); }
+  #notificationPanel.open { animation: ui-menu-enter 240ms var(--ui-motion-ease); }
+  .confirm-dialog:not([hidden]) .confirm-dialog-card, .slot-history-modal.open .slot-history-dialog { animation: ui-dialog-enter 240ms var(--ui-motion-ease); }
+  .confirm-dialog:not([hidden]) .confirm-dialog-backdrop, .flash:not([hidden]) { animation: ui-feedback-enter 200ms ease-out; }
+  .ui-toast { animation: ui-dialog-enter 180ms var(--ui-motion-ease); }
+  .ui-skeleton { animation: none; }
+  .ui-skeleton::after { opacity: 0.55; animation: ui-shimmer 1400ms ease-out infinite; }
+  #refreshInsideBtn[aria-busy='true'] .dashboard-refresh-icon { animation: ui-rotate 800ms linear infinite; }
+  .hero-card.has-alerts::after { animation: ui-alert-glow 360ms ease-out 2; }
+  #networkIndicator.is-online::before, #mobileNetworkIndicator.is-online::before,
+  .notification-unread-badge:not(.is-hidden) { animation: ui-status-pulse 360ms ease-out 2; }
+  #insideVehiclesBody tr { animation: ui-row-enter 280ms ease-out backwards; }
+  #insideVehiclesBody tr:nth-child(2) { animation-delay: 20ms; }
+  #insideVehiclesBody tr:nth-child(3) { animation-delay: 40ms; }
+  #insideVehiclesBody tr:nth-child(4) { animation-delay: 60ms; }
+  #insideVehiclesBody tr:nth-child(5) { animation-delay: 80ms; }
+  #insideVehiclesBody tr:nth-child(n+7) { animation: none; }
   @media (hover: hover) and (pointer: fine) {
-    .task-shortcut:hover {
-      translate: 0 -3px;
-      box-shadow: var(--shadow-md);
-    }
-
-    .task-shortcut:hover .task-shortcut-arrow {
-      transform: translate(2px, -2px);
-      color: var(--status-info-text);
-    }
-
-    .task-shortcut:hover .task-shortcut-icon {
-      transform: scale(1.025);
-    }
-
-    .task-shortcut:active {
-      translate: none;
-      scale: 0.99;
-      box-shadow: var(--shadow-sm);
-    }
-
-    :is(.btn-sm, .link-btn, .hero-primary-action):hover:not(:active):not(:disabled):not([aria-disabled="true"]):not(.is-loading) {
-      translate: 0 -1px;
-    }
-
-    .hero-primary-action:hover .ph-arrow-right { transform: translateX(3px); }
+    .hero-card[data-motion-metric]:hover, .task-shortcut:hover { transform: translateY(-3px); }
+    .hero-card[data-motion-metric]:hover::after { opacity: 0.4; }
+    .task-shortcut:hover .task-shortcut-arrow { transform: translate(3px, -3px); }
+    .task-shortcut:hover .task-shortcut-icon { transform: translateY(-1px) scale(1.025); }
+    .side-nav a:hover .nav-link-icon { transform: translateX(2px); }
+    :is(.btn-sm, .link-btn, .hero-primary-action):hover:not(:disabled):not([aria-disabled='true']):not(.is-loading) { transform: translateY(-1px); }
+  }
+  :is(.btn-sm, .link-btn, .hero-primary-action, .icon-btn):active:not(:disabled) { transform: scale(0.98); }
+  @media (max-width: 1080px) {
+    .sidebar { transition: transform 240ms var(--ui-motion-ease); }
+    body.mobile-nav-closing .sidebar { visibility: visible; pointer-events: none; }
   }
 }
 
-@keyframes ui-heading-enter {
-  from { opacity: 0.4; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
+body[data-role] #insideVehiclesBody tr:hover td { background: var(--naap-brand-soft); }
+@keyframes ui-heading-enter { from { opacity: 0.35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes ui-row-enter { from { opacity: 0.35; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ui-dialog-enter { from { opacity: 0; transform: translateY(5px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes ui-menu-enter { from { opacity: 0; transform: translateY(-4px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes ui-feedback-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ui-page-out { to { opacity: 0; } }
+@keyframes ui-nav-slide { from { transform: translateY(var(--nav-from, 0)); } to { transform: none; } }
+@keyframes ui-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes ui-rotate { to { transform: rotate(360deg); } }
+@keyframes ui-alert-glow { 0%, 100% { opacity: 0.22; } 50% { opacity: 0.42; } }
+@keyframes ui-status-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
 
-@keyframes ui-shortcut-enter {
-  from { opacity: 0.4; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes ui-dialog-enter {
-  from { opacity: 0.6; transform: translateY(8px) scale(0.985); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes ui-menu-enter {
-  from { opacity: 0.55; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes ui-feedback-enter {
-  from { opacity: 0.55; }
-  to { opacity: 1; }
-}
-
-/* Content stays visible without motion, including when the OS setting changes. */
+/* Finite pulses avoid a permanently blinking header. Pause hidden/low-power pages. */
+.motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-play-state: paused !important; }
+.motion-lite :is(.hero-card, .task-shortcut, .ui-skeleton, .brand-orb),
+.motion-lite :is(.hero-card, .ui-skeleton)::after { animation: none !important; }
 @media (prefers-reduced-motion: reduce), print {
+  @view-transition { navigation: none; }
+  ::view-transition-old(root), ::view-transition-new(root), ::view-transition-group(root) { animation: none !important; }
   :is(.hero-greeting, .hero-card, .section-head, .task-shortcut, .account-menu, .action-menu-popover,
-      .confirm-dialog-card, .confirm-dialog-backdrop, .slot-history-dialog, .flash) {
-    animation: none !important;
-  }
-
-  :is(.task-shortcut, .task-shortcut-arrow, .task-shortcut-icon, .hero-primary-action .ph-arrow-right) {
-    transform: none;
-    translate: none;
-    scale: none;
-    transition: none;
-  }
-
-  :is(.btn-sm, .link-btn, .hero-primary-action, .account-menu-trigger, .icon-btn) {
-    scale: none;
-    translate: none;
-  }
+      .confirm-dialog-card, .confirm-dialog-backdrop, .slot-history-dialog, .flash, .ui-toast, .ui-skeleton,
+      .notification-unread-badge, .dashboard-refresh-icon, #notificationPanel, #insideVehiclesBody tr),
+  .hero-card::after, .ui-skeleton::after, .side-nav a::before,
+  #networkIndicator::before, #mobileNetworkIndicator::before { animation: none !important; }
+  :is(.task-shortcut, .task-shortcut-arrow, .task-shortcut-icon, .hero-card[data-motion-metric], .nav-link-icon) { transition: none !important; transform: none !important; translate: none !important; scale: none !important; }
+  .ui-skeleton::after { display: none; }
 }

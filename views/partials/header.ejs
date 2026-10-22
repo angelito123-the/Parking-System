@@ -25,7 +25,7 @@
   <link rel="stylesheet" href="/design-system.css?v=20261021-brand" />
   <link rel="stylesheet" href="/parking-layout.css?v=20261008-hangar" />
   <link rel="stylesheet" href="/ui-polish.css?v=20261021-brand" />
-  <link rel="stylesheet" href="/ui-motion.css?v=20261020-fluid" />
+  <link rel="stylesheet" href="/ui-motion.css?v=20261022-depth" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -34,6 +34,7 @@
   <script src="/js/password-policy.js?v=20260912-forms" defer></script>
   <script src="/js/confirmation-dialog.js?v=20260914-email" defer></script>
   <script src="/js/ui-feedback.js?v=20261021-feedback" defer></script>
+  <script src="/js/ui-motion.js?v=20261022-depth" defer></script>
   <script src="/js/form-feedback.js?v=20260912-forms" defer></script>
   <% if (needsOfflineScanner) { %>
   <script src="/offline-sync.js?v=20260912-forms" defer></script>
@@ -192,7 +193,7 @@
         <div class="sidebar-identity">
           <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>" aria-label="NAAP Parking dashboard">
             <span class="sidebar-brand-mark" aria-hidden="true">
-              <i class="ph ph-car-profile"></i>
+              <img src="/icons/icon-192.png" width="40" height="40" alt="" />
             </span>
             <span class="sidebar-brand-copy">
               <strong>NAAP Parking</strong>
@@ -344,9 +345,13 @@
               const handleToggle = () => {
                 const currentTheme = document.documentElement.getAttribute('data-theme');
                 const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-theme', newTheme);
-                localStorage.setItem('theme', newTheme);
-                setThemeIcon(newTheme);
+                const applyTheme = () => {
+                  document.documentElement.setAttribute('data-theme', newTheme);
+                  localStorage.setItem('theme', newTheme);
+                  setThemeIcon(newTheme);
+                };
+                if (window.NaapMotion) window.NaapMotion.changeTheme(applyTheme);
+                else applyTheme();
 
               };
               setThemeIcon(document.documentElement.getAttribute('data-theme') || 'light');

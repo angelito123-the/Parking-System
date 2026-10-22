@@ -19,3 +19,40 @@
   .page-login .auth-panel { padding: 2rem 1.25rem; }
   .page-login .auth-card { max-width: 430px; }
 }
+
+/* Motion enhances the existing split login; the native POST remains unchanged. */
+.page-login .brand-logo { animation: none; }
+.page-login .brand-panel::before { pointer-events: none; }
+.page-login .brand-orb--three { display: none; }
+.page-login .input-wrap { position: relative; transition: none; }
+.page-login .input-wrap::after { content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 0 2px rgba(29, 78, 216, 0.22); opacity: 0; }
+.page-login .input-wrap:focus-within::after { opacity: 1; }
+.page-login .input-icon { transition: none; }
+.page-login .input-wrap:focus-within .input-icon { color: var(--naap-brand); background: #edf3f8; }
+.page-login .login-btn { transition: transform 200ms ease-out, opacity 200ms ease-out; }
+.page-login .login-btn::before { background: linear-gradient(135deg, #193e62, #102a46); }
+.page-login .login-btn.is-loading { filter: none; }
+.page-login .button-success { display: none; }
+.page-login .login-btn.is-success .button-success { display: inline-block; }
+.page-login .login-btn.is-success :is(.button-icon, .button-spinner) { display: none; }
+.page-login .brand-features li, .page-login .feature-check, .page-login .password-toggle { transition: transform 200ms ease-out, opacity 200ms ease-out; }
+@media (prefers-reduced-motion: no-preference) {
+  .page-login .brand-top { animation: contentEnter 320ms 0ms ease-out backwards; }
+  .page-login :is(.brand-kicker, .brand-title, .brand-copy) { animation: contentEnter 360ms 40ms ease-out backwards; }
+  .page-login .brand-features li { animation: contentEnter 320ms ease-out backwards; }
+  .page-login .brand-features li:nth-child(1) { animation-delay: 80ms; }
+  .page-login .brand-features li:nth-child(2) { animation-delay: 120ms; }
+  .page-login .brand-features li:nth-child(3) { animation-delay: 160ms; }
+  .page-login .auth-card { animation: formItemEnter 360ms 80ms ease-out backwards; }
+  .page-login .portal-status { animation: contentEnter 320ms 160ms ease-out backwards; }
+  .page-login .brand-orb { animation: brandOrbDrift 18s ease-in-out infinite; }
+  .page-login .brand-orb--two { animation-duration: 24s; animation-direction: reverse; }
+  .page-login .input-wrap::after { transition: opacity 200ms ease-out; }
+  .page-login .input-icon .ph { transition: transform 200ms ease-out, opacity 200ms ease-out; opacity: 0.8; }
+  .page-login .input-wrap:focus-within .input-icon .ph { transform: translateY(-1px); opacity: 1; }
+  .page-login:has(.login-error) .login-btn { animation: loginErrorShake 300ms ease-out; }
+}
+@keyframes loginErrorShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 50% { transform: translateX(3px); } 75% { transform: translateX(-1px); } }
+@media (prefers-reduced-motion: reduce), print {
+  .page-login .input-wrap::after, .page-login .input-icon .ph { transition: none; transform: none; }
+}
