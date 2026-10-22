@@ -51,7 +51,7 @@
       <h2>Sticker Issuance</h2>
       <p>Create secure QR-enabled stickers for validated student vehicles.</p>
     </div>
-  <form method="post" action="/stickers" class="form-grid">
+  <form method="post" action="/stickers" class="form-grid" data-form-feedback>
     <label for="st_vehicle_id">Vehicle</label>
     <select id="st_vehicle_id" name="vehicle_id" required>
       <option value="">Select vehicle</option>
@@ -107,26 +107,29 @@
             <td><%= sticker.student_number %> <span class="record-secondary"><%= sticker.full_name %></span></td>
             <td><span class="badge badge-plate"><%= sticker.plate_number %></span></td>
             <td>
-              <span class="badge badge-<%= badgeClass %>">
-                <%= displayStatus %>
+              <span class="badge sticker-status badge-<%= badgeClass %>">
+                <i class="ph <%= displayStatus === "active" ? "ph-check-circle" : displayStatus === "expired" ? "ph-clock" : "ph-prohibit" %>" aria-hidden="true"></i><%= displayStatus %>
               </span>
             </td>
             <td class="table-muted"><%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "No expiry" %></td>
             <td class="sticker-qr-cell">
               <div class="sticker-tools">
-                <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn">View QR</a>
-                <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn">Download</a>
-                <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn">Print card</a>
-                <button type="button" class="link-btn copy-sticker-link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>">Copy link</button>
+                <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn btn-primary qr-primary" data-qr-preview data-qr-code="<%= sticker.sticker_code %>">View QR</a>
+                <a href="/stickers/<%= sticker.id %>/qr" download="sticker-<%= sticker.sticker_code %>.png" class="link-btn btn-secondary qr-tool" aria-label="Download" title="Download QR"><i class="ph ph-download-simple" aria-hidden="true"></i></a>
+                <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn btn-secondary qr-tool" aria-label="Print card" title="Print card"><i class="ph ph-printer" aria-hidden="true"></i></a>
+                <button type="button" class="link-btn btn-secondary qr-tool copy-sticker-link" aria-label="Copy link" title="Copy verification link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>"><i class="ph ph-copy" aria-hidden="true"></i></button>
 
+                <% if (sticker.status === "active") { %>
+                <button type="button" class="link-btn btn-secondary qr-tool" aria-label="Replace QR" title="Replace QR" data-destructive-trigger data-form-id="rotateStickerDesktop_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR for <%= sticker.sticker_code %> will stop working immediately. Use this for a lost or exposed QR." data-confirm-label="Replace QR"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i></button>
+                <form id="rotateStickerDesktop_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
+                <% } %>
               </div>
               <div class="sticker-activity helper-text">Last used: <%= sticker.last_scanned_at ? new Date(sticker.last_scanned_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Never' %> · QR replacements: <%= Number(sticker.qr_rotation_count || 0) %><% if (Number(sticker.rejected_scan_count || 0) > 0) { %> · Rejected scans: <%= sticker.rejected_scan_count %><% } %></div>
             </td>
             <td class="table-actions-cell sticker-management-cell">
               <% if (sticker.status === "active") { %>
               <div class="sticker-management-actions">
-                <button type="button" class="btn-sm" data-destructive-trigger data-form-id="rotateStickerDesktop_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR for <%= sticker.sticker_code %> will stop working immediately. Use this for a lost or exposed QR." data-confirm-label="Replace QR">Replace QR</button>
-                <form id="rotateStickerDesktop_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
+
                 <button type="button" class="danger btn-sm" data-destructive-trigger data-form-id="revokeStickerDesktop_<%= sticker.id %>" data-confirm-title="Revoke sticker?" data-confirm-message="Revoke sticker <%= sticker.sticker_code %>? It will no longer grant parking access." data-confirm-label="Revoke sticker">Revoke sticker</button>
                 <form id="revokeStickerDesktop_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/revoke" hidden></form>
               </div>
@@ -155,7 +158,7 @@
       <div class="mobile-data-card">
         <div class="card-header">
           <div class="card-title">Code: <%= sticker.sticker_code %></div>
-          <span class="badge badge-<%= badgeClass %>"><%= displayStatus %></span>
+          <span class="badge sticker-status badge-<%= badgeClass %>"><i class="ph <%= displayStatus === "active" ? "ph-check-circle" : displayStatus === "expired" ? "ph-clock" : "ph-prohibit" %>" aria-hidden="true"></i><%= displayStatus %></span>
         </div>
         <div class="card-body">
           <div class="card-item"><i class="ph ph-user" aria-hidden="true"></i> <strong>Owner:</strong> <%= sticker.full_name %></div>
@@ -163,17 +166,21 @@
           <div class="card-item"><i class="ph ph-calendar-blank" aria-hidden="true"></i> <strong>Expires:</strong> <%= sticker.expires_at ? new Date(sticker.expires_at).toLocaleDateString() : "Never" %></div>
         </div>
         <div class="card-actions">
-          <div class="mobile-button-grid">
-            <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="btn btn-mobile-touch">View QR</a>
-            <a href="/stickers/<%= sticker.id %>/qr" download class="btn btn-mobile-touch">Download</a>
-            <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="btn btn-mobile-touch">Print card</a>
+          <div class="mobile-button-grid sticker-tools">
+            <a href="/stickers/<%= sticker.id %>/qr" target="_blank" class="link-btn btn-primary qr-primary" data-qr-preview data-qr-code="<%= sticker.sticker_code %>">View QR</a>
+            <a href="/stickers/<%= sticker.id %>/qr" download class="link-btn btn-secondary qr-tool" aria-label="Download" title="Download QR"><i class="ph ph-download-simple" aria-hidden="true"></i></a>
+            <a href="/stickers/<%= sticker.id %>/print" target="_blank" class="link-btn btn-secondary qr-tool" aria-label="Print card" title="Print card"><i class="ph ph-printer" aria-hidden="true"></i></a>
 
-          </div>
+            <button type="button" class="link-btn btn-secondary qr-tool copy-sticker-link" aria-label="Copy link" title="Copy verification link" data-copy-url="<%= stickerBaseUrl %>/verify/<%= sticker.qr_token %>"><i class="ph ph-copy" aria-hidden="true"></i></button>
+            <% if (sticker.status === "active") { %>
+            <button type="button" class="link-btn btn-secondary qr-tool" aria-label="Replace QR" title="Replace QR" data-destructive-trigger data-form-id="rotateStickerMobile_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR will stop working immediately." data-confirm-label="Replace QR"><i class="ph ph-arrows-clockwise" aria-hidden="true"></i></button>
+            <form id="rotateStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
+            <% } %>
+</div>
 
           <% if (sticker.status === "active") { %>
           <div class="sticker-management-actions">
-            <button type="button" class="btn-sm btn-mobile-touch" data-destructive-trigger data-form-id="rotateStickerMobile_<%= sticker.id %>" data-confirm-title="Replace this QR code?" data-confirm-message="The previous QR will stop working immediately." data-confirm-label="Replace QR">Replace QR</button>
-            <form id="rotateStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/rotate" hidden><input type="hidden" name="reason" value="Lost, exposed, or administratively replaced QR" /></form>
+
             <button type="button" class="danger btn-sm btn-mobile-touch" data-destructive-trigger data-form-id="revokeStickerMobile_<%= sticker.id %>" data-confirm-title="Revoke sticker?" data-confirm-message="Revoke sticker <%= sticker.sticker_code %>? It will no longer grant parking access." data-confirm-label="Revoke sticker">Revoke sticker</button>
             <form id="revokeStickerMobile_<%= sticker.id %>" class="destructive-form" method="post" action="/stickers/<%= sticker.id %>/revoke" hidden></form>
           </div>
@@ -194,9 +201,16 @@
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
-      const original = button.textContent;
-      button.textContent = "Copied";
-      window.setTimeout(() => { button.textContent = original; }, 1400);
+      button.classList.add("is-copied");
+      button.setAttribute("aria-label", "Link copied");
+      button.querySelector("i").className = "ph ph-check";
+      window.NaapFeedback?.show("Verification link copied.", { tone: "success" });
+      window.clearTimeout(button._copyTimer);
+      button._copyTimer = window.setTimeout(() => {
+        button.classList.remove("is-copied");
+        button.setAttribute("aria-label", "Copy link");
+        button.querySelector("i").className = "ph ph-copy";
+      }, 1800);
     } catch (_error) {
       window.prompt("Copy verification link:", url);
     }

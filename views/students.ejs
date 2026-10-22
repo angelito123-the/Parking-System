@@ -309,7 +309,7 @@
             </div>
           </div>
           <div class="sc-header-actions">
-            <button type="button" class="btn-details-sm" data-ui-action="toggle-student-details" data-target-id="<%= student.id %>" id="studentDetailsBtn_<%= student.id %>" aria-controls="studentDetails_<%= student.id %>" aria-expanded="false">Details</button>
+            <button type="button" class="btn-details-sm" data-ui-action="toggle-student-details" data-target-id="<%= student.id %>" id="studentDetailsBtn_<%= student.id %>" aria-controls="studentDetails_<%= student.id %>" aria-expanded="false">Details<i class="ph ph-caret-down" aria-hidden="true"></i></button>
             <button type="button" class="btn-edit-sm" data-ui-action="toggle-student-edit" data-target-id="<%= student.id %>" id="editStudentBtn_<%= student.id %>" aria-controls="studentEditForm_<%= student.id %>" aria-expanded="false">Edit</button>
             <div class="action-menu">
               <button type="button" class="action-menu-trigger" data-action-menu-trigger aria-label="More actions for <%= student.full_name %>" aria-haspopup="menu" aria-expanded="false">
@@ -1851,8 +1851,9 @@
   function toggleVehicleSection() {
     const section = document.getElementById('vehicleSection');
     const btn = document.getElementById('vehicleToggle');
-    const isVisible = !section.hidden;
-    section.hidden = isVisible;
+    const isVisible = btn.getAttribute("aria-expanded") === "true";
+    if (window.NaapPages) window.NaapPages.reveal(section, !isVisible);
+    else section.hidden = isVisible;
     btn.textContent = isVisible ? 'Add Vehicle Details' : 'Remove vehicle from registration';
     btn.setAttribute('aria-expanded', String(!isVisible));
     section.querySelectorAll('input').forEach(input => { input.disabled = isVisible; });
@@ -1867,9 +1868,10 @@
     const details = document.getElementById('studentDetails_' + id);
     const button = document.getElementById('studentDetailsBtn_' + id);
     if (!details || !button) return;
-    const isVisible = !details.hidden;
-    details.hidden = isVisible;
-    button.textContent = isVisible ? 'Details' : 'Hide details';
+    const isVisible = button.getAttribute("aria-expanded") === "true";
+    if (window.NaapPages) window.NaapPages.reveal(details, !isVisible);
+    else details.hidden = isVisible;
+    button.innerHTML = (isVisible ? 'Details' : 'Hide details') + '<i class="ph ph-caret-down" aria-hidden="true"></i>';
     button.setAttribute('aria-expanded', isVisible ? 'false' : 'true');
   }
 
@@ -1954,7 +1956,9 @@
 
     tabButtons.forEach((button) => {
       button.addEventListener("click", () => {
-        setFlowView(button.dataset.flowTab);
+        const update = () => setFlowView(button.dataset.flowTab);
+        if (window.NaapPages) window.NaapPages.switchView(update, () => document.querySelector(`[data-flow-view="${button.dataset.flowTab}"]`));
+        else update();
         history.replaceState(null, "", '#' + button.dataset.flowTab);
       });
       button.addEventListener("keydown", (event) => {
