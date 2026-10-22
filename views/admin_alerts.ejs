@@ -11,6 +11,11 @@
     };
   const safeInitialAlerts = Array.isArray(initialAlerts) ? initialAlerts : [];
   const safeInitialTotal = Number(initialTotal || safeInitialAlerts.length || 0);
+  const alertTypeIcons = { INVALID_QR_ATTEMPT: 'ph-qr-code', FULL_PARKING_ZONE: 'ph-car', LOW_SLOT_WARNING: 'ph-car-simple', PENDING_ENTRY_APPROVAL: 'ph-hourglass', SUSPICIOUS_SCAN_BEHAVIOR: 'ph-shield-warning', VISITOR_OVERSTAY: 'ph-clock-countdown' };
+  function readableAlertLabel(value) {
+    const text = String(value || '').replace(/[_-]+/g, ' ').toLowerCase();
+    return (text.charAt(0).toUpperCase() + text.slice(1)).replace(/\bqr\b/gi, 'QR');
+  }
 %>
 
 <section class="dashboard-hero">
@@ -38,11 +43,20 @@
   </div>
 </section>
 
-<div class="overlap-wrapper" style="display:grid; gap:1.2rem;">
+<div class="overlap-wrapper alerts-page" style="display:grid; gap:1.2rem;">
+  <section class="panel alerts-summary" aria-labelledby="alertsSummaryTitle">
+    <div class="alerts-summary-heading"><h2 id="alertsSummaryTitle">At a glance</h2><p id="alertsCountScope"><%= safeInitialAlerts.length %> displayed alerts</p></div>
+    <div class="alerts-summary-grid">
+      <div class="alerts-summary-item"><i class="ph ph-envelope-simple" aria-hidden="true"></i><span>Unread</span><strong id="alertsCountUnread"><%= safeInitialAlerts.filter(row => !row.is_read && row.status !== 'resolved').length %></strong></div>
+      <div class="alerts-summary-item summary-high"><i class="ph ph-warning" aria-hidden="true"></i><span>High severity</span><strong id="alertsCountHigh"><%= safeInitialAlerts.filter(row => ['high', 'critical'].includes(row.severity)).length %></strong></div>
+      <div class="alerts-summary-item summary-resolved"><i class="ph ph-check-circle" aria-hidden="true"></i><span>Resolved</span><strong id="alertsCountResolved"><%= safeInitialAlerts.filter(row => row.status === 'resolved').length %></strong></div>
+    </div>
+    <p class="alerts-summary-note">Counts cover the displayed alerts. Unread excludes resolved alerts; high severity includes critical alerts.</p>
+  </section>
   <section class="panel alerts-filter-panel">
-    <div class="section-head">
-      <h2>Filter Alerts</h2>
-      <p>Search historical and active alerts by status, type, severity, and date range.</p>
+    <div class="section-head alerts-filter-heading">
+      <div><h2>Filter alerts</h2><p>Narrow the log by status, type, severity, or date.</p></div>
+      <button type="button" class="btn-sm btn-reset" id="alertsFilterToggle" aria-controls="alertsFilterForm" aria-expanded="true"><i class="ph ph-funnel" aria-hidden="true"></i>Filters<i class="ph ph-caret-down" aria-hidden="true"></i></button>
     </div>
     <form id="alertsFilterForm" class="alerts-filter-grid">
       <label>
@@ -61,7 +75,7 @@
           <option value="FULL_PARKING_ZONE">Full Parking Zone</option>
           <option value="LOW_SLOT_WARNING">Low Slot Warning</option>
           <option value="PENDING_ENTRY_APPROVAL">Pending Entry Approval</option>
-          <option value="SUSPICIOUS_SCAN_BEHAVIOR">Suspicious Scan</option>
+          <option value="SUSPICIOUS_SCAN_BEHAVIOR">Suspicious scan behavior</option>
           <option value="VISITOR_OVERSTAY">Visitor Overstay</option>
         </select>
       </label>
@@ -100,46 +114,59 @@
         <button type="button" class="btn-sm btn-reset" id="alertsResetFiltersBtn">Reset</button>
       </div>
     </form>
+    <div id="alertsFilterChips" role="group" aria-label="Applied filters"></div>
   </section>
 
   <section class="panel alerts-log-panel">
     <div class="section-head">
-      <h2>Alert Log</h2>
+      <h2 id="alertsLogTitle" tabindex="-1">Alert log</h2>
       <p id="alertsMetaText"><%= safeInitialTotal %> alert(s) loaded.</p>
     </div>
     <div class="alerts-log-toolbar">
-      <button type="button" class="btn-sm" id="alertsMarkAllReadBtn">Mark All Read</button>
-      <button type="button" class="btn-sm btn-reset refresh-btn" id="alertsRefreshBtn">Refresh</button>
+      <button type="button" class="btn-sm btn-primary" id="alertsMarkAllReadBtn" aria-describedby="alertsMarkAllScope">Mark all read</button>
+      <button type="button" class="btn-sm btn-reset refresh-btn" id="alertsRefreshBtn"><i class="ph ph-arrow-clockwise" aria-hidden="true"></i>Refresh</button>
+      <span class="alerts-toolbar-note" id="alertsMarkAllScope">Marks all alerts you can access as read, including those hidden by filters.</span>
     </div>
+    <div id="alertsLoading" hidden><p role="status">Updating alerts…</p><div class="alerts-skeletons" aria-hidden="true"><span></span><span></span><span></span></div></div>
     <div id="alertsList" class="alerts-log-list">
       <% if (!safeInitialAlerts.length) { %>
-        <div class="empty-state"><p>No alerts available for this filter.</p></div>
+        <div class="alerts-empty"><i class="ph ph-check-circle" aria-hidden="true"></i><strong>No alerts, all clear</strong><p>No alerts match this view.</p></div>
       <% } %>
-      <% safeInitialAlerts.forEach((row) => { %>
-        <article class="alerts-log-row <%= row.is_read ? '' : 'is-unread' %>">
-          <div class="alerts-log-main">
-            <p class="alerts-log-title">
-              <span class="notify-severity-dot <%= (row.severity === 'critical' || row.severity === 'high') ? 'sev-high' : row.severity === 'medium' ? 'sev-medium' : 'sev-low' %>"></span>
-              <%= row.title || "Alert" %>
-            </p>
-            <p class="alerts-log-message"><%= row.message || "-" %></p>
-            <p class="alerts-log-meta">
-              <span class="notification-chip"><%= row.type || "ALERT" %></span>
-              <span class="notification-chip"><%= String(row.severity || "low").toUpperCase() %></span>
-              <span class="notification-chip <%= String(row.status || "").toLowerCase() === "resolved" ? "state-resolved" : "state-active" %>"><%= row.status || "active" %></span>
-              <% if (row.related_gate_id) { %><span>Gate: <%= row.related_gate_id %></span><% } %>
-              <% if (row.related_zone_id) { %><span>Zone: <%= row.related_zone_id %></span><% } %>
-              <% if (row.related_qr_id) { %><span>QR: <%= row.related_qr_id %></span><% } %>
-              <span><%= row.created_at ? new Date(row.created_at).toLocaleString("en-US", { timeZone: "Asia/Manila" }) : "-" %></span>
-            </p>
+      <% safeInitialAlerts.forEach((row) => {
+        const resolved = String(row.status || '').toLowerCase() === 'resolved';
+        const unread = !row.is_read && !resolved;
+        const severity = String(row.severity || 'low').toLowerCase();
+        const severityClass = ['high', 'critical'].includes(severity) ? 'sev-high' : severity === 'medium' ? 'sev-medium' : 'sev-low';
+        const typeIcon = Object.prototype.hasOwnProperty.call(alertTypeIcons, row.type) ? alertTypeIcons[row.type] : 'ph-bell';
+        const alertId = Number(row.id) || 0;
+        const qr = String(row.related_qr_id || '');
+      %>
+        <article class="alerts-log-row <%= severityClass %> <%= resolved ? 'is-resolved' : unread ? 'is-unread' : 'is-read' %>" data-alert-key="<%= alertId %>" aria-labelledby="alertTitle_<%= alertId %>">
+          <div class="alert-card-heading">
+            <span class="alert-type-icon" aria-hidden="true"><i class="ph <%= typeIcon %>"></i></span>
+            <div class="alert-heading-copy">
+              <p class="alert-type-name"><%= readableAlertLabel(row.type || 'Alert') %></p>
+              <h3 class="alerts-log-title" id="alertTitle_<%= alertId %>" tabindex="-1"><%= row.title || 'Alert' %></h3>
+              <div class="alert-badges">
+                <span class="alert-severity"><i class="ph <%= ['high', 'critical'].includes(severity) ? 'ph-warning' : severity === 'medium' ? 'ph-warning-circle' : 'ph-info' %>" aria-hidden="true"></i><%= readableAlertLabel(severity) %></span>
+                <% if (resolved) { %><span class="alert-resolved"><i class="ph ph-check-circle" aria-hidden="true"></i>Resolved</span>
+                <% } else if (unread) { %><span class="alert-new">NEW</span>
+                <% } else { %><span class="alert-read"><i class="ph ph-check" aria-hidden="true"></i>Read</span><% } %>
+              </div>
+              <% if (resolved) { %><p class="alert-resolved-time">Resolved: <%= row.resolved_at ? new Date(row.resolved_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'time not recorded' %></p><% } %>
+            </div>
+          </div>
+          <p class="alerts-log-message"><%= row.message || '-' %></p>
+          <div class="alerts-log-meta">
+            <% if (row.related_gate_id) { %><span class="alert-meta-chip"><i class="ph ph-door" aria-hidden="true"></i>Gate <strong><%= row.related_gate_id %></strong></span><% } %>
+            <% if (row.related_zone_id) { %><span class="alert-meta-chip"><i class="ph ph-map-pin" aria-hidden="true"></i>Zone <strong><%= row.related_zone_id %></strong></span><% } %>
+            <% if (row.source) { %><span class="alert-meta-chip">Source <strong><%= readableAlertLabel(row.source) %></strong></span><% } %>
+            <% if (qr) { %><span class="alert-meta-chip alert-qr-chip">QR <code title="<%= qr %>"><%= qr.length > 22 ? qr.slice(0, 10) + '…' + qr.slice(-6) : qr %></code><button type="button" class="btn-ghost alert-qr-copy" data-copy-qr="<%= qr %>" aria-label="Copy full QR identifier" aria-describedby="alertQr_<%= alertId %>"><i class="ph ph-copy" aria-hidden="true"></i></button><span class="alert-qr-full" role="tooltip" id="alertQr_<%= alertId %>"><%= qr %></span></span><% } %>
+            <time class="alert-card-time" title="Philippine time"><span>Recorded · Philippine time</span><%= row.created_at ? new Date(row.created_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : 'Time not recorded' %></time>
           </div>
           <div class="alerts-log-actions">
-            <% if (!row.is_read) { %>
-              <button type="button" class="btn-sm alerts-read-btn" data-alert-id="<%= row.id %>">Read</button>
-            <% } %>
-            <% if (String(row.status || "").toLowerCase() !== "resolved") { %>
-              <button type="button" class="btn-sm btn-reset alerts-resolve-btn" data-alert-id="<%= row.id %>">Resolve</button>
-            <% } %>
+            <% if (unread) { %><button type="button" class="btn-ghost alerts-read-btn" data-alert-id="<%= alertId %>"><i class="ph ph-check" aria-hidden="true"></i>Mark as read</button><% } %>
+            <% if (!resolved) { %><button type="button" class="btn-sm btn-reset alerts-resolve-btn" data-alert-id="<%= alertId %>"><i class="ph ph-check-circle" aria-hidden="true"></i>Resolve</button><% } %>
           </div>
         </article>
       <% }) %>
@@ -147,6 +174,7 @@
   </section>
 </div>
 
+<script src="/js/alerts-ui.js?v=20261023-alerts"></script>
 <script nonce="<%= cspNonce %>">
   (() => {
     const alertsMetricInvalid = document.getElementById("alertsMetricInvalid");
@@ -169,6 +197,8 @@
     let currentAlerts = <%- serializeForScript(safeInitialAlerts) %>;
     let totalAlerts = Number(<%- serializeForScript(safeInitialTotal) %>) || currentAlerts.length || 0;
     let isFetching = false;
+    const alertTypeIcons = <%- serializeForScript(alertTypeIcons) %>;
+    let appliedFilters = null;
     const defaultFilters = {
       status: "active",
       type: "all",
@@ -200,9 +230,11 @@
     }
 
     function formatDateTime(value) {
+      if (!value) return "Time not recorded";
       const dt = new Date(value);
       if (Number.isNaN(dt.getTime())) return "-";
       return new Intl.DateTimeFormat("en-PH", {
+        timeZone: "Asia/Manila",
         month: "short",
         day: "2-digit",
         year: "numeric",
@@ -212,58 +244,60 @@
       }).format(dt);
     }
 
+    function readableAlertLabel(value) {
+      const text = String(value || '').replace(/[_-]+/g, ' ').toLowerCase();
+      return (text.charAt(0).toUpperCase() + text.slice(1)).replace(/\bqr\b/gi, 'QR');
+    }
+
     function buildMetaBits(row) {
       const bits = [];
-      bits.push(`<span class="notification-chip">${escapeHtml(row.type || "ALERT")}</span>`);
-      bits.push(`<span class="notification-chip">${escapeHtml(String(row.severity || "low").toUpperCase())}</span>`);
-      bits.push(`<span class="notification-chip ${String(row.status || "").toLowerCase() === "resolved" ? "state-resolved" : "state-active"}">${escapeHtml(row.status || "active")}</span>`);
-      if (row.related_gate_id) bits.push(`<span>Gate: ${escapeHtml(row.related_gate_id)}</span>`);
-      if (row.related_zone_id) bits.push(`<span>Zone: ${escapeHtml(row.related_zone_id)}</span>`);
-      if (row.related_qr_id) bits.push(`<span>QR: ${escapeHtml(row.related_qr_id)}</span>`);
-      if (row.source) bits.push(`<span>Source: ${escapeHtml(row.source)}</span>`);
-      bits.push(`<span>${escapeHtml(formatDateTime(row.created_at))}</span>`);
-      if (String(row.status || "").toLowerCase() === "resolved" && row.resolved_at) {
-        bits.push(`<span>Resolved: ${escapeHtml(formatDateTime(row.resolved_at))}</span>`);
+      if (row.related_gate_id) bits.push(`<span class="alert-meta-chip"><i class="ph ph-door" aria-hidden="true"></i>Gate <strong>${escapeHtml(row.related_gate_id)}</strong></span>`);
+      if (row.related_zone_id) bits.push(`<span class="alert-meta-chip"><i class="ph ph-map-pin" aria-hidden="true"></i>Zone <strong>${escapeHtml(row.related_zone_id)}</strong></span>`);
+      if (row.source) bits.push(`<span class="alert-meta-chip">Source <strong>${escapeHtml(readableAlertLabel(row.source))}</strong></span>`);
+      if (row.related_qr_id) {
+        const qr = String(row.related_qr_id);
+        const id = Number(row.id) || 0;
+        const shortened = qr.length > 22 ? qr.slice(0, 10) + '…' + qr.slice(-6) : qr;
+        bits.push(`<span class="alert-meta-chip alert-qr-chip">QR <code title="${escapeHtml(qr)}">${escapeHtml(shortened)}</code><button type="button" class="btn-ghost alert-qr-copy" data-copy-qr="${escapeHtml(qr)}" aria-label="Copy full QR identifier" aria-describedby="alertQr_${id}"><i class="ph ph-copy" aria-hidden="true"></i></button><span class="alert-qr-full" role="tooltip" id="alertQr_${id}">${escapeHtml(qr)}</span></span>`);
       }
+      bits.push(`<time class="alert-card-time" title="Philippine time"><span>Recorded · Philippine time</span>${escapeHtml(formatDateTime(row.created_at))}</time>`);
       return bits.join("");
     }
 
     function renderAlertRow(row) {
-      const unreadClass = row.is_read ? "" : "is-unread";
       const isResolved = String(row.status || "").toLowerCase() === "resolved";
+      const unread = !row.is_read && !isResolved;
       const severityClass = getSeverityClass(row.severity);
+      const severity = String(row.severity || 'low').toLowerCase();
+      const severityIcon = ['high', 'critical'].includes(severity) ? 'ph-warning' : severity === 'medium' ? 'ph-warning-circle' : 'ph-info';
+      const typeIcon = Object.prototype.hasOwnProperty.call(alertTypeIcons, row.type) ? alertTypeIcons[row.type] : 'ph-bell';
       const alertId = Number.isInteger(Number(row.id)) ? Number(row.id) : 0;
       return `
-        <article class="alerts-log-row ${unreadClass}">
-          <div class="alerts-log-main">
-            <p class="alerts-log-title">
-              <span class="notify-severity-dot ${severityClass}"></span>
-              ${escapeHtml(row.title || "Alert")}
-            </p>
-            <p class="alerts-log-message">${escapeHtml(row.message || "-")}</p>
-            <p class="alerts-log-meta">${buildMetaBits(row)}</p>
+        <article class="alerts-log-row ${severityClass} ${isResolved ? 'is-resolved' : unread ? 'is-unread' : 'is-read'}" data-alert-key="${alertId}" aria-labelledby="alertTitle_${alertId}">
+          <div class="alert-card-heading">
+            <span class="alert-type-icon" aria-hidden="true"><i class="ph ${typeIcon}"></i></span>
+            <div class="alert-heading-copy">
+              <p class="alert-type-name">${escapeHtml(readableAlertLabel(row.type || 'Alert'))}</p>
+              <h3 class="alerts-log-title" id="alertTitle_${alertId}" tabindex="-1">${escapeHtml(row.title || 'Alert')}</h3>
+              <div class="alert-badges">
+                <span class="alert-severity"><i class="ph ${severityIcon}" aria-hidden="true"></i>${escapeHtml(readableAlertLabel(severity))}</span>
+                ${isResolved ? '<span class="alert-resolved"><i class="ph ph-check-circle" aria-hidden="true"></i>Resolved</span>' : unread ? '<span class="alert-new">NEW</span>' : '<span class="alert-read"><i class="ph ph-check" aria-hidden="true"></i>Read</span>'}
+              </div>
+              ${isResolved ? `<p class="alert-resolved-time">Resolved: ${row.resolved_at ? escapeHtml(formatDateTime(row.resolved_at)) : 'time not recorded'}</p>` : ''}
+            </div>
           </div>
-          <div class="alerts-log-actions">
-            ${row.is_read ? "" : `<button type="button" class="btn-sm alerts-read-btn" data-alert-id="${alertId}">Read</button>`}
-            ${isResolved ? "" : `<button type="button" class="btn-sm btn-reset alerts-resolve-btn" data-alert-id="${alertId}">Resolve</button>`}
-          </div>
+          <p class="alerts-log-message">${escapeHtml(row.message || '-')}</p>
+          <div class="alerts-log-meta">${buildMetaBits(row)}</div>
+          <div class="alerts-log-actions">${unread ? `<button type="button" class="btn-ghost alerts-read-btn" data-alert-id="${alertId}"><i class="ph ph-check" aria-hidden="true"></i>Mark as read</button>` : ''}${isResolved ? '' : `<button type="button" class="btn-sm btn-reset alerts-resolve-btn" data-alert-id="${alertId}"><i class="ph ph-check-circle" aria-hidden="true"></i>Resolve</button>`}</div>
         </article>
       `;
     }
 
     function renderAlerts() {
       if (!alertsList || !alertsMetaText) return;
-      if (!currentAlerts.length) {
-        alertsList.innerHTML = window.NaapUiState.render("empty", {
-          title: "No alerts",
-          message: "No operational alerts match the current filter."
-        });
-        alertsMetaText.textContent = "No alerts found for current filters.";
-        return;
-      }
-
-      alertsList.innerHTML = currentAlerts.map(renderAlertRow).join("");
-      alertsMetaText.textContent = `${currentAlerts.length} of ${totalAlerts} alert(s) shown.`;
+      const empty = '<div class="alerts-empty" role="status"><i class="ph ph-check-circle" aria-hidden="true"></i><strong>No alerts, all clear</strong><p>No alerts match this view. Other alerts may be hidden by filters.</p></div>';
+      window.NaapAlertsUi.render(currentAlerts, currentAlerts.length ? currentAlerts.map(renderAlertRow).join('') : empty);
+      alertsMetaText.textContent = currentAlerts.length ? `${currentAlerts.length} of ${totalAlerts} alert(s) shown.` : 'No alerts found for current filters.';
       wireRowActions();
     }
 
@@ -301,6 +335,8 @@
     async function fetchAlerts() {
       if (isFetching) return;
       isFetching = true;
+      const requestedFilters = { ...state };
+      window.NaapAlertsUi.loading(true);
       try {
         const response = await fetch(`/api/notifications?${getQueryString()}`, {
           credentials: "same-origin",
@@ -313,6 +349,8 @@
         currentAlerts = Array.isArray(data.rows) ? data.rows : [];
         totalAlerts = Number(data.total || currentAlerts.length || 0);
         renderAlerts();
+        appliedFilters = requestedFilters;
+        renderAppliedFilters();
       } catch (error) {
         if (alertsList) {
           alertsList.innerHTML = window.NaapUiState.render(navigator.onLine ? "error" : "offline", {
@@ -321,52 +359,70 @@
           });
         }
         if (alertsMetaText) alertsMetaText.textContent = error.message || "Unable to load alerts.";
+        window.NaapAlertsUi.failed();
       } finally {
         isFetching = false;
+        window.NaapAlertsUi.loading(false);
       }
     }
 
     async function markAlertRead(alertId) {
       try {
-        await fetch(`/api/notifications/${alertId}/read`, {
+        const response = await fetch(`/api/notifications/${alertId}/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin"
         });
+        await window.NaapAlertsUi.feedback(response, 'Alert marked as read.');
       } catch (_error) {
-        // ignore
+        window.NaapFeedback?.show('The alert could not be updated. Please try again.', { tone: 'error' });
       }
     }
 
     async function resolveAlert(alertId) {
       try {
-        await fetch(`/api/notifications/${alertId}/resolve`, {
+        const response = await fetch(`/api/notifications/${alertId}/resolve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin"
         });
+        await window.NaapAlertsUi.feedback(response, 'Alert resolved.');
       } catch (_error) {
-        // ignore
+        window.NaapFeedback?.show('The alert could not be updated. Please try again.', { tone: 'error' });
       }
     }
 
     function wireRowActions() {
       if (!alertsList) return;
-      alertsList.querySelectorAll(".alerts-read-btn").forEach((button) => {
+      alertsList.querySelectorAll(".alerts-log-row:not(.alert-exiting) .alerts-read-btn").forEach((button) => {
         button.addEventListener("click", async () => {
           const alertId = button.getAttribute("data-alert-id");
           if (!alertId) return;
+          window.NaapAlertsUi.busy(button, true);
           await markAlertRead(alertId);
           await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+          window.NaapAlertsUi.busy(button, false);
         });
       });
-      alertsList.querySelectorAll(".alerts-resolve-btn").forEach((button) => {
+      alertsList.querySelectorAll(".alerts-log-row:not(.alert-exiting) .alerts-resolve-btn").forEach((button) => {
         button.addEventListener("click", async () => {
           const alertId = button.getAttribute("data-alert-id");
           if (!alertId) return;
+          window.NaapAlertsUi.busy(button, true);
           await resolveAlert(alertId);
           await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+          window.NaapAlertsUi.busy(button, false);
         });
+      });
+    }
+
+    function renderAppliedFilters() {
+      window.NaapAlertsUi.filters(appliedFilters, async key => {
+        const field = alertsFilterForm.elements.namedItem(key);
+        if (!field) return;
+        field.value = field.tagName === 'SELECT' ? 'all' : '';
+        applyFiltersFromForm();
+        await fetchAlerts();
       });
     }
 
@@ -403,20 +459,28 @@
     });
 
     alertsMarkAllReadBtn?.addEventListener("click", async () => {
+      window.NaapAlertsUi.busy(alertsMarkAllReadBtn, true);
       try {
-        await fetch("/api/notifications/read-all", {
+        const response = await fetch("/api/notifications/read-all", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin"
         });
+        await window.NaapAlertsUi.feedback(response, "All alerts marked as read.");
       } catch (_error) {
-        // ignore
+        window.NaapFeedback?.show("Alerts could not be marked as read. Please try again.", { tone: "error" });
       }
       await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+      window.NaapAlertsUi.busy(alertsMarkAllReadBtn, false);
     });
 
     alertsRefreshBtn?.addEventListener("click", async () => {
-      await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+      window.NaapAlertsUi.busy(alertsRefreshBtn, true);
+      try {
+        await Promise.all([fetchAlertSummary(), fetchAlerts()]);
+      } finally {
+        window.NaapAlertsUi.busy(alertsRefreshBtn, false);
+      }
     });
 
     document.addEventListener("visibilitychange", () => {
@@ -427,6 +491,7 @@
 
     applyFiltersFromForm();
     renderAlerts();
+    renderAppliedFilters();
     window.addEventListener("naap:notifications-updated", async () => {
       await Promise.all([fetchAlertSummary(), fetchAlerts()]);
     });

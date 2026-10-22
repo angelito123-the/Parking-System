@@ -177,7 +177,7 @@
     } catch (_) {}
   }
 
-  window.NaapMotion = { animate, dashboardUpdated, setDashboardBusy, changeTheme };
+  window.NaapMotion = { animate, countUp, dashboardUpdated, setDashboardBusy, changeTheme };
   if (body.classList.contains('page-admin') || body.classList.contains('page-dashboard')) {
     sampleMetrics();
     metricIds.forEach(id => { const metric = document.getElementById(id); if (metric) countUp(metric); });
