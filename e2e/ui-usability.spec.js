@@ -670,9 +670,9 @@ test('QR controls have consistent gaps and access-changing actions remain separa
     }
   }
   const management = page.locator('.sticker-management-actions:visible').first();
-  const replace = await management.getByRole('button', { name: 'Replace QR', exact: true }).boundingBox();
+  const replace = await tools.getByRole('button', { name: 'Replace QR', exact: true }).boundingBox();
   const revoke = await management.getByRole('button', { name: 'Revoke sticker', exact: true }).boundingBox();
-  expect(revoke.y - replace.y - replace.height).toBeGreaterThanOrEqual(10);
+  expect(revoke.x >= replace.x + replace.width + 7 || revoke.y >= replace.y + replace.height + 10).toBe(true);
   if (desktop) {
     await page.setViewportSize({ width:1200, height:900 });
     await expect(page.locator('.desktop-only-table')).toBeHidden();

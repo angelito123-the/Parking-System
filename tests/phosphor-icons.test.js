@@ -47,11 +47,13 @@ test('every Phosphor icon used by the interface exists in the vendored font map'
   }
 });
 
-test('templates use Phosphor instead of embedded SVG or emoji icons', () => {
+test('templates use Phosphor icons and reserve SVG for metric charts', () => {
   const templates = collectFiles(viewsRoot, new Set(['.ejs']));
   const templateSource = templates.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
 
-  assert.doesNotMatch(templateSource, /<svg\b/i);
+  // The dashboard's existing sparklines are data charts, not replacement icons.
+  const withoutMetricCharts = templateSource.replace(/<svg class="metric-sparkline"[\s\S]*?<\/svg>/g, '');
+  assert.doesNotMatch(withoutMetricCharts, /<svg\b/i);
   assert.doesNotMatch(templateSource, /\p{Extended_Pictographic}/u);
 });
 

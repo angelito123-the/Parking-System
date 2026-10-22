@@ -55,7 +55,7 @@ test('scanner and verification parking maps use shared theme-aware states', () =
   assert.match(scanner, /class="slot-option-btn \$\{occupancy\}/);
   assert.match(scanner, /class="scanner-parking-map"/);
   assert.doesNotMatch(scanner, /background:linear-gradient\(180deg,#ffffff,#eff6ff\)/);
-  assert.match(verify, /design-system\.css\?v=20260914-email/);
+  assert.match(verify, /design-system\.css\?v=20261021-brand/);
   assert.match(verify, /\.status-chip\.expired[\s\S]*?var\(--status-warning-text\)/);
   assert.match(verify, /\.slot-btn\.occupied[\s\S]*?var\(--status-warning-text\)/);
 });
@@ -66,7 +66,7 @@ test('registry views use shared badges and layout helpers instead of fixed light
 
   assert.match(stickers, /class="badge badge-plate"/);
   assert.match(vehicles, /class="badge badge-plate"/);
-  assert.match(stickers, /class="mobile-button-grid"/);
+  assert.match(stickers, /class="mobile-button-grid(?: [^"]*)?"/);
   assert.doesNotMatch(stickers, /background:\s*#f1f5f9/);
   assert.doesNotMatch(vehicles, /background:\s*#f1f5f9/);
 });
