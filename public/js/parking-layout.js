@@ -58,13 +58,18 @@
         const selected = button.classList.contains("selected") || button.classList.contains("is-selected");
         button.classList.add("parking-plan-bay");
         button.dataset.parkingState = state;
+        button.dataset.parkingVisualState = state === "available" && button.dataset.slotType === "reserved" ? "reserved" : state;
         button.setAttribute("aria-pressed", String(selected));
         // Occupancy stays explicit even when the secondary line is a plate,
         // a reservation, or a maintenance reason instead of a status label.
         Array.from(button.children).slice(1).forEach(child => {
           if (child.textContent.trim().toLowerCase() === state) child.hidden = true;
         });
-        button.append(element("span", "parking-plan-state", label));
+        const badge = element("span", "parking-plan-state");
+        const icon = element("span", "parking-plan-state-icon ph " + { available: "ph-check-circle", occupied: "ph-car", disabled: "ph-prohibit" }[state]);
+        icon.setAttribute("aria-hidden", "true");
+        badge.append(icon, doc.createTextNode(label));
+        button.append(badge);
         row.append(button);
       }
       fragment.append(row);

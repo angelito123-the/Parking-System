@@ -98,6 +98,12 @@
         <button type="button" class="btn-sm btn-reset" data-parking-view="table" aria-pressed="false" aria-controls="parkingSlotsTableRegion"><i class="ph ph-list" aria-hidden="true"></i> Table</button>
       </div>
     </div>
+    <div class="parking-status-legend" aria-label="Parking status legend">
+      <span class="available"><i class="ph ph-check-circle" aria-hidden="true"></i> Available</span>
+      <span class="occupied"><i class="ph ph-car" aria-hidden="true"></i> Occupied</span>
+      <span class="reserved"><i class="ph ph-bookmark-simple" aria-hidden="true"></i> Reserved</span>
+      <span class="disabled"><i class="ph ph-prohibit" aria-hidden="true"></i> Blocked / maintenance</span>
+    </div>
     <div id="availableSlotsStrip" class="available-slots-strip">
       <% const initialAvailableSlots = safeParkingSlots.filter((slot) => slot.occupancy === "available"); %>
       <% if (!initialAvailableSlots.length) { %>
@@ -356,10 +362,10 @@
         data-slot-type="${escapeHtml(slot.slot_type || "standard")}"
         data-parking-label="${occupancy === "disabled" ? "Blocked" : occupancy === "occupied" ? "Occupied" : "Available"}"
         aria-pressed="${isSelected ? "true" : "false"}"
-        aria-label="Parking slot ${escapeHtml(code)} ${occupancy}">
+        aria-label="Parking slot ${escapeHtml(code)} ${occupancy}${slot.slot_type === "reserved" ? " reserved space" : ""}">
         <span class="tile-code">${escapeHtml(code)}</span>
         <span class="tile-meta">${escapeHtml(tileMeta)}</span>
-        ${slot.slot_type === "reserved" ? '<span class="parking-reserved-label">Reserved</span>' : ''}
+        ${slot.slot_type === "reserved" ? '<span class="parking-reserved-label">◆ Reserved</span>' : ''}
       </button>`;
     }
 
@@ -376,8 +382,8 @@
         return `<tr class="${selected ? "is-selected" : ""}">
           <td><strong>${escapeHtml(code)}</strong></td>
           <td>${escapeHtml(slot.zone || "General")}</td>
-          <td><span class="parking-status-badge status-${state}">${labels[state]}</span></td>
-          <td><span class="parking-type-label ${type === "reserved" ? "is-reserved" : ""}">${escapeHtml(type.charAt(0).toUpperCase() + type.slice(1))}</span></td>
+          <td><span class="parking-status-badge status-${state}"><i class="ph ${{ available: "ph-check-circle", occupied: "ph-car", disabled: "ph-prohibit" }[state]}" aria-hidden="true"></i>${labels[state]}</span></td>
+          <td><span class="parking-type-label ${type === "reserved" ? "is-reserved" : ""}">${type === "reserved" ? '<i class="ph ph-bookmark-simple" aria-hidden="true"></i> ' : ""}${escapeHtml(type.charAt(0).toUpperCase() + type.slice(1))}</span></td>
           <td>${escapeHtml(note)}</td>
           <td><button type="button" class="btn-sm btn-reset" data-slot-select="${escapeHtml(code)}" aria-pressed="${selected}">View <span class="sr-only">${escapeHtml(code)}</span></button></td>
         </tr>`;
@@ -431,10 +437,10 @@
         return;
       }
 
-      const visible = availableSlots.slice(0, 18);
+      const visible = availableSlots;
       availableSlotsStripEl.innerHTML = `
         <span class="available-slots-label">Available now (${summary.available || availableSlots.length}):</span>
-        ${visible.map((slot) => `<button type="button" class="available-slot-pill" data-slot-pill="${escapeHtml(slot.slot_code || "")}">${escapeHtml(slot.slot_code || "-")}</button>`).join("")}
+        ${visible.map((slot) => `<button type="button" class="available-slot-pill" data-reserved="${slot.slot_type === "reserved"}" data-slot-pill="${escapeHtml(slot.slot_code || "")}"><i class="ph ph-check-circle" aria-hidden="true"></i>${escapeHtml(slot.slot_code || "-")}${slot.slot_type === "reserved" ? '<span class="chip-reserved">◆ Reserved</span>' : ""}</button>`).join("")}
         ${availableSlots.length > visible.length ? `<span class="available-slots-more">+${availableSlots.length - visible.length} more</span>` : ""}
       `;
     }
@@ -445,9 +451,8 @@
       const tiles = Array.from(parkingSlotsListEl.querySelectorAll(".parking-slot-tile"));
       const target = tiles.find((tile) => normalizeSlotCode(tile.dataset.slotCode) === code);
       if (!target) return;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      target.classList.add("slot-focus-pulse");
-      window.setTimeout(() => target.classList.remove("slot-focus-pulse"), 1200);
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     }
 
     function applyParkingSlotFilters(slots) {
@@ -526,6 +531,7 @@
         <div class="parking-inspector-detail"><span>Plate</span><strong>${escapeHtml(slot.occupied_by_plate || "-")}</strong></div>
         <div class="parking-inspector-detail"><span>Student</span><strong>${escapeHtml(slot.occupied_by_name || "-")}</strong></div>
       `;
+      window.NaapPages?.inspectorUpdated(slot.slot_code || "-");
       if (slotEditorForm) {
         slotEditorForm.hidden = false;
         slotEditorForm.action = `/admin/slots/${Number(slot.id)}`;
@@ -764,6 +770,7 @@
       }
 
       parkingSlotsListEl?.querySelectorAll(".parking-zone-grid").forEach(window.NaapParkingLayout.apply);
+      window.NaapPages?.parkingRendered();
       attachParkingSlotHandlers();
       renderSlotInspector();
       const selectedCode = normalizeSlotCode(selectedSlotCode);
@@ -817,7 +824,9 @@
     parkingViewButtons.forEach(button => {
       button.addEventListener("click", () => {
         parkingView = button.dataset.parkingView === "table" ? "table" : "map";
-        renderParkingSlotsTable(applyParkingSlotFilters(latestParkingSlots));
+        const update = () => renderParkingSlotsTable(applyParkingSlotFilters(latestParkingSlots));
+        if (window.NaapPages) window.NaapPages.switchView(update, () => parkingView === "map" ? parkingSlotsListEl : parkingSlotsTableRegion);
+        else update();
       });
     });
     parkingSlotsTableBody?.addEventListener("click", event => {
@@ -846,6 +855,7 @@
         if (!trigger) return;
         const slotCode = trigger.dataset.slotPill || "";
         if (!slotCode) return;
+        parkingView = "map";
         activeSlotFilter = "all";
         slotSearchQuery = slotCode;
         selectedSlotCode = normalizeSlotCode(slotCode);

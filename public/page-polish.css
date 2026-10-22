@@ -1,0 +1,110 @@
+/* Page-specific presentation. Occupancy and reservation rules stay server-owned. */
+body[data-role] #mainContent :is(.btn-primary, .btn-edit-sm) {
+  background: var(--naap-brand) !important; color: #fff !important; border: 1px solid var(--naap-brand) !important;
+  border-radius: var(--naap-radius-control); box-shadow: none;
+}
+body[data-role] #mainContent :is(.btn-secondary, .btn-reset) {
+  background: var(--surface) !important; color: var(--text) !important; border: 1px solid var(--line-strong) !important; box-shadow: none;
+}
+body[data-role] #mainContent :is(.btn-ghost, .action-menu-trigger) { background: transparent !important; color: var(--text-secondary) !important; box-shadow: none; }
+body[data-role] #mainContent :is(.danger, .btn-confirm-danger) {
+  background: var(--status-danger-bg) !important; color: var(--status-danger-text) !important; border: 1px solid var(--status-danger-border) !important; box-shadow: none;
+}
+body[data-role] :is(.btn-primary, .btn-secondary, .btn-ghost, .danger):focus-visible { outline: 3px solid var(--naap-link); outline-offset: 3px; }
+
+/* Status colors use the same meaning in the map, legend, chips and inspector. */
+.parking-status-legend { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .75rem 0; font-size: .78rem; }
+.parking-status-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.parking-status-legend .available, .available-slot-pill { color: var(--status-success-text); }
+.parking-status-legend .occupied { color: var(--status-warning-text); }
+.parking-status-legend .reserved { color: var(--status-info-text); }
+.parking-status-legend .disabled { color: var(--status-neutral-text); }
+body[data-role] .parking-type-label.is-reserved, body[data-role] .parking-reserved-label {
+  color: var(--status-info-text); background: var(--status-info-bg); border-color: var(--status-info-border);
+}
+.parking-status-badge::before { display: none; }
+.parking-status-badge i { margin-right: .3rem; }
+body[data-role] .parking-inspector-badge.available { color: var(--status-success-text); background: var(--status-success-bg); border-color: var(--status-success-border); }
+body[data-role] .parking-inspector-badge.occupied { color: var(--status-warning-text); background: var(--status-warning-bg); border-color: var(--status-warning-border); }
+body[data-role] .parking-inspector-badge.disabled { color: var(--status-neutral-text); background: var(--status-neutral-bg); border-color: var(--status-neutral-border); }
+body[data-role] #availableSlotsStrip {
+  display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: .5rem;
+  padding: .5rem .2rem .8rem; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+}
+#availableSlotsStrip > * { flex: 0 0 auto; }
+body[data-role] .available-slot-pill {
+  display: inline-flex; gap: .35rem; align-items: center; min-height: 44px;
+  color: var(--status-success-text); background: var(--status-success-bg); border-color: var(--status-success-border);
+  transition: transform 180ms ease-out; white-space: nowrap;
+}
+.available-slot-pill:hover { transform: translateY(-2px); }
+.available-slot-pill[data-reserved="true"] { border-left: 4px solid var(--status-info-text); }
+.available-slot-pill .chip-reserved { color: var(--status-info-text); font-size: .68rem; }
+body[data-role] #parkingSlotsList { max-height: min(78dvh, 900px); min-height: 420px; padding: .4rem; }
+#parkingSlotsList, #parkingSlotsTableRegion { scrollbar-width: thin; scrollbar-color: #8294aa transparent; scrollbar-gutter: stable; }
+.parking-space-layout { align-items: start; }
+@media (min-width: 1100px) { body[data-role] .parking-space-panel { position: sticky; top: 1rem; max-height: calc(100dvh - 2rem); overflow-y: auto; scrollbar-width: thin; } }
+body[data-role] #parkingViewButtons { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 4px; border: 1px solid var(--line); border-radius: var(--naap-radius-control); background: var(--surface-soft); isolation: isolate; }
+#parkingViewButtons::before { content: ''; position: absolute; inset: 4px auto 4px 4px; width: calc(50% - 4px); border-radius: 8px; background: var(--naap-brand); transition: transform 240ms ease-out; z-index: -1; }
+#parkingViewButtons:has([data-parking-view="table"][aria-pressed="true"])::before { transform: translateX(100%); }
+body[data-role] #mainContent #parkingViewButtons button { background: transparent !important; border-color: transparent !important; box-shadow: none !important; color: var(--text-secondary) !important; min-width: 96px; }
+body[data-role] #mainContent #parkingViewButtons button[aria-pressed="true"] { color: #fff !important; }
+
+/* Student forms keep their native field names, validation and submission. */
+#regForm :is(.form-row-2, .form-row-academic, .form-row-email) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+#regForm .form-row-email { max-width: none; }
+body[data-role] #mainContent :is(button, .link-btn) { transition-property: transform, opacity; transition-duration: 200ms; transition-timing-function: ease-out; }
+#regForm label { display: block; color: var(--text); font-size: .82rem; font-weight: 650; margin-bottom: .4rem; }
+#regForm :is(input, select) { width: 100%; min-width: 0; }
+#regForm .form-field-error:not([hidden]) { display: block; animation: page-detail-in 200ms ease-out; }
+#regForm [data-field-valid="true"] { border-color: var(--status-success-text); }
+.form-field-success { display: block; margin-top: .3rem; color: var(--status-success-text); font-size: .75rem; animation: page-detail-in 200ms ease-out; }
+.form-field-success[hidden] { display: none; }
+.student-tabs-bar .flow-tabs { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.student-tabs-bar .flow-tabs::after { content: ''; position: absolute; bottom: 0; left: 0; width: 50%; height: 3px; border-radius: 3px; background: var(--naap-link); transition: transform 240ms ease-out; }
+.student-tabs-bar .flow-tabs:has([data-flow-tab="directory"][aria-selected="true"])::after { transform: translateX(100%); }
+.student-tabs-bar .flow-tab-btn { min-width: 0; }
+.btn-details-sm .ph-caret-down { display: inline-block; margin-left: .4rem; transition: transform 200ms ease-out; }
+.btn-details-sm[aria-expanded="true"] .ph-caret-down { transform: rotate(180deg); }
+#studentDirectory .sc-vehicles { margin: .5rem .8rem .8rem; border: 1px solid var(--line); border-left: 3px solid var(--naap-link); border-radius: var(--naap-radius-control); background: var(--surface-soft); }
+#studentDirectory .sv-item { background: var(--surface); border-radius: var(--naap-radius-control); }
+#studentDirectory .student-card { overflow: visible; }
+.directory-loading { display: grid; gap: .75rem; margin: 1rem 0; }
+.directory-loading[hidden] { display: none; }
+.directory-loading > span { height: 72px; border: 1px solid var(--line); border-radius: var(--naap-radius-control); background: var(--surface-soft); overflow: hidden; position: relative; }
+.directory-loading > span::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--line), transparent); animation: page-shimmer 1.3s ease-out infinite; }
+
+/* QR tools remain native links; the preview is a progressive enhancement. */
+body[data-role] #mainContent .sticker-tools .qr-tool { flex: 0 0 44px; min-width: 44px; width: 44px; min-height: 44px; padding: 0; display: inline-flex; justify-content: center; align-items: center; }
+.sticker-tools .qr-tool i { font-size: 1.1rem; }
+body[data-role] #mainContent .sticker-tools .qr-primary { flex: 1 0 100%; width: 100%; padding: .6rem .9rem; }
+body[data-role] .sticker-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+body[data-role] .sticker-management-actions { gap: .65rem; }
+body[data-role] #mainContent .sticker-tools .copy-sticker-link.is-copied { color: var(--status-success-text) !important; background: var(--status-success-bg) !important; }
+.sticker-tools .copy-sticker-link.is-copied i { animation: page-check-in 240ms ease-out; }
+body[data-role] .sticker-status { display: inline-flex; align-items: center; gap: .35rem; text-transform: capitalize; }
+.sticker-status.badge-valid i { animation: page-status-pulse 360ms ease-out 2; }
+.qr-preview-dialog { width: min(480px, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--naap-radius-card); background: var(--surface); color: var(--text); box-shadow: var(--naap-shadow-overlay); }
+.qr-preview-dialog::backdrop { background: rgba(8, 21, 38, .7); }
+.qr-preview-dialog[open] { animation: page-dialog-in 240ms ease-out; }
+.qr-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .8rem; }
+.qr-preview-heading h2 { font-size: 1.15rem; margin: 0; }
+.qr-preview-heading button { min-width: 44px; min-height: 44px; }
+.qr-preview-image { display: block; width: 100%; max-width: 380px; aspect-ratio: 1; object-fit: contain; margin: 1rem auto; background: #fff; border-radius: 8px; padding: 12px; }
+.qr-preview-image[hidden] { display: none; }
+.ui-toast-success strong::before { content: '✓'; display: inline-block; margin-right: .5rem; animation: page-check-in 240ms ease-out; }
+@keyframes page-detail-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes page-check-in { from { opacity: 0; transform: scale(.7) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes page-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes page-status-pulse { 50% { opacity: .5; transform: scale(.9); } }
+@keyframes page-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@media (max-width: 600px) {
+  #regForm :is(.form-row-2, .form-row-academic, .form-row-email) { grid-template-columns: minmax(0, 1fr); }
+  body[data-role] #parkingSlotsList { min-height: 360px; max-height: 72dvh; }
+}
+.motion-lite :is(.sticker-status i, .directory-loading > span::after), .motion-paused .directory-loading > span::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :is(#parkingViewButtons, .flow-tabs)::before, .flow-tabs::after, .btn-details-sm .ph-caret-down, .available-slot-pill { transition: none !important; }
+  :is(.qr-preview-dialog, .sticker-status i, .form-field-error, .form-field-success, .copy-sticker-link i, .directory-loading > span::after, .ui-toast-success strong::before) { animation: none !important; }
+  .available-slot-pill:hover { transform: none; }
+}

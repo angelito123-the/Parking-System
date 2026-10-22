@@ -1,3 +1,9 @@
+:root {
+  --parking-free: #65d69c;
+  --parking-busy: #f5c266;
+  --parking-reserved: #84baff;
+  --parking-blocked: #b4becc;
+}
 /* Shared physical layout; each zone supplies its parking arrangement. */
 .parking-plan[data-parking-zone] {
   display: flex;
@@ -22,7 +28,7 @@
 
 .parking-plan-key > span { display: inline-flex; align-items: center; gap: 7px; }
 .parking-plan-key i { width: 19px; height: 12px; border-radius: 2px; }
-.parking-plan-key-bay { border: 2px solid #ff7569; }
+.parking-plan-key-bay { border: 2px solid var(--parking-free); }
 .parking-plan-key-divider { border: 2px solid #f8fafc; background: #475569; }
 .parking-plan-heading { text-align: center; color: #cbd5e1; font-size: 0.72rem; padding-bottom: 10px; }
 
@@ -52,7 +58,7 @@
   min-height: 94px;
   margin: 6px 0;
   padding: 10px 8px;
-  border: 3px solid #ff7569;
+  border: 3px solid var(--parking-free);
   border-radius: 5px;
   background: #1d3040;
   color: #f8fafc;
@@ -118,6 +124,58 @@
   font-weight: 700;
   letter-spacing: 0.035em;
   text-shadow: 0 1px 2px #172231;
+}
+
+/* Status accents are decorative; every bay retains its occupancy text. */
+.parking-plan[data-parking-zone] {
+  background: radial-gradient(circle at 1px 1px, #ffffff08 1px, transparent 0) 0 0 / 7px 7px, #172231;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay {
+  --bay-accent: var(--parking-free);
+  position: relative; isolation: isolate; border-color: var(--bay-accent);
+  border-radius: 9px; transition: transform 200ms ease-out;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay[data-parking-state="occupied"] { --bay-accent: var(--parking-busy); }
+.parking-plan .parking-plan-row button.parking-plan-bay[data-parking-state="disabled"] { --bay-accent: var(--parking-blocked); }
+.parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state="reserved"] { --bay-accent: var(--parking-reserved); background: #183452; }
+.parking-plan .parking-plan-row button.parking-plan-bay::before {
+  content: ''; position: absolute; inset: -3px; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--bay-accent) 28%, transparent); opacity: 0; transition: opacity 200ms ease-out;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay::after {
+  content: ''; position: absolute; inset: -7px; border: 2px solid #fff; border-radius: 12px;
+  pointer-events: none; opacity: 0; transform: scale(.97); transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay:is(.selected, .is-selected) { outline: none; }
+.parking-plan .parking-plan-row button.parking-plan-bay:is(.selected, .is-selected)::after { opacity: 1; transform: scale(1); }
+.parking-plan .parking-plan-row button.parking-plan-bay:focus-visible { outline: 3px solid #fff; outline-offset: 8px; }
+.parking-plan .parking-plan-row button.parking-plan-bay .parking-reserved-label { color: #bfdbfe; background: #183452; border-color: var(--parking-reserved); }
+.parking-plan-state { display: inline-flex; align-items: center; gap: .3rem; }
+.parking-plan-state-icon { font-size: .8rem; }
+.parking-plan .parking-plan-row button.parking-plan-bay > .parking-state-change {
+  position: absolute; inset: -3px; border: 3px solid var(--parking-free); border-radius: inherit;
+  pointer-events: none; z-index: -1; background: #1d3040;
+}
+.parking-plan .parking-plan-row button.parking-plan-bay > .parking-state-change[data-previous-state="occupied"] { border-color: var(--parking-busy); background: #3b3023; }
+.parking-plan .parking-plan-row button.parking-plan-bay > .parking-state-change[data-previous-state="disabled"] { border-color: var(--parking-blocked); background: #303846; }
+.parking-plan .parking-plan-row button.parking-plan-bay > .parking-state-change[data-previous-state="reserved"] { border-color: var(--parking-reserved); background: #183452; }
+.parking-plan-lane { position: relative; overflow: hidden; background: none; }
+.parking-plan-lane::before { content: ''; position: absolute; inset: -24px 0 0; background: repeating-linear-gradient(to bottom, #94a3b8 0 12px, transparent 12px 24px); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .parking-plan .parking-plan-row button.parking-plan-bay:not(:disabled):hover { transform: translateY(-2px); }
+  .parking-plan .parking-plan-row button.parking-plan-bay:not(:disabled):hover::before { opacity: 1; }
+  /* One short movement on interaction, never a loop across all map rows. */
+  .parking-plan:hover .parking-plan-lane::before { animation: parking-lane-pass 400ms ease-out; }
+}
+@keyframes parking-lane-pass { to { transform: translateY(24px); } }
+.motion-lite .parking-plan-lane::before { animation: none !important; }
+.parking-plan .selection-arrive::after { animation: parking-ring-in 240ms ease-out; }
+@keyframes parking-ring-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .parking-plan .selection-arrive::after { animation: none; }
+  .parking-plan .parking-plan-row button.parking-plan-bay,
+  .parking-plan .parking-plan-row button.parking-plan-bay::before,
+  .parking-plan .parking-plan-row button.parking-plan-bay::after { transition: none; }
 }
 
 @media (max-width: 480px) {
