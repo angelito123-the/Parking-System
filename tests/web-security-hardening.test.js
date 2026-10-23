@@ -69,6 +69,7 @@ test("known live-data HTML renderers escape stored values", () => {
   assert.match(scanner, /escapeHtml\(item\.full_name \|\| "-"\)/);
   assert.match(scanner, /escapeHtml\(item\.qr_token\)/);
   assert.match(dashboard, /escapeHtml\(item\.full_name \|\| "Unknown"\)/);
-  assert.match(updates, /escapeHtml\(scan\.full_name \|\| "Unknown Student"\)/);
+  assert.match(updates, /return updatesUi\.renderRow\(scan\)/);
+  assert.match(read("public", "js", "live-updates-ui.js"), /escape\(String\(row\.full_name/);
   assert.match(slots, /escapeHtml\(slot\.occupied_by_name \|\| "-"\)/);
 });
