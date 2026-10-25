@@ -29,6 +29,7 @@
   <link rel="stylesheet" href="/page-polish.css?v=20261023-directory" />
   <% if (initialPath === "/admin/alerts") { %><link rel="stylesheet" href="/alerts-ui.css?v=20261023-alerts" /><% } %>
   <% if (initialPath === "/admin/updates") { %><link rel="stylesheet" href="/live-updates-ui.css?v=20261023-updates" /><% } %>
+  <link rel="stylesheet" href="/header-polish.css?v=20261025-notifications" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -40,6 +41,7 @@
   <script src="/js/ui-motion.js?v=20261023-count" defer></script>
   <script src="/js/form-feedback.js?v=20260912-forms" defer></script>
   <script src="/js/page-polish.js?v=20261023-directory" defer></script>
+  <script src="/js/header-polish.js?v=20261025-notifications" defer></script>
   <% if (needsOfflineScanner) { %>
   <script src="/offline-sync.js?v=20260912-forms" defer></script>
   <% } %>
@@ -229,14 +231,14 @@
       </aside>
       <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Close navigation" tabindex="-1"></button>
       <div class="content-area">
-      <nav class="top-nav">
+      <nav class="top-nav" aria-label="<%= pageTitle %> tools">
         <div class="top-nav-upper">
           <button type="button" class="icon-btn mobile-nav-trigger" id="mobileNavTrigger" aria-label="Open navigation" aria-controls="mobileSidebar" aria-expanded="false">
             <i class="ph ph-list" aria-hidden="true"></i>
           </button>
           <div class="top-nav-page-title">
-            <span>Parking operations</span>
-            <h2><%= pageTitle %></h2>
+            <span><%= roleLabel %> workspace</span>
+            <h2><%= pathNow === "/account/security" ? "Account" : navLinks.find(link => link.active.includes(pathNow))?.section === "Administration" ? "Administration" : roleNow === "guard" ? "Gate operations" : "Parking operations" %></h2>
           </div>
           <div class="top-nav-actions">
             <% if (roleNow === "admin" || roleNow === "guard") { %>
@@ -284,7 +286,8 @@
         </div>
       </nav>
       <% if (roleNow === "admin" || roleNow === "guard") { %>
-      <div id="notificationPanel" class="notification-panel" role="dialog" aria-label="Notifications" aria-hidden="true" inert>
+      <div id="notificationBackdrop" aria-hidden="true"></div>
+      <div id="notificationPanel" class="notification-panel" role="dialog" aria-modal="true" aria-label="Notifications" aria-hidden="true" inert>
         <div class="notification-panel-head">
           <div class="notification-panel-heading">
             <span class="notification-panel-icon" aria-hidden="true">
@@ -300,19 +303,21 @@
           </button>
         </div>
         <div class="notification-toolbar">
-          <div class="notification-filter-row" aria-label="Filter notifications">
+          <div class="notification-filter-row" role="group" aria-label="Filter notifications">
             <button type="button" class="notification-filter-btn is-active" data-notify-filter="all">All</button>
             <button type="button" class="notification-filter-btn" data-notify-filter="unread">Unread</button>
             <button type="button" class="notification-filter-btn" data-notify-filter="high">High priority</button>
           </div>
           <button type="button" class="notification-mark-all" id="notificationMarkAllBtn">Mark all read</button>
         </div>
+        <div id="notificationCaughtUp" hidden><i class="ph ph-check-circle" aria-hidden="true"></i><div><strong>All caught up</strong><small>No active alerts need attention.</small></div></div>
         <div id="notificationPanelList" class="notification-panel-list"></div>
         <% if (roleNow === "admin") { %>
           <div class="notification-panel-footer">
             <a href="/admin/alerts" class="notification-view-all">View all alerts <i class="ph ph-arrow-right" aria-hidden="true"></i></a>
           </div>
         <% } %>
+        <div id="notificationFeedback" class="notification-feedback" hidden><i class="ph ph-check-circle" aria-hidden="true"></i><p role="status" aria-live="polite"></p><button type="button" class="icon-btn" aria-label="Dismiss notification message"><i class="ph ph-x" aria-hidden="true"></i></button></div>
       </div>
       <% } %>
 
@@ -425,37 +430,7 @@
                 notificationUnreadBadge.textContent = safeCount > 99 ? '99+' : String(safeCount);
               };
 
-              const renderNotificationRow = (row) => {
-                const isUnread = !row.is_read;
-                const severityClass = getSeverityClass(row.severity);
-                const riskLabel = severityClass === 'sev-high' ? 'High risk' : severityClass === 'sev-medium' ? 'Medium risk' : 'Low risk';
-                const category = String(row.type || 'Alert').toLowerCase().replace(/_/g, ' ');
-                const statusClass = String(row.status || '').toLowerCase() === 'resolved' ? 'state-resolved' : 'state-active';
-                const createdAt = row.created_at ? new Date(row.created_at).toLocaleString('en-US', { timeZone: 'Asia/Manila' }) : '-';
-                const alertId = Number.isInteger(Number(row.id)) ? Number(row.id) : 0;
-                return `
-                  <article class="notification-row ${isUnread ? 'is-unread' : ''}">
-                    <div class="notification-row-main">
-                      <p class="notification-row-title">
-                        <span class="notify-severity-dot ${severityClass}" role="img" aria-label="${riskLabel}"></span>
-                        <span>${escapeHtml(row.title || 'Alert')}</span>
-                      </p>
-                      <p class="notification-row-message">${escapeHtml(row.message || '-')}</p>
-                      <p class="notification-row-meta">
-                        <span class="notification-chip ${statusClass}">${escapeHtml(row.status || 'active')}</span>
-                        <span class="notification-category">${escapeHtml(category)}</span>
-                      </p>
-                    </div>
-                    <div class="notification-row-footer">
-                      <span class="notification-row-time">${escapeHtml(createdAt)}</span>
-                      <div class="notification-row-actions">
-                        ${isUnread ? `<button type="button" class="btn-sm btn-reset notification-read-btn" data-alert-id="${alertId}">Mark read</button>` : ''}
-                        ${String(row.status || '').toLowerCase() !== 'resolved' ? `<button type="button" class="btn-sm btn-reset notification-resolve-btn" data-alert-id="${alertId}">Resolve</button>` : ''}
-                      </div>
-                    </div>
-                  </article>
-                `;
-              };
+              const renderNotificationRow = (row) => window.NaapHeaderUi.renderRow(row, getSeverityClass(row.severity), escapeHtml);
 
               const applyFilterButtonState = () => {
                 notificationFilterButtons.forEach((button) => {
@@ -476,6 +451,7 @@
                     const activeCount = Number(data.summary?.active_total || 0);
                     notificationPanelMeta.textContent = `${activeCount} active alert(s)`;
                   }
+                  window.NaapHeaderUi.summaryChanged(data.summary);
                 } catch (_error) {
                   // Non-fatal
                 }
@@ -524,20 +500,19 @@
                   const response = await fetch(`/api/notifications${getFilterQueryParams()}`, { credentials: 'same-origin', cache: 'no-store' });
                   const data = await response.json();
                   if (!response.ok || !data.ok) {
+                    window.NaapHeaderUi.listFailed();
                     notificationPanelList.innerHTML = window.NaapUiState.render('error', { title: 'Notifications unavailable', message: data.message || 'Please try again.', compact: true });
                     return;
                   }
                   const rows = Array.isArray(data.rows) ? data.rows : [];
-                  if (!rows.length) {
-                    notificationPanelList.innerHTML = window.NaapUiState.render('empty', { title: 'All caught up', message: 'No notifications match this filter.', compact: true });
-                    return;
-                  }
-                  notificationPanelList.innerHTML = rows.map(renderNotificationRow).join('');
+                  window.NaapHeaderUi.render(rows, renderNotificationRow);
                   wireNotificationButtons();
                 } catch (_error) {
+                  window.NaapHeaderUi.listFailed();
                   notificationPanelList.innerHTML = window.NaapUiState.render(navigator.onLine ? 'error' : 'offline', { title: navigator.onLine ? 'Notifications unavailable' : 'You are offline', message: navigator.onLine ? 'Please try again.' : 'Reconnect to receive new alerts.', compact: true });
                 } finally {
                   notificationPanelList.removeAttribute('aria-busy');
+                  window.NaapHeaderUi.afterLoad();
                 }
               };
 
@@ -550,6 +525,7 @@
                 notificationPanel.classList.add('open');
                 notificationPanel.setAttribute('aria-hidden', 'false');
                 notificationBell?.setAttribute('aria-expanded', 'true');
+                window.NaapHeaderUi.open(closeNotificationPanel);
                 fetchNotificationList();
                 window.requestAnimationFrame(() => {
                   if (notificationPanel.classList.contains('open')) notificationCloseBtn?.focus();
@@ -560,6 +536,7 @@
                 if (!notificationPanel) return;
                 const wasOpen = notificationPanel.classList.contains('open');
                 notificationPanel.classList.remove('open');
+                window.NaapHeaderUi.close();
                 notificationPanel.setAttribute('aria-hidden', 'true');
                 notificationPanel.setAttribute('inert', '');
                 notificationBell?.setAttribute('aria-expanded', 'false');
@@ -629,7 +606,7 @@
                 const target = event.target;
                 if (!(target instanceof Element)) return;
                 if (target.closest('#notificationPanel') || target.closest('#notificationBell')) return;
-                closeNotificationPanel({ restoreFocus: false });
+                closeNotificationPanel({ restoreFocus: target.id === 'notificationBackdrop' });
               }, true); // Capture outside clicks even when the account menu stops propagation.
               document.addEventListener('keydown', (event) => {
                 if (event.key !== 'Escape' || !notificationPanel?.classList.contains('open')) return;
@@ -640,6 +617,7 @@
               notificationFilterButtons.forEach((button) => {
                 button.addEventListener('click', () => {
                   currentNotifyFilter = button.dataset.notifyFilter || 'all';
+                  window.NaapHeaderUi.filterChanged();
                   applyFilterButtonState();
                   fetchNotificationList();
                 });
@@ -648,14 +626,22 @@
 
               if (notificationMarkAllBtn) {
                 notificationMarkAllBtn.addEventListener('click', async () => {
+                  notificationMarkAllBtn.disabled = true;
+                  notificationMarkAllBtn.setAttribute('aria-busy', 'true');
+                  let confirmed = false;
                   try {
-                    await fetch('/api/notifications/read-all', {
+                    const response = await fetch('/api/notifications/read-all', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       credentials: 'same-origin'
                     });
+                    const result = await response.json();
+                    confirmed = response.ok && result.ok === true;
                   } catch (_error) {}
                   await Promise.all([fetchNotificationSummary(), fetchNotificationList()]);
+                  notificationMarkAllBtn.disabled = false;
+                  notificationMarkAllBtn.removeAttribute('aria-busy');
+                  window.NaapHeaderUi.feedback(confirmed);
                 });
               }
 

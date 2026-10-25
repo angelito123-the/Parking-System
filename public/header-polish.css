@@ -1,0 +1,72 @@
+/* Shared header presentation. Data, permissions, and endpoint behavior stay in EJS. */
+body.notifications-open { overflow: hidden; }
+body.notifications-open .top-nav { z-index: 601 !important; }
+#notificationBackdrop { position: fixed; inset: 0; z-index: 600; background: rgba(10, 25, 43, .2); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); opacity: 0; visibility: hidden; pointer-events: none; }
+#notificationBackdrop.open, #notificationBackdrop.is-closing { opacity: 1; visibility: visible; }
+#notificationBackdrop.open { pointer-events: auto; }
+body[data-role] #notificationPanel { position: fixed; z-index: 610; right: 1rem; width: min(470px, calc(100vw - 2rem)); max-height: min(760px, calc(100dvh - 6rem)); transform: none; transition: none !important; animation: none !important; }
+#notificationPanel.open, #notificationPanel.is-closing { visibility: visible; opacity: 1; }
+#notificationPanel.is-closing { pointer-events: none; }
+#notificationPanel .notification-panel-list { display: grid; align-content: start; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+#notificationPanel .notification-panel-footer { position: sticky; bottom: 0; z-index: 1; background: var(--surface); }
+#notificationPanel .notification-row { border-left: 3px solid var(--line-strong); }
+#notificationPanel .notification-row.is-unread { background: color-mix(in srgb, var(--status-info-bg) 45%, var(--surface)); border-left-color: var(--status-info-text); }
+#notificationPanel .notification-row-title { font-weight: 500; }
+#notificationPanel .is-unread .notification-row-title { font-weight: 750; }
+#notificationPanel .notification-row.is-resolved { background: var(--surface-soft); border-left-color: var(--line); }
+#notificationPanel .is-resolved .notification-row-title { color: var(--text-secondary); }
+.notification-state-icon { display: inline-grid; place-items: center; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 8px; font-size: 1.1rem; }
+.notification-state-icon.sev-high { color: var(--status-danger-text); background: var(--status-danger-bg); }
+.notification-state-icon.sev-medium { color: var(--status-warning-text); background: var(--status-warning-bg); }
+.notification-state-icon.sev-low { color: var(--status-info-text); background: var(--status-info-bg); }
+.notification-state-icon.state-resolved { color: var(--status-success-text); background: var(--status-success-bg); }
+#notificationPanel .notification-chip.state-resolved { color: var(--status-success-text); background: var(--status-success-bg); border-color: var(--status-success-border); }
+#notificationPanel .notification-chip.state-active { color: var(--text-secondary) !important; background: var(--surface) !important; border-color: var(--line-strong) !important; }
+#notificationPanel .is-unread .notification-chip.state-active { color: var(--status-info-text) !important; background: var(--status-info-bg) !important; border-color: var(--status-info-border) !important; }
+#notificationPanel :is(.notification-row-message, .notification-category) { color: var(--text-secondary); }
+#notificationPanel .notification-row-actions .btn-sm { min-height: 44px !important; }
+#notificationCaughtUp { display: flex; align-items: center; gap: .6rem; margin: .6rem .85rem 0; padding: .65rem .75rem; border: 1px solid var(--status-success-border); border-radius: 10px; color: var(--status-success-text); background: var(--status-success-bg); }
+#notificationCaughtUp[hidden] { display: none; }
+#notificationCaughtUp > i { font-size: 1.3rem; }
+#notificationCaughtUp strong, #notificationCaughtUp small { display: block; }
+#notificationCaughtUp strong { font-size: .8rem; }
+#notificationCaughtUp small { font-size: .72rem; }
+.notification-resolved { min-width: 0; }
+.notification-resolved > summary { display: flex; align-items: center; gap: .4rem; min-height: 44px; padding: .65rem .3rem; cursor: pointer; list-style: none; color: var(--text-secondary); font-size: .8rem; font-weight: 650; }
+.notification-resolved > summary::-webkit-details-marker { display: none; }
+.notification-resolved > summary > span { margin-left: auto; font-size: .72rem; font-weight: 500; }
+.notification-resolved > summary .ph-check-circle { color: var(--status-success-text); }
+.notification-resolved > summary .ph-caret-down { transition: transform 200ms ease-out; }
+.notification-resolved[open] > summary .ph-caret-down { transform: rotate(180deg); }
+.notification-resolved-items { display: grid; gap: .65rem; padding-top: .3rem; }
+body[data-role] #notificationPanel .notification-filter-row { position: relative; isolation: isolate; display: flex; flex-wrap: nowrap; gap: .15rem; padding: 3px; }
+.header-slide-marker { position: absolute; z-index: -1; top: 3px; left: 0; width: 100px; height: calc(100% - 6px); border-radius: 7px; background: var(--surface); box-shadow: var(--naap-shadow-card); transform-origin: left center; opacity: 0; transition: transform 240ms ease-out, opacity 180ms ease-out; pointer-events: none; }
+.indicator-ready > .header-slide-marker { opacity: 1; }
+body[data-role] #notificationPanel .indicator-ready button.notification-filter-btn { position: relative; background: transparent !important; box-shadow: none !important; min-height: 44px; min-width: 44px; padding: .4rem .55rem; }
+body[data-role] #notificationPanel .notification-filter-btn.is-active { color: var(--naap-link) !important; }
+#notificationPanel .notification-mark-all { min-height: 44px; }
+#notificationPanel :focus-visible { outline: 3px solid var(--naap-focus) !important; outline-offset: 2px; }
+.notification-feedback { position: absolute; z-index: 4; bottom: .75rem; left: .75rem; right: .75rem; display: flex; align-items: center; gap: .5rem; padding: .7rem; border: 1px solid var(--status-success-border); border-radius: 10px; background: var(--surface); color: var(--status-success-text); box-shadow: var(--naap-shadow-card); }
+#notificationPanel:has(.notification-panel-footer) .notification-feedback { bottom: 4rem; }
+.notification-feedback[hidden] { display: none; }
+.notification-feedback.is-error { color: var(--status-danger-text); border-color: var(--status-danger-border); }
+.notification-feedback p { margin: 0; font-size: .8rem; }
+.notification-feedback button { margin-left: auto; flex-shrink: 0; }
+body[data-role] .top-nav-page-title h2 { font-size: .95rem; line-height: 1.3; }
+body[data-role] .student-tabs-bar .flow-tabs { position: relative; isolation: isolate; display: flex; justify-content: flex-start; flex-wrap: nowrap; width: fit-content; max-width: 100%; gap: 1rem; overflow-x: auto; scrollbar-width: thin; padding: 0 2px; }
+.student-tabs-bar .flow-tabs::after { content: none; }
+body[data-role] .student-tabs-bar .flow-tabs button.flow-tab-btn { flex: 0 0 auto; width: auto; min-width: 0; white-space: nowrap; border-bottom-color: transparent; transition: none; }
+body[data-role] .student-tabs-bar .flow-tab-btn:focus-visible { outline: 3px solid var(--naap-focus) !important; outline-offset: -3px; }
+.student-tabs-bar .header-slide-marker.is-underline { top: auto; bottom: 0; height: 3px; border-radius: 2px; background: var(--naap-link); box-shadow: none; z-index: 1; }
+@media (max-width: 600px) {
+  body[data-role] #notificationPanel { top: auto; bottom: 0; right: 0; width: 100%; max-height: calc(100dvh - 5.5rem); border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom); }
+  #notificationPanel .notification-panel-head { padding: .8rem; }
+  #notificationPanel .notification-toolbar { padding: .5rem .7rem; gap: .25rem; }
+  #notificationPanel .notification-panel-list { padding: .7rem; }
+  body[data-role] .top-nav-page-title h2 { font-size: .85rem; }
+}
+.motion-lite #notificationBackdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.motion-lite :is(.header-slide-marker, .notification-resolved .ph-caret-down) { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .header-slide-marker, .notification-resolved .ph-caret-down { transition: none !important; }
+}

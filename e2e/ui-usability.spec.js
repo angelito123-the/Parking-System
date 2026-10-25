@@ -54,10 +54,13 @@ for (const role of ['admin', 'guard']) {
     const menu = page.locator('#accountMenu');
     await bell.click();
     await expect(panel.locator('.notification-row')).toHaveCount(3);
-    await expect(panel.getByRole('img', { name: 'Medium risk' })).toBeVisible();
+    await expect(panel.locator('[data-notification-id="9001"]')).toBeHidden();
+    await panel.locator('.notification-resolved summary').click();
+    await expect(panel.locator('[data-notification-id="9001"]').getByRole('img', { name: 'Resolved', exact: true })).toBeVisible();
+    await expect(panel.locator('[data-notification-id="9001"] .sev-medium')).toHaveCount(0);
     await expect(panel.locator('.notification-row').first()).not.toContainText(/\bmedium\b/i);
     await expect(panel.locator('.notification-chip')).toHaveCount(3);
-    await expect(panel.locator('.notification-category').first()).toHaveText('suspicious scan behavior');
+    await expect(panel.locator('[data-notification-id="9001"] .notification-category')).toHaveText('suspicious scan behavior');
     await panel.screenshot({ path: testInfo.outputPath('notifications.png') });
     const audit = await new AxeBuilder({ page }).include('#notificationPanel').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
     expect(audit.violations.map(item => ({ id: item.id, targets: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) }))).toEqual([]);
@@ -83,6 +86,9 @@ for (const role of ['admin', 'guard']) {
     await expect(panel).toBeVisible();
     await expect(page.locator('#notificationCloseBtn')).toBeFocused();
     await account.focus();
+    await expect(page.locator('#notificationCloseBtn')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await account.focus();
     await account.press('Enter');
     await expect(panel).toBeHidden();
     await expect(menu).toBeVisible();
@@ -95,8 +101,9 @@ for (const role of ['admin', 'guard']) {
     expect(queries.at(-1)).toContain('severity=high');
     await panel.getByRole('button', { name: 'All', exact: true }).click();
     await expect(panel.locator('.notification-row')).toHaveCount(3);
-    await panel.locator('.notification-row').first().getByRole('button', { name: 'Mark read', exact: true }).click();
-    await expect(panel.locator('.notification-row').first().locator('.notification-read-btn')).toHaveCount(0);
+    await panel.locator('.notification-resolved summary').click();
+    await panel.locator('[data-notification-id="9001"]').getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(panel.locator('[data-notification-id="9001"] .notification-read-btn')).toHaveCount(0);
     expect(writes).toContain('/api/notifications/9001/read');
     await panel.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(panel.locator('.notification-resolve-btn')).toHaveCount(0);
