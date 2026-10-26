@@ -58,6 +58,7 @@
           }
         }
         mobileTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+        window.NaapSidebarUi?.drawerChanged(open);
         if (open) {
           mobileClose?.focus({ preventScroll: true });
           if (contentArea) contentArea.inert = true;
@@ -96,13 +97,33 @@
         if (accountMenu && !accountMenu.hidden) setAccountMenu(false, false);
       });
 
-      window.addEventListener("resize", () => {
+      mobileViewport.addEventListener("change", () => {
         setMobileNavigation(false, false);
       });
 
+      // Close deliberate horizontal swipes, while preserving normal vertical menu scrolling.
+      let drawerTouch;
+      mobileSidebar?.addEventListener("touchstart", event => {
+        drawerTouch = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+      }, { passive: true });
+      mobileSidebar?.addEventListener("touchend", event => {
+        const touch = event.changedTouches[0];
+        if (drawerTouch && touch && body.classList.contains("mobile-nav-open")) {
+          const dx = touch.clientX - drawerTouch.x;
+          const dy = touch.clientY - drawerTouch.y;
+          if (dx < -70 && Math.abs(dx) > Math.abs(dy) * 2) {
+            if (event.cancelable) event.preventDefault();
+            setMobileNavigation(false);
+          }
+        }
+        drawerTouch = null;
+      }, { passive: false });
+      mobileSidebar?.addEventListener("touchcancel", () => { drawerTouch = null; }, { passive: true });
+
       document.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented) return;
         if (event.key === "Tab" && body?.classList.contains("mobile-nav-open")) {
-          const controls = Array.from(mobileSidebar.querySelectorAll('a[href], button:not([disabled])')).filter(node => node.getClientRects().length);
+          const controls = Array.from(mobileSidebar.querySelectorAll('a[href], button:not([disabled])')).filter(node => node.getClientRects().length && !node.closest('[inert]'));
           const first = controls[0];
           const last = controls[controls.length - 1];
           if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }

@@ -124,7 +124,7 @@
 
   // Remember only navigation presentation; never store credentials or session details.
   const activeLink = document.querySelector('.side-nav a[aria-current="page"]');
-  if (activeLink) {
+  if (activeLink && !document.getElementById('sidebarActiveHighlight')) {
     try {
       const previous = JSON.parse(sessionStorage.getItem('naap-nav-motion') || 'null');
       const oldLink = [...document.querySelectorAll('.side-nav a')].find(link => link.pathname === previous?.path);

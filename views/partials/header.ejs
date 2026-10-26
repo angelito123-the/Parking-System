@@ -30,6 +30,7 @@
   <% if (initialPath === "/admin/alerts") { %><link rel="stylesheet" href="/alerts-ui.css?v=20261023-alerts" /><% } %>
   <% if (initialPath === "/admin/updates") { %><link rel="stylesheet" href="/live-updates-ui.css?v=20261023-updates" /><% } %>
   <link rel="stylesheet" href="/header-polish.css?v=20261025-notifications" />
+  <link rel="stylesheet" href="/sidebar-polish.css?v=20261026-navigation" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -38,10 +39,11 @@
   <script src="/js/password-policy.js?v=20260912-forms" defer></script>
   <script src="/js/confirmation-dialog.js?v=20260914-email" defer></script>
   <script src="/js/ui-feedback.js?v=20261021-feedback" defer></script>
-  <script src="/js/ui-motion.js?v=20261023-count" defer></script>
+  <script src="/js/ui-motion.js?v=20261026-navigation" defer></script>
   <script src="/js/form-feedback.js?v=20260912-forms" defer></script>
   <script src="/js/page-polish.js?v=20261023-directory" defer></script>
   <script src="/js/header-polish.js?v=20261025-notifications" defer></script>
+  <script src="/js/sidebar-polish.js?v=20261026-navigation" defer></script>
   <% if (needsOfflineScanner) { %>
   <script src="/offline-sync.js?v=20260912-forms" defer></script>
   <% } %>
@@ -187,6 +189,9 @@
 %>
 
   <body class="page-<%= pageSlug %>" data-role="<%= roleNow %>">
+    <script nonce="<%= cspNonce %>">
+      try { document.documentElement.classList.toggle('sidebar-rail', localStorage.getItem('naap-sidebar-rail') === 'true'); } catch (_) { /* Navigation works without storage. */ }
+    </script>
     <a class="skip-link" href="#mainContent">Skip to main content</a>
     <div id="pageLoader" class="page-loader is-active" role="progressbar" aria-label="Loading page" aria-hidden="false">
       <span class="page-loader-bar"></span>
@@ -206,28 +211,46 @@
               <small>Management system</small>
             </span>
           </a>
-          <div class="sidebar-user" aria-label="Signed in as <%= usernameNow %>, <%= roleLabel %>">
-            <div class="avatar-dot"><%= avatarInitial %></div>
-            <div class="sidebar-user-copy">
-              <p class="user-label"><%= usernameNow %></p>
-              <p class="user-sub"><%= roleLabel %></p>
+          <div class="sidebar-account">
+            <button type="button" class="sidebar-user" id="sidebarUserButton" aria-label="Account options for <%= usernameNow %>, <%= roleLabel %>" aria-expanded="false" aria-haspopup="menu" aria-controls="sidebarUserMenu">
+              <span class="avatar-dot" aria-hidden="true"><%= avatarInitial %><span class="sidebar-online-dot"></span></span>
+              <span class="sidebar-user-copy">
+                <span class="user-label"><%= usernameNow %></span>
+                <span class="user-sub"><span class="sidebar-role-badge"><%= roleLabel %></span><span id="sidebarConnection">Online</span></span>
+              </span>
+              <i class="ph ph-caret-down sidebar-user-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="sidebar-user-menu" id="sidebarUserMenu" role="menu" aria-label="Account options" hidden>
+              <a href="/account/security" role="menuitem"><i class="ph ph-user-circle" aria-hidden="true"></i>Account security</a>
+              <a href="/logout" role="menuitem"><i class="ph ph-sign-out" aria-hidden="true"></i>Sign out</a>
             </div>
           </div>
+          <button type="button" class="sidebar-collapse" id="sidebarCollapse" aria-label="Collapse navigation" aria-controls="mobileSidebar" aria-expanded="true"><i class="ph ph-sidebar-simple" aria-hidden="true"></i><span>Collapse menu</span></button>
         </div>
+        <div class="sidebar-scroll">
         <nav class="side-nav" aria-label="Primary navigation">
-          <% navSections.forEach((section) => { %>
+          <div class="sidebar-nav-content">
+          <span class="sidebar-active-highlight" id="sidebarActiveHighlight" aria-hidden="true" hidden></span>
+          <% navSections.forEach((section, sectionIndex) => { %>
             <div class="side-nav-group">
-              <p class="side-nav-group-label"><%= section.label %></p>
+              <button type="button" class="side-nav-group-label" aria-expanded="true" aria-controls="sidebarSection<%= sectionIndex %>"><span><%= section.label %></span><i class="ph ph-caret-down" aria-hidden="true"></i></button>
+              <div class="sidebar-section-links" id="sidebarSection<%= sectionIndex %>">
               <% section.links.forEach((link) => { %>
                 <% const isActive = Array.isArray(link.active) && link.active.includes(pathNow); %>
-                <a href="<%= link.href %>" class="<%= isActive ? 'active' : '' %><%= roleNow === 'guard' && link.href === '/scanner/auto' ? ' nav-primary-action' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
+                <a href="<%= link.href %>" data-sidebar-label="<%= link.label %>" class="<%= isActive ? 'active' : '' %><%= roleNow === 'guard' && link.href === '/scanner/auto' ? ' nav-primary-action' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
                   <span class="nav-link-icon" aria-hidden="true"><i class="ph <%= navIconByHref[link.href] || navIconFallback %>"></i></span>
                   <span class="nav-link-label"><%= link.label %></span>
+                  <% if (["/admin/alerts", "/admin/updates"].includes(link.href)) { %><span class="sidebar-unread" data-sidebar-unread aria-hidden="true" hidden></span><% } %>
                 </a>
               <% }) %>
+              </div>
             </div>
           <% }) %>
+          </div>
         </nav>
+        </div>
+        <div class="sidebar-footer"><span class="sidebar-version">NAAP Parking <small>v1.0.0</small></span><a href="/logout" aria-label="Sign out" data-sidebar-label="Sign out"><i class="ph ph-sign-out" aria-hidden="true"></i><span>Sign out</span></a></div>
+        <div class="sidebar-tooltip" id="sidebarTooltip" role="tooltip" hidden></div>
       </aside>
       <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Close navigation" tabindex="-1"></button>
       <div class="content-area">
@@ -452,6 +475,7 @@
                     notificationPanelMeta.textContent = `${activeCount} active alert(s)`;
                   }
                   window.NaapHeaderUi.summaryChanged(data.summary);
+                  window.NaapSidebarUi?.summaryChanged(data.summary);
                 } catch (_error) {
                   // Non-fatal
                 }
