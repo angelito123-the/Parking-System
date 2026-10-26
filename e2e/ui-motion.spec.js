@@ -143,7 +143,8 @@ test('navigation, theme transitions and mobile collapse preserve keyboard contro
   } else {
     await page.locator('#mobileSidebar a[href="/students"]').click();
     await expect(page.locator('.side-nav a[aria-current="page"]')).toHaveText('Students');
-    await expect(page.locator('.side-nav a[aria-current="page"]')).toHaveClass(/nav-motion-arrive/);
+    await expect(page.locator('#sidebarActiveHighlight')).toBeVisible();
+    await expect(page.locator('#mobileSidebar')).toHaveClass(/has-highlight/);
   }
   if (info.project.name === 'motion-reduced') {
     expect(await page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0);
