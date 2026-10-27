@@ -36,7 +36,8 @@ test('parking status colors, chip navigation and live changes preserve occupancy
   ]) {
     const tile = map.locator(`[data-slot-code="${code}"]`);
     await expect(tile.locator('.parking-plan-state')).toHaveCSS('color', color);
-    await expect(tile).toHaveCSS('border-top-color', 'rgb(229, 237, 245)');
+    await expect(tile).toHaveCSS('border-top-width', '1px');
+    await expect(tile).not.toHaveCSS('border-top-color', 'rgb(229, 237, 245)');
     await expect(tile.locator('.parking-plan-state')).toHaveText(status);
     await expect(tile.locator('.parking-plan-state-icon')).toHaveAttribute('aria-hidden', 'true');
   }

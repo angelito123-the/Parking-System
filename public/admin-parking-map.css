@@ -1,4 +1,4 @@
-/* Compact admin map only; guard and QR verification layouts retain their arrangement. */
+/* Admin map only; guard and QR verification layouts retain their arrangement. */
 body.page-admin-slots #parkingSlotsList { min-height: 0; max-height: none; height: auto; overflow: visible; padding: 0; scrollbar-gutter: auto; }
 .page-admin-slots .content-area { overflow-x: clip; }
 .page-admin-slots .parking-space-map-shell { min-width: 0; min-height: 0; padding: 14px; background: var(--surface); }
@@ -39,38 +39,36 @@ body.page-admin-slots #mainContent .parking-status-legend button[aria-pressed='t
 .map-zone-empty strong { font-size: .88rem; color: var(--text); }
 .map-zone-empty p { margin: 0; font-size: .76rem; }
 
-/* Painted bays open onto a narrow drive lane; the page owns vertical scrolling. */
-.map-bay-viewport { width: 100%; min-width: 0; overflow: visible; border: 1px solid #354152; border-radius: 12px; background: radial-gradient(circle at 1px 1px, #ffffff05 1px, transparent 0) 0 0 / 5px 5px, #172231; padding: 12px; }
+/* Fractional bays fill the drawing; a separate road column stays clear of their rings. */
+.map-bay-viewport { width: 100%; max-width: 760px; min-width: 0; margin-inline: auto; overflow: visible; border: 1px solid #354152; border-radius: 12px; background: radial-gradient(circle at 1px 1px, #ffffff05 1px, transparent 0) 0 0 / 5px 5px, #172231; padding: 12px; }
 .map-bay-stage { position: relative; margin: 0 auto; }
-#parkingSlotsList .parking-plan[data-parking-zone] { width: 100%; max-width: 282px; min-width: 0; margin: 0 auto; padding: 4px 8px 8px; border: 0; border-radius: 0; background: transparent; }
-#parkingSlotsList .parking-plan-heading { margin: 0; padding: 0 0 8px; font-size: .58rem; font-weight: 550; color: #c4ceda; line-height: 1; }
-#parkingSlotsList .parking-plan-row { grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr); min-width: 0; }
+#parkingSlotsList .parking-plan[data-parking-zone] { --map-lane-width: clamp(56px, 6vw, 72px); width: 100%; max-width: none; min-width: 0; margin: 0 auto; padding: 0; gap: 10px; border: 0; border-radius: 0; background: linear-gradient(#101a27, #101a27) center / var(--map-lane-width) 100% no-repeat; }
+#parkingSlotsList .parking-plan-heading { margin: 0; padding: 8px 0; font-size: .58rem; font-weight: 550; color: #c4ceda; line-height: 1; }
+#parkingSlotsList .parking-plan-row { grid-template-columns: minmax(0, 1fr) var(--map-lane-width) minmax(0, 1fr); column-gap: 10px; min-width: 0; }
 #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay {
-  display: flex; align-items: flex-end; justify-content: center; position: relative;
-  min-height: 54px; height: 54px; padding: 4px 6px; margin: 2px 0; gap: 2px;
-  border: 2px solid #e5edf5; border-right: 0; border-radius: 3px 0 0 3px;
-  background: #20382f; text-align: right; color: #fff; overflow: visible; scroll-margin-top: 100px;
+  display: flex; align-items: center; justify-content: center; position: relative;
+  aspect-ratio: 3 / 2; min-height: 64px; height: auto; padding: 8px; margin: 0; gap: 5px;
+  border: 1px solid #3d5b50; border-radius: 7px;
+  background: #20382f; text-align: center; color: #fff; overflow: visible; scroll-margin-top: 100px;
 }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay:nth-child(3) { align-items: flex-start; border-left: 0; border-right: 2px solid #e5edf5; border-radius: 0 3px 3px 0; text-align: left; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='occupied'] { background: #3b3023; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='reserved'] { background: #183452; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='disabled'] { background: #303846; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay > .tile-code { color: #fff; font-size: .8rem; line-height: 1.1; font-weight: 800; letter-spacing: .04em; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay > .parking-plan-state { display: inline-flex; align-items: center; gap: 3px; padding: 1px 0; color: var(--bay-accent); background: transparent; border-radius: 0; font-size: .59rem; line-height: 1.1; white-space: nowrap; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay .parking-plan-state-icon { font-size: .7rem; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay .map-plate { display: block; max-width: 100%; color: #fff1c7; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-variant-numeric: slashed-zero; text-transform: uppercase; font-size: .66rem; letter-spacing: .025em; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#parkingSlotsList .map-bay-car { position: absolute; left: 5px; top: 9px; color: var(--bay-accent); font-size: 17px; }
-#parkingSlotsList button.parking-plan-bay:nth-child(3) .map-bay-car { left: auto; right: 5px; }
-#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay::after { inset: -4px; border-radius: 5px; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='occupied'] { background: #3b3023; border-color: #655339; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='reserved'] { background: #183452; border-color: #3b5877; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay[data-parking-visual-state='disabled'] { background: #303846; border-color: #505e6d; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay > .tile-code { color: #fff; font-size: clamp(.85rem, 1.2vw, 1.1rem); line-height: 1.1; font-weight: 800; letter-spacing: .04em; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay > .parking-plan-state { display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 1px 0; color: var(--bay-accent); background: transparent; border-radius: 0; font-size: clamp(.6rem, 1vw, .78rem); line-height: 1.2; white-space: nowrap; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay .parking-plan-state-icon { font-size: 1.15em; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay .map-plate { display: block; max-width: 100%; color: #fff1c7; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-variant-numeric: slashed-zero; text-transform: uppercase; font-size: clamp(.66rem, 1vw, .82rem); letter-spacing: .025em; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#parkingSlotsList .map-bay-car { position: absolute; left: 8px; top: 8px; color: var(--bay-accent); font-size: 18px; }
+#parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay::after { inset: -4px; border-color: #84baff; border-radius: 10px; }
 #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay:focus-visible { outline: 3px solid #fff; outline-offset: 2px; z-index: 3; }
 #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay > .parking-state-change { inset: 0; border: 0; border-radius: inherit; }
-#parkingSlotsList .parking-plan .parking-plan-row button.map-status-muted { border-color: #8293a5; background: #172231; }
+#parkingSlotsList .parking-plan .parking-plan-row button.map-status-muted { border-color: #465365; background: #172231; }
 #parkingSlotsList .parking-plan .parking-plan-row button.map-status-match::before { opacity: 1; }
-#parkingSlotsList .parking-plan-lane { width: 100%; opacity: 1; display: grid; place-items: center; }
-#parkingSlotsList .parking-plan-lane::before { left: calc(50% - 1px); right: auto; width: 2px; opacity: .35; background: repeating-linear-gradient(to bottom, #c9d3e0 0 8px, transparent 8px 16px); }
-#parkingSlotsList .parking-plan-lane > .ph { z-index: 1; font-size: 12px; color: #c9d3e0; background: #172231; padding: 3px 0; }
-#parkingSlotsList .parking-plan-divider { min-height: 5px; height: 5px; margin: 2px 0; border: 0; border-radius: 1px; background: repeating-linear-gradient(135deg, #c7d2df 0 3px, #5d6b7a 3px 6px); }
-#parkingSlotsList .parking-plan-empty { min-height: 54px; }
+#parkingSlotsList .parking-plan-lane { width: 100%; opacity: 1; display: grid; place-items: center; background: #101a27; }
+#parkingSlotsList .parking-plan-lane::before { left: calc(50% - 1px); right: auto; width: 2px; opacity: .4; background: repeating-linear-gradient(to bottom, #c9d3e0 0 12px, transparent 12px 24px); }
+#parkingSlotsList .parking-plan-lane > .ph { z-index: 1; font-size: 16px; color: #c9d3e0; background: #101a27; padding: 8px 0; }
+#parkingSlotsList .parking-plan-divider { min-height: 12px; height: 12px; margin: 2px 0; border: 1px solid #72887e; border-radius: 3px; background: #3b5047; box-shadow: inset 0 2px #b4c2b6; }
+#parkingSlotsList .parking-plan-empty { min-height: 0; }
 .map-bay-viewport:has(.map-scaled) { overflow-x: auto; scrollbar-width: thin; }
 #parkingSlotsList .parking-plan.map-scaled { position: absolute; top: 0; left: 0; transform-origin: top left; }
 .parking-bay-tooltip { position: fixed; z-index: 100; max-width: min(280px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid #52677f; border-radius: 9px; background: #102a46; color: #fff; box-shadow: 0 8px 20px #102a462b; white-space: pre-line; overflow-wrap: anywhere; font-size: .76rem; line-height: 1.5; }
@@ -79,13 +77,10 @@ body.page-admin-slots #mainContent .parking-status-legend button[aria-pressed='t
 @media (max-width: 600px) {
   .page-admin-slots .parking-space-map-shell { padding: 10px; }
   .map-zone-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .map-bay-viewport { padding: 8px 3px; }
-  #parkingSlotsList .parking-plan[data-parking-zone] { padding-inline: 3px; }
-  #parkingSlotsList .parking-plan-row { grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr); }
-  #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay { min-height: 54px; height: 54px; padding: 4px 5px; }
-  #parkingSlotsList .map-bay-car { font-size: 14px; left: 3px; top: 5px; }
-  #parkingSlotsList button.parking-plan-bay:nth-child(3) .map-bay-car { right: 3px; }
-  #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay .map-plate { font-size: .61rem; }
+  .map-bay-viewport { padding: 8px; }
+  #parkingSlotsList .parking-plan-row { column-gap: 8px; }
+  #parkingSlotsList .parking-plan .parking-plan-row button.parking-plan-bay { padding: 5px 3px; gap: 3px; }
+  #parkingSlotsList .map-bay-car { font-size: 12px; left: 5px; top: 5px; }
   #findAvailableBay { width: 100%; }
 }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {

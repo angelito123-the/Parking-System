@@ -32,13 +32,13 @@ test('theme stylesheet version is consistent with the offline cache', () => {
 
   assert.ok(header.includes(asset));
   assert.ok(worker.includes(asset));
-  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v59`/);
+  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v60`/);
   for (const sidebarAsset of ['/js/sidebar-live-updates.js?v=20261027-hover', '/sidebar-polish.css?v=20261027-hover', '/js/sidebar-polish.js?v=20261027-hover', '/js/ui-motion.js?v=20261026-navigation']) {
     assert.ok(header.includes(sidebarAsset), `${sidebarAsset} should be loaded by the header`);
     assert.ok(worker.includes(sidebarAsset), `${sidebarAsset} should be available offline`);
   }
   const parkingPage = fs.readFileSync(path.join(projectRoot, 'views', 'admin_slots.ejs'), 'utf8');
-  for (const mapAsset of ['/admin-parking-map.css?v=20261026-bays', '/js/admin-parking-map.js?v=20261026-bays']) {
+  for (const mapAsset of ['/admin-parking-map.css?v=20261027-spacing', '/js/admin-parking-map.js?v=20261026-bays']) {
     assert.ok(parkingPage.includes(mapAsset), `${mapAsset} should be loaded by the parking page`);
     assert.ok(worker.includes(mapAsset), `${mapAsset} should be available offline`);
   }

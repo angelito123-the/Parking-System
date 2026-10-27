@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'naap-parking-';
-const CACHE_NAME = `${CACHE_PREFIX}v59`;
+const CACHE_NAME = `${CACHE_PREFIX}v60`;
 const OFFLINE_URL = '/offline.html';
 const ASSETS_TO_CACHE = [
   OFFLINE_URL,
@@ -16,7 +16,7 @@ const ASSETS_TO_CACHE = [
   '/js/alerts-ui.js?v=20261023-alerts',
   '/live-updates-ui.css?v=20261023-updates',
   '/js/live-updates-ui.js?v=20261023-updates',
-  '/admin-parking-map.css?v=20261026-bays',
+  '/admin-parking-map.css?v=20261027-spacing',
   '/js/admin-parking-map.js?v=20261026-bays',
   '/js/sidebar-live-updates.js?v=20261027-hover',
   '/sidebar-polish.css?v=20261027-hover',
