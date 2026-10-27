@@ -33,10 +33,10 @@ async function setup(page, role = 'admin') {
   return model;
 }
 async function drawer(page) {
-  if (page.viewportSize().width <= 1080) {
+  if (await page.evaluate(() => matchMedia('(max-width: 1080px), (hover: none), (pointer: coarse)').matches)) {
     await page.locator('#mobileNavTrigger').click();
     await expect(page.locator('#mobileNavClose')).toBeFocused();
-  }
+  } else await page.locator('.sidebar-brand').focus();
 }
 async function audit(page) {
   await settle(page);
@@ -44,7 +44,7 @@ async function audit(page) {
   expect(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => ({ target: n.target, reason: n.failureSummary })) }))).toEqual([]);
 }
 
-test('admin links, shared badges, pinned identity and lower navigation remain usable', async ({ page }, info) => {
+test('admin links, alert badges, pinned identity and lower navigation remain usable', async ({ page }, info) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const model = await setup(page);
@@ -52,8 +52,9 @@ test('admin links, shared badges, pinned identity and lower navigation remain us
   const nav = sidebar(page).locator('.side-nav');
   expect(await nav.locator('a').evaluateAll(nodes => nodes.map(n => n.getAttribute('href')))).toEqual(adminLinks);
   await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('href', '/admin');
-  await expect(sidebar(page).locator('[data-sidebar-unread]')).toHaveText(['3', '3']);
-  await expect(nav.locator('a[href="/admin/updates"]')).toHaveAttribute('aria-description', '3 unread notifications');
+  await expect(sidebar(page).locator('[data-sidebar-unread]')).toHaveText(['3']);
+  await expect(sidebar(page).locator('[data-sidebar-live]')).toBeHidden();
+  await expect(nav.locator('a[href="/admin/updates"]')).toHaveAttribute('aria-description', 'No new updates');
   await audit(page);
   const identityTop = await sidebar(page).locator('.sidebar-identity').evaluate(n => n.getBoundingClientRect().top);
   await nav.evaluate(n => { n.scrollTop = n.scrollHeight; });
@@ -71,7 +72,7 @@ test('admin links, shared badges, pinned identity and lower navigation remain us
   await administration.evaluate(n => { n.click(); n.click(); n.click(); n.click(); });
   await settle(page);
   await expect(page.locator('#sidebarSection2')).toBeVisible();
-  if (page.viewportSize().width <= 1080) await page.keyboard.press('Escape');
+  if (await page.locator('body').evaluate(n => n.classList.contains('mobile-nav-open'))) await page.keyboard.press('Escape');
   await page.locator('#notificationBell').click();
   await page.locator('#notificationMarkAllBtn').click();
   await expect(sidebar(page).locator('[data-sidebar-unread]').first()).toBeHidden();
@@ -94,7 +95,7 @@ test('guard account menu and mobile drawer preserve keyboard, touch and role acc
   await page.keyboard.press('Escape');
   await expect(page.locator('#sidebarUserButton')).toBeFocused();
   await expect(menu).toBeHidden();
-  if (page.viewportSize().width <= 1080) {
+  if (await page.locator('body').evaluate(n => n.classList.contains('mobile-nav-open'))) {
     await expect(sidebar(page)).toBeVisible();
     await page.locator('#mobileNavClose').focus();
     await page.keyboard.press('Shift+Tab');
@@ -132,34 +133,59 @@ test('guard account menu and mobile drawer preserve keyboard, touch and role acc
   }
 });
 
-test('desktop rail persists, tooltips work and sections never hide rail destinations', async ({ page }, info) => {
-  await page.setViewportSize({ width: 1280, height: 650 });
+test('hover rail overlays content, pin persists, keyboard focus expands and icons stay aligned', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  test.skip(await page.evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches), 'Touch devices use the drawer at every width.');
   await setup(page);
-  const daily = sidebar(page).getByRole('button', { name: 'Daily operations' });
-  await daily.click();
-  await expect(page.locator('#sidebarSection1')).toBeHidden();
-  await page.locator('#sidebarCollapse').click();
-  await expect(sidebar(page)).toHaveCSS('width', '88px');
-  await expect(page.locator('#sidebarSection1')).toBeVisible();
+  await page.mouse.move(900, 400);
+  await expect(sidebar(page)).toHaveCSS('width', '72px');
+  const contentBox = await page.locator('.content-area').boundingBox();
+  const iconBox = await page.locator('.side-nav a.active .nav-link-icon').boundingBox();
+  await sidebar(page).dispatchEvent('pointerenter', { pointerType: 'mouse' });
+  await sidebar(page).dispatchEvent('pointerleave', { pointerType: 'mouse' });
+  await page.waitForTimeout(120);
+  await expect(sidebar(page)).toHaveCSS('width', '72px');
+  await page.locator('.sidebar-brand').hover();
+  await expect(sidebar(page)).toHaveCSS('width', '280px');
+  expect(await page.locator('.content-area').boundingBox()).toEqual(contentBox);
+  const expandedIcon = await page.locator('.side-nav a.active .nav-link-icon').boundingBox();
+  expect(expandedIcon.x).toBe(iconBox.x);
+  expect(expandedIcon.y).toBeCloseTo(iconBox.y, 0);
+  await page.mouse.move(900, 400);
+  await expect(sidebar(page)).toHaveCSS('width', '72px');
+  const labelCount = await sidebar(page).locator('[data-sidebar-label]').count();
+  expect(labelCount).toBeGreaterThan(adminLinks.length);
   const students = sidebar(page).locator('a[href="/students"]');
   await students.focus();
-  await expect(page.locator('#sidebarTooltip')).toHaveText('Students');
-  await expect(page.locator('#sidebarTooltip')).toBeVisible();
-  if (!info.project.use.isMobile) {
-    await students.hover();
-    await page.locator('#sidebarTooltip').hover();
-    await expect(page.locator('#sidebarTooltip')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.locator('#sidebarTooltip')).toBeHidden();
-  }
+  await expect(sidebar(page)).toHaveCSS('width', '280px');
+  await expect(students).toBeFocused();
+  await page.mouse.move(900, 500);
+  await page.waitForTimeout(260);
+  await expect(students).toBeFocused();
+  await expect(sidebar(page)).toHaveCSS('width', '280px');
   await audit(page);
   await page.locator('#sidebarUserButton').click();
   await expect(page.locator('#sidebarUserMenu')).toBeInViewport();
   await audit(page);
   await page.keyboard.press('Escape');
+  await page.locator('#sidebarPin').click();
+  await expect(page.locator('#sidebarPin')).toHaveAttribute('aria-pressed', 'true');
+  expect((await page.locator('.content-area').boundingBox()).x).toBe(280);
+  await page.mouse.move(900, 500);
+  await page.reload();
+  await expect(sidebar(page)).toHaveCSS('width', '280px');
+  await expect(page.locator('#sidebarPin')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#sidebarPin').click();
+  await expect(page.locator('#sidebarPin')).toBeFocused();
+  await page.locator('#notificationBell').focus();
+  await page.mouse.move(900, 500);
+  await expect(sidebar(page)).toHaveCSS('width', '72px');
+  expect((await page.locator('.content-area').boundingBox()).x).toBe(72);
+  await students.focus();
   await students.click();
   await expect(page).toHaveURL(/\/students$/);
-  await expect(sidebar(page)).toHaveCSS('width', '88px');
+  await page.mouse.move(900, 500);
+  await expect(sidebar(page)).toHaveCSS('width', '72px');
   await expect(sidebar(page).locator('[aria-current="page"]')).toHaveAttribute('href', '/students');
   await settle(page);
   expect(await page.evaluate(() => {
@@ -168,13 +194,116 @@ test('desktop rail persists, tooltips work and sections never hide rail destinat
     return Math.abs(marker.top - link.top) < 2 && Math.abs(marker.height - link.height) < 2;
   })).toBe(true);
   await page.screenshot({ path: info.outputPath('rail.png') });
-  await page.locator('#sidebarCollapse').click();
-  await expect(sidebar(page)).toHaveCSS('width', '272px');
+  await page.locator('.sidebar-brand').focus();
+  await expect(sidebar(page)).toHaveCSS('width', '280px');
   await expect(page.locator('#sidebarSection1')).toBeVisible();
   await page.setViewportSize({ width: 768, height: 760 });
   await drawer(page);
   await expect(sidebar(page).locator('.nav-link-label').first()).toBeVisible();
   await expect(sidebar(page).locator('.sidebar-footer')).toBeInViewport();
+});
+
+test('Live Updates counts only new movements, survives reload and clears on viewing', async ({ page }) => {
+  const model = await setup(page);
+  const liveBadge = sidebar(page).locator('[data-sidebar-live]');
+  const liveLink = sidebar(page).locator('a[href="/admin/updates"]');
+  await expect(liveBadge).toBeHidden();
+  const event = { reason: 'movement-recorded', movement_action: 'ENTRY', gate_id: 'Gate 1', server_time: new Date().toISOString(), qr_value: 'PRIVATE-QR-NOT-FOR-STORAGE' };
+  const send = update => page.evaluate(data => window.notificationStream.dispatchEvent(new MessageEvent('notifications-updated', { data: JSON.stringify(data) })), update);
+  await send(event);
+  await expect(liveBadge).toHaveText('1');
+  await expect(liveLink).toHaveAttribute('aria-label', 'Live Updates, 1 new update');
+  await send(event);
+  await send({ ...event, reason: 'notification-read' });
+  await send({ ...event, reason: 'notification-resolved' });
+  await send({ ...event, reason: 'pending-entry-created' });
+  await send({ ...event, reason: 'offline-queue-synced', synced_count: 0 });
+  await send({ ...event, reason: 'offline-queue-synced', synced_count: 2 });
+  await expect(liveBadge).toHaveText('3');
+  await expect(sidebar(page).locator('[data-sidebar-unread]')).toHaveText('3');
+  const before = await page.evaluate(() => {
+    window.liveBadgeMutations = 0;
+    new MutationObserver(records => { window.liveBadgeMutations += records.length; }).observe(document.querySelector('[data-sidebar-live]'), { attributes: true, childList: true, subtree: true });
+    return Object.keys(localStorage).filter(k => k.startsWith('naap-sidebar-live')).map(k => localStorage.getItem(k)).join('');
+  });
+  expect(before).not.toContain(event.qr_value);
+  await page.evaluate(() => { for (let i = 0; i < 5; i++) window.NaapSidebarUi.summaryChanged({ unread_total: 3, active_total: 0 }); });
+  expect(await page.evaluate(() => window.liveBadgeMutations)).toBe(0);
+  await page.reload();
+  await expect(liveBadge).toHaveText('3');
+  await drawer(page);
+  await expect(liveBadge).toBeVisible();
+  await expect(liveLink).toHaveAccessibleName('Live Updates, 3 new updates');
+  await audit(page);
+  await liveLink.click();
+  await expect(page).toHaveURL(/\/admin\/updates$/);
+  await expect(liveBadge).toBeHidden();
+  await expect(liveLink).toHaveAttribute('aria-label', 'Live Updates, No new updates');
+  await expect(sidebar(page).locator('[data-sidebar-unread]')).toHaveText('3');
+  await expect.poll(() => page.evaluate(() => Boolean(window.notificationStream))).toBe(true);
+  await send(event); // Replayed events remain seen after opening Live Updates.
+  await page.goto('/admin');
+  await expect(liveBadge).toBeHidden();
+  await expect.poll(() => page.evaluate(() => Boolean(window.notificationStream))).toBe(true);
+  await send({ ...event, server_time: new Date().toISOString(), movement_action: 'EXIT' });
+  await expect(liveBadge).toHaveText('1');
+  if (!await page.evaluate(() => matchMedia('(max-width: 1080px), (hover: none), (pointer: coarse)').matches)) {
+    await page.mouse.move(900, 500);
+    await expect(sidebar(page)).toHaveCSS('width', '72px');
+    const dot = await liveBadge.boundingBox();
+    const icon = await liveLink.locator('.nav-link-icon').boundingBox();
+    expect(dot.x).toBeGreaterThan(icon.x);
+    expect(dot.x + dot.width).toBeLessThanOrEqual(icon.x + icon.width + 5);
+    expect(dot.width).toBe(10);
+  }
+  expect(model.requests.every(url => url.startsWith('/api/notifications'))).toBe(true);
+});
+
+test('opening Live Updates in another tab clears the same account count without changing alerts', async ({ page }) => {
+  await setup(page);
+  const send = update => page.evaluate(data => window.notificationStream.dispatchEvent(new MessageEvent('notifications-updated', { data: JSON.stringify(data) })), update);
+  await send({ reason: 'pending-entry-confirmed', pending_entry_id: 1001, server_time: new Date().toISOString() });
+  await expect(sidebar(page).locator('[data-sidebar-live]')).toHaveText('1');
+  const other = await page.context().newPage();
+  await other.addInitScript(() => { window.EventSource = class extends EventTarget { close() {} }; });
+  await other.route('https://**', route => route.abort());
+  await other.goto('/admin/updates');
+  await expect(sidebar(other).locator('[data-sidebar-live]')).toBeHidden();
+  await expect(sidebar(page).locator('[data-sidebar-live]')).toHaveAttribute('hidden', '');
+  await expect(sidebar(page).locator('[data-sidebar-unread]')).toHaveText('3');
+  await other.close();
+  await page.bringToFront();
+  await send({ reason: 'visitor-movement-recorded', movement_action: 'EXIT', visitor_pass_id: 2001, server_time: new Date().toISOString() });
+  await expect(sidebar(page).locator('[data-sidebar-live]')).toHaveText('1');
+});
+
+test('touch devices use the drawer even at desktop widths', async ({ page }, info) => {
+  test.skip(!info.project.use.isMobile && !info.project.use.hasTouch, 'Touch-only scenario.');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await setup(page);
+  await expect(page.locator('#mobileNavTrigger')).toBeVisible();
+  await expect(sidebar(page)).toHaveAttribute('inert', '');
+  expect((await page.locator('.content-area').boundingBox()).x).toBe(0);
+  await drawer(page);
+  await audit(page);
+  await expect(page.locator('#sidebarPin')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(sidebar(page)).toBeHidden();
+  await expect(page.locator('#mobileNavTrigger')).toBeFocused();
+});
+
+test('movement count continues in memory when storage becomes read-only', async ({ page }) => {
+  await setup(page);
+  await page.evaluate(() => {
+    const key = `naap-sidebar-live-v1:admin:${document.getElementById('mobileSidebar').dataset.sidebarUser}`;
+    localStorage.setItem(key, JSON.stringify({ count: 0, seenAt: 0, recent: [] }));
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (name, value) { if (name === key) throw new Error('Quota exceeded'); return set.call(this, name, value); };
+  });
+  for (let id = 1; id <= 2; id++) {
+    await page.evaluate(pendingId => window.notificationStream.dispatchEvent(new MessageEvent('notifications-updated', { data: JSON.stringify({ reason: 'pending-entry-confirmed', pending_entry_id: pendingId, server_time: new Date().toISOString() }) })), id);
+    await expect(sidebar(page).locator('[data-sidebar-live]')).toHaveText(String(id));
+  }
 });
 
 test('low-power and storage-restricted browsers retain all navigation controls', async ({ page }) => {

@@ -99,7 +99,8 @@ test('legend, arrows and available shortcut reuse selection without hiding inven
   await expect(bay(page, 'A-02')).toHaveClass(/map-status-muted/);
   await expect(section(page).locator('.parking-plan-bay')).toHaveCount(20);
   await audit(page);
-  expect(model.requests).toHaveLength(originalRequests);
+  // The existing 20-second overview poll can run during a slow accessibility audit.
+  expect(model.requests.slice(originalRequests).every(r => r.method === 'GET' && r.url === '/api/parking-slot-overview')).toBe(true);
   await bay(page, 'A-01').focus();
   await page.keyboard.press('ArrowRight');
   await expect(bay(page, 'A-02')).toBeFocused();
