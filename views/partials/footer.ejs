@@ -34,7 +34,7 @@
       const accountButton = document.getElementById("accountMenuButton");
       const accountMenu = document.getElementById("accountMenu");
       const contentArea = document.querySelector(".content-area");
-      const mobileViewport = window.matchMedia("(max-width: 1080px)");
+      const mobileViewport = window.matchMedia("(max-width: 1080px), (hover: none), (pointer: coarse)");
 
       let mobileCloseTimer;
       const setMobileNavigation = (open, restoreFocus = true) => {
@@ -62,7 +62,7 @@
         if (open) {
           mobileClose?.focus({ preventScroll: true });
           if (contentArea) contentArea.inert = true;
-        } else if (restoreFocus && window.matchMedia("(max-width: 1080px)").matches) {
+        } else if (restoreFocus && mobileViewport.matches) {
           mobileTrigger.focus({ preventScroll: true });
         }
       };
@@ -98,7 +98,12 @@
       });
 
       mobileViewport.addEventListener("change", () => {
+        const hadSidebarFocus = mobileSidebar?.contains(document.activeElement);
         setMobileNavigation(false, false);
+        if (hadSidebarFocus) {
+          if (mobileViewport.matches) mobileTrigger?.focus({ preventScroll: true });
+          else mobileSidebar.querySelector('a[aria-current="page"], a[href]')?.focus({ preventScroll: true });
+        }
       });
 
       // Close deliberate horizontal swipes, while preserving normal vertical menu scrolling.

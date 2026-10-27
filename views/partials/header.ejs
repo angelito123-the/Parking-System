@@ -30,7 +30,7 @@
   <% if (initialPath === "/admin/alerts") { %><link rel="stylesheet" href="/alerts-ui.css?v=20261023-alerts" /><% } %>
   <% if (initialPath === "/admin/updates") { %><link rel="stylesheet" href="/live-updates-ui.css?v=20261023-updates" /><% } %>
   <link rel="stylesheet" href="/header-polish.css?v=20261025-notifications" />
-  <link rel="stylesheet" href="/sidebar-polish.css?v=20261026-navigation" />
+  <link rel="stylesheet" href="/sidebar-polish.css?v=20261027-hover" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
@@ -43,7 +43,8 @@
   <script src="/js/form-feedback.js?v=20260912-forms" defer></script>
   <script src="/js/page-polish.js?v=20261023-directory" defer></script>
   <script src="/js/header-polish.js?v=20261025-notifications" defer></script>
-  <script src="/js/sidebar-polish.js?v=20261026-navigation" defer></script>
+  <script src="/js/sidebar-polish.js?v=20261027-hover" defer></script>
+  <script src="/js/sidebar-live-updates.js?v=20261027-hover" defer></script>
   <% if (needsOfflineScanner) { %>
   <script src="/offline-sync.js?v=20260912-forms" defer></script>
   <% } %>
@@ -190,19 +191,24 @@
 
   <body class="page-<%= pageSlug %>" data-role="<%= roleNow %>">
     <script nonce="<%= cspNonce %>">
-      try { document.documentElement.classList.toggle('sidebar-rail', localStorage.getItem('naap-sidebar-rail') === 'true'); } catch (_) { /* Navigation works without storage. */ }
+      document.documentElement.classList.add('sidebar-rail');
+      try {
+        const pinned = localStorage.getItem('naap-sidebar-pinned') === 'true';
+        document.documentElement.classList.toggle('sidebar-pinned', pinned);
+        document.documentElement.classList.toggle('sidebar-rail', !pinned);
+      } catch (_) { /* The default rail works without storage. */ }
     </script>
     <a class="skip-link" href="#mainContent">Skip to main content</a>
     <div id="pageLoader" class="page-loader is-active" role="progressbar" aria-label="Loading page" aria-hidden="false">
       <span class="page-loader-bar"></span>
     </div>
     <div class="app-shell">
-      <aside class="sidebar" id="mobileSidebar" aria-label="Application navigation">
+      <aside class="sidebar" id="mobileSidebar" aria-label="Application navigation" data-sidebar-user="<%= safeUser?.id || '' %>">
         <button type="button" class="mobile-nav-close" id="mobileNavClose" aria-label="Close navigation">
           <i class="ph ph-x" aria-hidden="true"></i>
         </button>
         <div class="sidebar-identity">
-          <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>" aria-label="NAAP Parking dashboard">
+          <a class="sidebar-brand" href="<%= roleNow === 'admin' ? '/admin' : roleNow === 'guard' ? '/guard' : '/' %>" aria-label="NAAP Parking dashboard" data-sidebar-label="NAAP Parking dashboard">
             <span class="sidebar-brand-mark" aria-hidden="true">
               <img src="/icons/icon-192.png" width="40" height="40" alt="" />
             </span>
@@ -212,7 +218,7 @@
             </span>
           </a>
           <div class="sidebar-account">
-            <button type="button" class="sidebar-user" id="sidebarUserButton" aria-label="Account options for <%= usernameNow %>, <%= roleLabel %>" aria-expanded="false" aria-haspopup="menu" aria-controls="sidebarUserMenu">
+            <button type="button" class="sidebar-user" id="sidebarUserButton" aria-label="Account options for <%= usernameNow %>, <%= roleLabel %>" data-sidebar-label="Account options" aria-expanded="false" aria-haspopup="menu" aria-controls="sidebarUserMenu">
               <span class="avatar-dot" aria-hidden="true"><%= avatarInitial %><span class="sidebar-online-dot"></span></span>
               <span class="sidebar-user-copy">
                 <span class="user-label"><%= usernameNow %></span>
@@ -225,7 +231,6 @@
               <a href="/logout" role="menuitem"><i class="ph ph-sign-out" aria-hidden="true"></i>Sign out</a>
             </div>
           </div>
-          <button type="button" class="sidebar-collapse" id="sidebarCollapse" aria-label="Collapse navigation" aria-controls="mobileSidebar" aria-expanded="true"><i class="ph ph-sidebar-simple" aria-hidden="true"></i><span>Collapse menu</span></button>
         </div>
         <div class="sidebar-scroll">
         <nav class="side-nav" aria-label="Primary navigation">
@@ -240,7 +245,8 @@
                 <a href="<%= link.href %>" data-sidebar-label="<%= link.label %>" class="<%= isActive ? 'active' : '' %><%= roleNow === 'guard' && link.href === '/scanner/auto' ? ' nav-primary-action' : '' %>" <%- isActive ? 'aria-current="page"' : '' %>>
                   <span class="nav-link-icon" aria-hidden="true"><i class="ph <%= navIconByHref[link.href] || navIconFallback %>"></i></span>
                   <span class="nav-link-label"><%= link.label %></span>
-                  <% if (["/admin/alerts", "/admin/updates"].includes(link.href)) { %><span class="sidebar-unread" data-sidebar-unread aria-hidden="true" hidden></span><% } %>
+                  <% if (link.href === "/admin/alerts") { %><span class="sidebar-unread" data-sidebar-unread aria-hidden="true" hidden></span><% } %>
+                  <% if (link.href === "/admin/updates") { %><span class="sidebar-unread" data-sidebar-live aria-hidden="true" hidden></span><% } %>
                 </a>
               <% }) %>
               </div>
@@ -249,7 +255,10 @@
           </div>
         </nav>
         </div>
-        <div class="sidebar-footer"><span class="sidebar-version">NAAP Parking <small>v1.0.0</small></span><a href="/logout" aria-label="Sign out" data-sidebar-label="Sign out"><i class="ph ph-sign-out" aria-hidden="true"></i><span>Sign out</span></a></div>
+        <div class="sidebar-footer">
+          <button type="button" class="sidebar-pin" id="sidebarPin" aria-label="Pin navigation open" data-sidebar-label="Pin navigation open" aria-controls="mobileSidebar" aria-pressed="false"><i class="ph ph-push-pin" aria-hidden="true"></i><span>Pin navigation</span></button>
+          <div class="sidebar-footer-row"><a href="/logout" aria-label="Sign out" data-sidebar-label="Sign out"><i class="ph ph-sign-out" aria-hidden="true"></i><span>Sign out</span></a><span class="sidebar-version">NAAP Parking <small>v1.0.0</small></span></div>
+        </div>
         <div class="sidebar-tooltip" id="sidebarTooltip" role="tooltip" hidden></div>
       </aside>
       <button type="button" class="mobile-nav-backdrop" id="mobileNavBackdrop" aria-label="Close navigation" tabindex="-1"></button>

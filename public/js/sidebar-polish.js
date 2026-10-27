@@ -9,11 +9,11 @@
   const highlight = document.getElementById('sidebarActiveHighlight');
   const active = nav.querySelector('[aria-current="page"]');
   const links = [...nav.querySelectorAll('a[href]')];
-  const collapse = document.getElementById('sidebarCollapse');
+  const pin = document.getElementById('sidebarPin');
   const userButton = document.getElementById('sidebarUserButton');
   const userMenu = document.getElementById('sidebarUserMenu');
   const tooltip = document.getElementById('sidebarTooltip');
-  const mobile = matchMedia('(max-width: 1080px)');
+  const mobile = matchMedia('(max-width: 1080px), (hover: none), (pointer: coarse)');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const role = document.body.dataset.role;
   const key = `naap-sidebar-${role}`;
@@ -162,30 +162,76 @@
     }
   }, true);
 
-  const applyRail = () => {
-    const rail = isRail();
-    collapse.setAttribute('aria-expanded', String(!rail));
-    collapse.setAttribute('aria-label', rail ? 'Expand navigation' : 'Collapse navigation');
-    collapse.title = rail ? 'Expand navigation' : 'Collapse navigation';
+  let pinned = root.classList.contains('sidebar-pinned');
+  let pointerInside = false;
+  let openTimer;
+  let closeTimer;
+  const expand = () => {
+    clearTimeout(openTimer);
+    clearTimeout(closeTimer);
+    if (mobile.matches) return;
+    root.classList.remove('sidebar-rail');
+    hideTooltip();
+  };
+  const scheduleCollapse = () => {
+    clearTimeout(openTimer);
+    clearTimeout(closeTimer);
+    if (mobile.matches || pinned || pointerInside || sidebar.contains(document.activeElement)) return;
+    closeTimer = setTimeout(() => {
+      if (pinned || pointerInside || sidebar.contains(document.activeElement)) return;
+      root.classList.add('sidebar-rail');
+      hideTooltip();
+    }, reduced.matches ? 0 : 200);
+  };
+  const updatePin = () => {
+    root.classList.toggle('sidebar-pinned', pinned);
+    pin.setAttribute('aria-pressed', String(pinned));
+    pin.setAttribute('aria-label', pinned ? 'Unpin navigation' : 'Pin navigation open');
+    pin.dataset.sidebarLabel = pin.getAttribute('aria-label');
+    pin.querySelector('span').textContent = pinned ? 'Unpin navigation' : 'Pin navigation';
+    pin.querySelector('i').className = `ph ${pinned ? 'ph-push-pin-slash' : 'ph-push-pin'}`;
+  };
+  pin.addEventListener('click', () => {
+    pinned = !pinned;
+    write('localStorage', 'naap-sidebar-pinned', pinned);
+    updatePin();
+    expand(); // Keyboard focus stays on the pin until the user leaves navigation.
+    scheduleCollapse();
+  });
+  sidebar.addEventListener('pointerenter', event => {
+    if (mobile.matches || event.pointerType === 'touch') return;
+    pointerInside = true;
+    clearTimeout(closeTimer);
+    openTimer = setTimeout(expand, reduced.matches ? 0 : 80);
+  });
+  sidebar.addEventListener('pointerleave', event => {
+    if (event.pointerType === 'touch') return;
+    pointerInside = false;
+    scheduleCollapse();
+  });
+  sidebar.addEventListener('focusin', expand);
+  sidebar.addEventListener('focusout', () => queueMicrotask(scheduleCollapse));
+  mobile.addEventListener('change', () => {
+    clearTimeout(openTimer); clearTimeout(closeTimer);
+    pointerInside = false;
+    root.classList.toggle('sidebar-rail', !pinned && !sidebar.contains(document.activeElement));
     setUserMenu(false);
     hideTooltip();
-    sections.forEach(section => setSection(section, rail || sectionPreferences[section.panel.id] !== false));
-    revealActive();
-    positionHighlight();
-  };
-  collapse.addEventListener('click', () => {
-    root.classList.toggle('sidebar-rail');
-    write('localStorage', 'naap-sidebar-rail', root.classList.contains('sidebar-rail'));
-    applyRail();
   });
-  mobile.addEventListener('change', applyRail);
+  window.addEventListener('storage', event => {
+    if (event.key !== 'naap-sidebar-pinned') return;
+    pinned = read('localStorage', 'naap-sidebar-pinned', false) === true;
+    updatePin();
+    if (pinned) expand(); else scheduleCollapse();
+  });
   nav.addEventListener('scroll', () => { updateEdges(); hideTooltip(); }, { passive: true });
   new ResizeObserver(() => { positionHighlight(); updateEdges(); hideTooltip(); }).observe(content);
   new ResizeObserver(() => { positionHighlight(); updateEdges(); hideTooltip(); }).observe(nav);
   document.fonts?.ready.then(() => { positionHighlight(); revealActive(); });
 
   const previous = read('sessionStorage', `${key}-location`, null);
-  applyRail();
+  updatePin();
+  sections.forEach(section => setSection(section, sectionPreferences[section.panel.id] !== false));
   if (Number.isFinite(previous?.scroll)) nav.scrollTop = previous.scroll;
   revealActive();
   positionHighlight(!mobile.matches ? links.find(link => link.pathname === previous?.path) : null);
@@ -223,10 +269,11 @@
     summaryChanged(summary) {
       const count = Number(summary?.unread_total);
       const unread = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+      if (unread === unreadCount) return;
       sidebar.querySelectorAll('[data-sidebar-unread]').forEach(badge => {
         badge.hidden = unread === 0;
         badge.textContent = unread > 99 ? '99+' : String(unread);
-        // Both shortcuts share the bell's count; there is no separate unread activity API.
+        // Only Alerts shares the bell's count. Live Updates tracks received movements separately.
         badge.parentElement.setAttribute('aria-description', unread ? `${unread} unread notifications` : 'No unread notifications');
         if (unread > 0 && unread !== unreadCount) motion(badge, [{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.12)', opacity: .8 }, { transform: 'scale(1)', opacity: 1 }], { duration: 280 });
       });

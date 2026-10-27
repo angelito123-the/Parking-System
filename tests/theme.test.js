@@ -32,8 +32,8 @@ test('theme stylesheet version is consistent with the offline cache', () => {
 
   assert.ok(header.includes(asset));
   assert.ok(worker.includes(asset));
-  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v58`/);
-  for (const sidebarAsset of ['/sidebar-polish.css?v=20261026-navigation', '/js/sidebar-polish.js?v=20261026-navigation', '/js/ui-motion.js?v=20261026-navigation']) {
+  assert.match(worker, /CACHE_NAME\s*=\s*`\$\{CACHE_PREFIX\}v59`/);
+  for (const sidebarAsset of ['/js/sidebar-live-updates.js?v=20261027-hover', '/sidebar-polish.css?v=20261027-hover', '/js/sidebar-polish.js?v=20261027-hover', '/js/ui-motion.js?v=20261026-navigation']) {
     assert.ok(header.includes(sidebarAsset), `${sidebarAsset} should be loaded by the header`);
     assert.ok(worker.includes(sidebarAsset), `${sidebarAsset} should be available offline`);
   }
