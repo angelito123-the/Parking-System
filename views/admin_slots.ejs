@@ -1,4 +1,5 @@
 <%- include("partials/header") %>
+<link rel="stylesheet" href="/admin-parking-map.css?v=20261026-bays" />
 <%
   const safeParkingSlots = Array.isArray(parkingSlots) ? parkingSlots : [];
   const safeParkingSlotSummary = typeof parkingSlotSummary === "object" && parkingSlotSummary
@@ -98,11 +99,12 @@
         <button type="button" class="btn-sm btn-reset" data-parking-view="table" aria-pressed="false" aria-controls="parkingSlotsTableRegion"><i class="ph ph-list" aria-hidden="true"></i> Table</button>
       </div>
     </div>
-    <div class="parking-status-legend" aria-label="Parking status legend">
-      <span class="available"><i class="ph ph-check-circle" aria-hidden="true"></i> Available</span>
-      <span class="occupied"><i class="ph ph-car" aria-hidden="true"></i> Occupied</span>
-      <span class="reserved"><i class="ph ph-bookmark-simple" aria-hidden="true"></i> Reserved</span>
-      <span class="disabled"><i class="ph ph-prohibit" aria-hidden="true"></i> Blocked / maintenance</span>
+    <div class="parking-status-legend" role="group" aria-label="Highlight a status on the map">
+      <span class="map-legend-caption">Highlight:</span>
+      <button type="button" class="available" data-map-status="available" aria-pressed="false"><i class="ph ph-check-circle" aria-hidden="true"></i> Available</button>
+      <button type="button" class="occupied" data-map-status="occupied" aria-pressed="false"><i class="ph ph-car" aria-hidden="true"></i> Occupied</button>
+      <button type="button" class="reserved" data-map-status="reserved" aria-pressed="false"><i class="ph ph-bookmark-simple" aria-hidden="true"></i> Reserved</button>
+      <button type="button" class="disabled" data-map-status="disabled" aria-pressed="false"><i class="ph ph-prohibit" aria-hidden="true"></i> Maintenance</button>
     </div>
     <div id="availableSlotsStrip" class="available-slots-strip">
       <% const initialAvailableSlots = safeParkingSlots.filter((slot) => slot.occupancy === "available"); %>
@@ -121,6 +123,16 @@
 
     <div class="parking-space-layout">
       <div class="parking-space-map-shell">
+        <div class="parking-map-controls" id="parkingMapControls">
+          <div class="parking-zone-picker"><label for="parkingZonePicker">Parking zone</label><select id="parkingZonePicker"></select></div>
+          <button type="button" class="btn-sm btn-reset" id="findAvailableBay"><i class="ph ph-magnifying-glass" aria-hidden="true"></i> Find available slot</button>
+          <div class="parking-map-zoom" id="parkingMapZoom" role="group" aria-label="Map zoom" hidden>
+            <button type="button" data-map-zoom="out" aria-label="Zoom out"><i class="ph ph-minus" aria-hidden="true"></i></button>
+            <button type="button" data-map-zoom="fit">Fit</button>
+            <button type="button" data-map-zoom="in" aria-label="Zoom in"><i class="ph ph-plus" aria-hidden="true"></i></button>
+          </div>
+        </div>
+        <div class="parking-map-feedback"><span id="parkingMapHint" role="status">Use arrow keys to move between bays. Enter selects.</span><span id="parkingMapLoading" hidden><span class="sr-only">Updating parking availability</span><span class="ui-skeleton" aria-hidden="true"><span></span><span></span><span></span><span></span></span></span></div>
         <div id="parkingSlotsList" class="parking-space-map" tabindex="0" role="region" aria-label="Parking map">
           <% if (!safeParkingSlots.length) { %>
             <div class="empty-state" style="padding:1.25rem 1rem;">
@@ -238,6 +250,7 @@
   </div>
 </div>
 
+<script src="/js/admin-parking-map.js?v=20261026-bays"></script>
 <script nonce="<%= cspNonce %>">
   (() => {
     function escapeHtml(value) {
@@ -289,6 +302,7 @@
 
     const initialParkingSlots = <%- serializeForScript(safeParkingSlots) %>;
     const initialParkingSlotSummary = <%- serializeForScript(safeParkingSlotSummary) %>;
+    const mapZoneSettings = <%- serializeForScript(safeZoneSettings) %>;
     let activeSlotFilter = "all";
     let slotSearchQuery = "";
     let latestParkingSlots = Array.isArray(initialParkingSlots) ? initialParkingSlots : [];
@@ -395,6 +409,7 @@
         button.setAttribute("aria-pressed", String(active));
         button.classList.toggle("btn-reset", !active);
       });
+      window.NaapAdminMap?.viewChanged(parkingView);
     }
 
     function renderEmptyParkingSlots(message = "No parking slots configured.") {
@@ -719,6 +734,7 @@
     }
 
     function renderParkingSlotsSection() {
+      window.NaapAdminMap?.beforeRender();
       const summary = normalizeParkingSlotSummary(latestParkingSlotSummary, latestParkingSlots);
       if (slotMetricTotal) slotMetricTotal.textContent = summary.total;
       if (slotMetricAvailable) slotMetricAvailable.textContent = summary.available;
@@ -770,6 +786,7 @@
       }
 
       parkingSlotsListEl?.querySelectorAll(".parking-zone-grid").forEach(window.NaapParkingLayout.apply);
+      window.NaapAdminMap?.render({ slots: latestParkingSlots, zones: mapZoneSettings, selectedCode: selectedSlotCode });
       window.NaapPages?.parkingRendered();
       attachParkingSlotHandlers();
       renderSlotInspector();
@@ -781,6 +798,7 @@
 
     async function refreshSlots(event) {
       const manual = event?.type === "click";
+      window.NaapAdminMap?.loading(true);
       if (manual && refreshBtn) {
         refreshBtn.disabled = true;
         refreshBtn.setAttribute("aria-busy", "true");
@@ -805,6 +823,7 @@
         if (manual) window.NaapFeedback?.show("Parking availability could not update. Check your connection and try Refresh again.", { tone: "error" });
         console.error("Failed to refresh parking slots:", error);
       } finally {
+        window.NaapAdminMap?.loading(false);
         if (manual && refreshBtn) {
           refreshBtn.disabled = false;
           refreshBtn.removeAttribute("aria-busy");
