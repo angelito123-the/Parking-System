@@ -32,10 +32,11 @@ test('parking status colors, chip navigation and live changes preserve occupancy
   await expect(map.locator('[data-slot-code]')).toHaveCount(4);
   for (const [code, color, status] of [
     ['Z-01', 'rgb(101, 214, 156)', 'Available'], ['Z-02', 'rgb(245, 194, 102)', 'Occupied'],
-    ['Z-03', 'rgb(132, 186, 255)', 'Available'], ['Z-04', 'rgb(180, 190, 204)', 'Blocked']
+    ['Z-03', 'rgb(132, 186, 255)', 'Reserved'], ['Z-04', 'rgb(180, 190, 204)', 'Maintenance']
   ]) {
     const tile = map.locator(`[data-slot-code="${code}"]`);
-    await expect(tile).toHaveCSS('border-top-color', color);
+    await expect(tile.locator('.parking-plan-state')).toHaveCSS('color', color);
+    await expect(tile).toHaveCSS('border-top-color', 'rgb(229, 237, 245)');
     await expect(tile.locator('.parking-plan-state')).toHaveText(status);
     await expect(tile.locator('.parking-plan-state-icon')).toHaveAttribute('aria-hidden', 'true');
   }
@@ -48,7 +49,7 @@ test('parking status colors, chip navigation and live changes preserve occupancy
   await page.locator('#parkingSlotSearch').fill('');
   slots[0].occupancy = 'occupied';
   await page.locator('#slotsRefreshBtn').click();
-  await expect(map.locator('[data-slot-code="Z-01"]')).toHaveCSS('border-top-color', 'rgb(245, 194, 102)');
+  await expect(map.locator('[data-slot-code="Z-01"] .parking-plan-state')).toHaveCSS('color', 'rgb(245, 194, 102)');
   await expect(map.locator('[data-slot-code="Z-01"] .parking-plan-state')).toHaveText('Occupied');
   await expect(page.locator('[data-slot-pill="Z-01"]')).toHaveCount(0);
   if (info.project.use.reducedMotion === 'reduce') await expect(page.locator('.parking-state-change')).toHaveCount(0);
