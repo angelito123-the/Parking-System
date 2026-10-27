@@ -54,7 +54,7 @@ async function audit(page) {
   expect(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => ({ target: n.target, reason: n.failureSummary })) }))).toEqual([]);
 }
 
-test('compact zones retain bay order, show accurate summaries and have no nested vertical scroll', async ({ page }, info) => {
+test('responsive bays fill the map with a separate road, readable curbs and no nested scroll', async ({ page }, info) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await setup(page);
@@ -67,11 +67,47 @@ test('compact zones retain bay order, show accurate summaries and have no nested
   await expect(section(page).locator('.parking-plan-divider').first()).toHaveAccessibleName('Parking divider / curb');
   await expect(page.locator('#parkingSlotsList')).toHaveCSS('overflow-y', 'visible');
   await expect(page.locator('#parkingSlotsList')).toHaveCSS('max-height', 'none');
-  const dimensions = await bay(page, 'A-02').boundingBox();
-  expect(dimensions.height).toBeGreaterThanOrEqual(44);
-  expect(dimensions.height).toBeLessThanOrEqual(58);
-  expect(dimensions.width / dimensions.height).toBeGreaterThan(1.45);
-  expect(dimensions.width / dimensions.height).toBeLessThan(2.5);
+  const geometry = await section(page).evaluate(zone => {
+    const rect = node => node.getBoundingClientRect().toJSON();
+    const viewport = zone.querySelector('.map-bay-viewport');
+    return {
+      zone: rect(zone), viewport: rect(viewport), grid: rect(zone.querySelector('.parking-plan')),
+      rows: [...zone.querySelectorAll('.parking-plan-row')].map(row => [...row.children].map(rect)),
+      dividers: [...zone.querySelectorAll('.parking-plan-divider')].map(rect),
+      bays: [...zone.querySelectorAll('.parking-plan-bay')].map(tile => ({
+        box: rect(tile), textAlign: getComputedStyle(tile).textAlign,
+        labels: [...tile.querySelectorAll('.tile-code, .parking-plan-state, .map-plate')].filter(label => !label.hidden).map(rect)
+      }))
+    };
+  });
+  expect(geometry.viewport.width).toBeCloseTo(Math.min(760, geometry.zone.width), 0);
+  expect(geometry.grid.left - geometry.viewport.left).toBeLessThanOrEqual(14);
+  expect(geometry.viewport.right - geometry.grid.right).toBeLessThanOrEqual(14);
+  for (const [left, lane, right] of geometry.rows) {
+    expect(lane.width).toBeGreaterThanOrEqual(56);
+    expect(lane.width).toBeLessThanOrEqual(72);
+    expect(lane.left - left.right).toBeGreaterThanOrEqual(8);
+    expect(right.left - lane.right).toBeGreaterThanOrEqual(8);
+    expect(left.width).toBeCloseTo(right.width, 0);
+  }
+  for (const { box, labels, textAlign } of geometry.bays) {
+    expect(box.width / box.height).toBeCloseTo(1.5, 1);
+    expect(textAlign).toBe('center');
+    for (const label of labels) {
+      expect(label.left).toBeGreaterThanOrEqual(box.left);
+      expect(label.right).toBeLessThanOrEqual(box.right);
+      expect(label.top).toBeGreaterThanOrEqual(box.top);
+      expect(label.bottom).toBeLessThanOrEqual(box.bottom);
+      expect(label.left + label.width / 2).toBeCloseTo(box.left + box.width / 2, 0);
+    }
+  }
+  for (const divider of geometry.dividers) {
+    expect(divider.height).toBeGreaterThanOrEqual(10);
+    expect(divider.height).toBeLessThanOrEqual(14);
+  }
+  await expect(bay(page, 'A-02')).toHaveCSS('border-top-width', '1px');
+  await expect(bay(page, 'A-02')).toHaveCSS('border-top-color', 'rgb(61, 91, 80)');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await expect(bay(page, 'A-01').locator('.map-plate')).toHaveText('27900Q');
   await expect(bay(page, 'A-04').locator('.map-plate')).toHaveText('AB0O12');
   await bay(page, 'A-01').focus();
@@ -82,7 +118,7 @@ test('compact zones retain bay order, show accurate summaries and have no nested
   await audit(page);
   await section(page).evaluate(n => n.scrollIntoView({ block: 'start' }));
   await settle(page);
-  await page.screenshot({ path: info.outputPath('compact-map.png') });
+  await page.screenshot({ path: info.outputPath('parking-map.png') });
   await page.locator('#parkingZonePicker').selectOption('Hangar Parking Zone');
   await expect(section(page).locator('.parking-plan-row')).toHaveCount(20);
   await expect(section(page).locator('.parking-plan-divider')).toHaveCount(0);

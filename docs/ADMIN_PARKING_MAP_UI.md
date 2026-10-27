@@ -1,7 +1,12 @@
-# Compact admin parking map
+# Responsive admin parking map
 
-The `/admin/slots` zone view uses compact painted bays, a narrow drive lane,
-hatched curb strips, and one visible zone at a time. The page owns vertical
+The `/admin/slots` zone view fills the available width up to 760px with two
+fractional bay columns and a separate 56–72px drive lane. Bays use a 3:2 aspect
+ratio, centered labels, muted 1px borders, and status-tinted backgrounds. A blue
+ring identifies the selected bay; keyboard focus retains a visible outline. The lane
+has its own darker surface, dashed centerline, and occasional arrows. Column gaps
+are 8–10px, row gaps are 10px, and 12px planter/curb bars separate bay groups.
+One zone is visible at a time. The page owns vertical
 scrolling; the map has no nested vertical scroll box. The existing table remains
 available, with its own horizontal scrolling on small screens.
 
@@ -16,7 +21,7 @@ available, with its own horizontal scrolling on small screens.
 | `tests/theme.test.js` | Verifies the template and service worker reference the same assets. |
 | `e2e/admin-parking-map.spec.js` | Exercises responsive layout, accessibility, keyboard/table selection, refresh/failure states, zoom, and empty zones. |
 | `playwright.parking-map.config.js` | Runs the map checks on desktop, phone, tablet, dark themes, and reduced motion. |
-| `e2e/page-polish.spec.js` | Retains the status-color regression with the new white bay lines and explicit status labels. |
+| `e2e/page-polish.spec.js` | Retains the status-color regression with muted 1px bay borders and explicit status labels. |
 
 The local organized checkout uses `views/admin/parking-spaces.ejs` for the template.
 Its backend does not supply separate zone settings, so its selector uses zone
@@ -42,7 +47,7 @@ added to that checkout. Both backends and their existing fetch wrappers stay int
   shows details; Escape dismisses the tooltip. Stored text is inserted as text,
   never interpreted as HTML.
 - Fit, plus, and minus controls appear only when a drawing is wider than its
-  container. The normal compact two-column drawing needs no zoom controls.
+  container. The normal responsive two-column drawing needs no zoom controls.
 
 ## Preserved behavior and limits
 
@@ -73,6 +78,11 @@ inspector, status cross-fade, and lane effects are reused. Reduced motion, hidde
 tabs, data-saving mode, and low-power devices suppress decorative movement.
 
 ## Verification
+
+The map suite covers 1920px, 1280px, 768px, and 390px widths, dark themes, reduced
+motion, and a narrow 320px low-power case. Geometry checks cover road clearance,
+proportions, centered labels, full-width drawing, and curb size. Taller bays use
+more page height; no extra scrolling container is introduced.
 
 Run with a disposable local database and existing test accounts. Never point
 browser tests at production data.
